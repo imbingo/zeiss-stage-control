@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+*.pem
+*.key
+GlobalControlToken.txt
+config.ini
+*.exe
+*.zip
+gateway_stubs/
+runtime/

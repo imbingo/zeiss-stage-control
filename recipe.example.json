@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "coordinate_unit": "m",
+  "recipe_name": "现场单点验证示例",
+  "experiment_name": "替换为已核对的 ZEN 实验",
+  "sign_convention": "待核对 V1.1",
+  "point_order": [],
+  "xy_tolerance_m": 0.000001,
+  "af_timeout_s": 3,
+  "arrival_timeout_s": 2
+}
