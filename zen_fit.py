@@ -1,10 +1,10 @@
 """Geometry checks and a provisional convention for simulated measurements."""
 
-from math import atan, degrees, fsum, hypot, isfinite, sqrt
+from math import atan, fsum, hypot, isfinite, sqrt
 
 
-DEMO_CONVENTION = "演示约定：Rx=atan(dZ/dY)，Ry=-atan(dZ/dX)，角度单位 °"
-FIELD_CONVENTION = "联调约定：Rx=atan(dZ/dY)，Ry=-atan(dZ/dX)，角度单位 °"
+DEMO_CONVENTION = "演示约定：Rx=atan(dZ/dY)，Ry=-atan(dZ/dX)，角度单位 µrad"
+FIELD_CONVENTION = "联调约定：Rx=atan(dZ/dY)，Ry=-atan(dZ/dX)，角度单位 µrad"
 
 
 def _design(points):
@@ -48,8 +48,9 @@ def fit_plane(rows, *, sign_convention):
     b = (xx * yz - cross * xz) / determinant
     residuals = [h - a * x - b * y for (x, y), h in zip(xy, z)]
     return {
-        "rx_deg": degrees(atan(b / scale)),
-        "ry_deg": -degrees(atan(a / scale)),
+        "rx_urad": atan(b / scale) * 1e6,
+        "ry_urad": -atan(a / scale) * 1e6,
+        "angle_unit": "urad",
         "rms_m": sqrt(fsum(r * r for r in residuals) / len(rows)),
         "pv_m": max(residuals) - min(residuals),
         "residuals_m": residuals,

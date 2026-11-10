@@ -5,6 +5,7 @@ import json
 from math import isfinite
 
 from zen_workflow import Recipe
+from zen_fit import DEMO_CONVENTION, FIELD_CONVENTION
 
 
 def load_points(path):
@@ -50,4 +51,11 @@ def load_recipe(path):
     values = [data[key] for key in ("xy_tolerance_m", "af_timeout_s", "arrival_timeout_s")]
     if any(type(v) not in (int, float) or not isfinite(v) or v <= 0 for v in values):
         raise ValueError("容差和超时须为有限正数")
-    return Recipe(names[0], names[1], targets, *values, names[2])
+    # These older recipes have identical axis/sign conventions; only the output
+    # angle unit changed. Preserve all other, unrecognised conventions verbatim.
+    legacy_conventions = {
+        convention.replace("µrad", "°"): convention
+        for convention in (DEMO_CONVENTION, FIELD_CONVENTION)
+    }
+    convention = legacy_conventions.get(names[2], names[2])
+    return Recipe(names[0], names[1], targets, *values, convention)

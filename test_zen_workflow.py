@@ -4,7 +4,7 @@ import tempfile
 import time
 import unittest
 from dataclasses import replace
-from math import atan, degrees
+from math import atan
 from pathlib import Path
 from threading import Event
 
@@ -119,10 +119,15 @@ class WorkflowTest(unittest.TestCase):
         workflow.start(RECIPE, path_confirmed=True)
         self.wait(workflow)
         self.assertEqual(workflow.state, "完成")
-        self.assertAlmostEqual(workflow.result["rx_deg"], degrees(atan(-.001)))
-        self.assertAlmostEqual(workflow.result["ry_deg"], -degrees(atan(.002)))
+        self.assertAlmostEqual(workflow.result["rx_urad"], atan(-.001) * 1e6)
+        self.assertAlmostEqual(workflow.result["ry_urad"], -atan(.002) * 1e6)
         self.assertLess(workflow.result["rms_m"], 1e-15)
         self.assertLess(workflow.result["pv_m"], 1e-15)
+        self.assertEqual(workflow.result["angle_unit"], "urad")
+        saved = json.loads((workflow.result_path / "result.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["rx_urad"], workflow.result["rx_urad"])
+        self.assertEqual(saved["angle_unit"], "urad")
+        self.assertNotIn("rx_deg", saved)
         workflow.invalidate()
         self.assertIsNone(workflow.result)
         self.assertEqual(len(list(self.root.rglob("result.json"))), 1)

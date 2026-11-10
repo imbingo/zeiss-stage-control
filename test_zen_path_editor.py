@@ -3,6 +3,9 @@
 from dataclasses import replace
 from pathlib import Path
 import tempfile
+import json
+import time
+from unittest.mock import patch
 import tkinter as tk
 import unittest
 
@@ -72,3 +75,40 @@ class PathEditorTest(unittest.TestCase):
             self.assertAlmostEqual(app.field_recipe.targets[0][1], 300e-6)
             self.assertFalse(app.field_verified)
             self.assertIn('路径已更新', app.status.get())
+
+    def test_header_microradian_display_and_export(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app = Workbench(self.root, root / 'runs')
+            self.assertEqual(app.heading.get(), '设备：未连接')
+            self.assertEqual(app.mode_badge.cget('text'), '真实设备')
+            app.launch(None)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                self.root.update()
+                if not app.pending and not app.workflow.busy and app.workflow.state == '完成':
+                    break
+                time.sleep(.02)
+            self.assertEqual(app.workflow.state, '完成')
+            self.assertEqual(app.heading.get(), '离线演示：完成')
+            self.assertEqual(app.mode_badge.cget('text'), '离线演示')
+            self.assertEqual(app.kpi[0].get(), f"{app.workflow.result['rx_urad']:+.3f}")
+            self.assertEqual(app.kpi[1].get(), f"{app.workflow.result['ry_urad']:+.3f}")
+            def texts(widget):
+                result = [str(widget.cget('text'))] if 'text' in widget.keys() else []
+                for child in widget.winfo_children():
+                    result.extend(texts(child))
+                return result
+            labels = texts(self.root)
+            self.assertEqual(labels.count('µrad'), 2)
+            self.assertIn('演示与测试', labels)
+            self.assertNotIn('工程工具', labels)
+            destination = root / 'export.json'
+            with patch('zen_gui.filedialog.asksaveasfilename', return_value=str(destination)):
+                app.export()
+            result = json.loads(destination.read_text(encoding='utf-8'))
+            self.assertEqual(result['angle_unit'], 'urad')
+            self.assertEqual(result['rx_urad'], app.workflow.result['rx_urad'])
+            self.assertEqual(result['ry_urad'], app.workflow.result['ry_urad'])
+            self.assertIn('µrad', result['recipe']['sign_convention'])
+            self.assertNotIn('rx_deg', result)

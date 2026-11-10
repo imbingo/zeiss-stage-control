@@ -65,7 +65,7 @@ class Workbench:
         self.verified_xy = None
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
-        root.title("ZEN AF 表面测角 2.0.4")
+        root.title("ZEN AF 表面测角 2.0.5")
         root.geometry("1568x953")
         root.minsize(960, 680)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")
@@ -92,13 +92,13 @@ class Workbench:
         shell.pack(fill="both", expand=True)
         header = tk.Frame(shell, bg="#faf9f8", highlightthickness=1, highlightbackground=line)
         header.pack(fill="x")
-        self.mode_badge = tk.Label(header, text="现场", bg="#dce8f9", fg=ink, padx=10, pady=4,
+        self.mode_badge = tk.Label(header, text="真实设备", bg="#dce8f9", fg=ink, padx=10, pady=4,
                                    font=("Microsoft YaHei UI", 10, "bold"))
         self.mode_badge.pack(side="left", padx=(26, 0))
-        self.heading = tk.StringVar(value="未连接   |   工程模式")
+        self.heading = tk.StringVar(value="设备：未连接")
         tk.Label(header, textvariable=self.heading, bg="#faf9f8", fg=ink,
                  font=("Microsoft YaHei UI", 13, "bold"), pady=13).pack(side="left", padx=15)
-        engineering = ttk.Menubutton(header, text="工程工具")
+        engineering = ttk.Menubutton(header, text="演示与测试")
         engineering.pack(side="left", padx=15)
         menu = tk.Menu(engineering, tearoff=False)
         engineering.configure(menu=menu)
@@ -110,7 +110,7 @@ class Workbench:
             menu.add_command(label=button.cget("text"), command=button.invoke)
         footer = tk.Frame(shell, bg="#faf9f8", highlightthickness=1, highlightbackground=line)
         footer.pack(side="bottom", fill="x", pady=(10, 0))
-        self.status = tk.StringVar(value="演示状态待确认" if self.recovery_runs else "请选择演示场景")
+        self.status = tk.StringVar(value="演示状态待确认" if self.recovery_runs else "可先新建配方、编辑路径，或在「演示与测试」中运行演示")
         self.export_button = ttk.Button(footer, text="导出结果", command=self.export)
         self.export_button.pack(side="right", padx=14)
         self.stop_button = ttk.Button(footer, text="停止后续采集", state="disabled", command=self.stop)
@@ -221,7 +221,7 @@ class Workbench:
             readings.pack(anchor="w")
             tk.Label(readings, textvariable=value, bg=PAPER, fg="#315f89" if index < 2 else ink,
                      font=("Segoe UI", 19, "bold")).pack(side="left")
-            tk.Label(readings, text="°" if index < 2 else "µm", bg=PAPER,
+            tk.Label(readings, text="µrad" if index < 2 else "µm", bg=PAPER,
                      fg=MUTED).pack(side="left", anchor="s", padx=(3, 0), pady=(0, 5))
 
         plot_panel, plot_frame = rounded_panel(main)
@@ -469,7 +469,7 @@ class Workbench:
     def show_field_heading(self):
         name = self.field_recipe.name if self.field_recipe else "未加载配方"
         state = self.workflow.state
-        self.heading.set(f"现场 · {state}   |   {name}   |   工程模式")
+        self.heading.set(f"设备：{state}   |   配方：{name}")
 
     def choose_recipe(self):
         if self.workflow and self.workflow.busy:
@@ -693,7 +693,7 @@ class Workbench:
         recipe = Recipe("演示配方", "Demo AF", DEMO_POINTS, 1e-6, 3, 2, DEMO_CONVENTION)
         self.pending = (recipe, single_point)
         self.workflow.connect()
-        self.heading.set("演示配方   |   工程模式")
+        self.heading.set("离线演示：连接检查")
         self.plot.event_generate("<Configure>", width=self.plot.winfo_width(),
                                  height=self.plot.winfo_height())
         self.refresh_controls()
@@ -714,7 +714,7 @@ class Workbench:
         else:
             self.release_gateway()
             self.workflow = None
-            self.heading.set("未连接   |   工程模式")
+            self.heading.set("设备：未连接")
             self.status.set("演示恢复已记录，可重新运行")
         self.refresh_controls()
 
@@ -766,7 +766,7 @@ class Workbench:
     def refresh_controls(self):
         workflow = self.workflow
         simulated = bool(workflow and workflow.simulated)
-        self.mode_badge.configure(text="演示数据" if simulated else "现场",
+        self.mode_badge.configure(text="离线演示" if simulated else "真实设备",
                                   bg="#f08316" if simulated else "#dce8f9",
                                   fg="white" if simulated else "#10244a")
         busy = bool(workflow and workflow.busy)
@@ -819,7 +819,9 @@ class Workbench:
                     break
                 if kind == "state":
                     state, point, detail = data
-                    if not workflow.simulated:
+                    if workflow.simulated:
+                        self.heading.set(f"离线演示：{state}")
+                    else:
                         self.show_field_heading()
                     if not workflow.simulated and detail == "单点 AF 验证完成":
                         self.field_verified = True
@@ -857,7 +859,7 @@ class Workbench:
                 elif kind == "result":
                     r = data[0]
                     for value, formatted in zip(self.kpi, (
-                        f"{r['rx_deg']:+.6f}", f"{r['ry_deg']:+.6f}",
+                        f"{r['rx_urad']:+.3f}", f"{r['ry_urad']:+.3f}",
                         f"{r['rms_m']*1e6:.3f}", f"{r['pv_m']*1e6:.3f}",
                     )):
                         value.set(formatted)
