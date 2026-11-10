@@ -19,6 +19,7 @@ from zen_hardware.preflight import check_gateway
 from zen_hardware.simulator import SimulatedDevice
 from zen_records import confirm_recovery, pending_recovery, write_json
 from zen_recipe import load_points, load_recipe
+from zen_path_editor import PathEditor
 from zen_workflow import Recipe, Workflow
 
 
@@ -186,7 +187,9 @@ class Workbench:
         ttk.Separator(inspector).pack(fill="x", pady=5)
 
         measurement = section("03", "采集测量")
-        self.import_button = ttk.Button(measurement, text="导入点位 CSV", command=self.choose_points)
+        self.path_button = ttk.Button(measurement, text="编辑点位路径", command=self.edit_path)
+        self.path_button.pack(fill="x", pady=(3, 4))
+        self.import_button = ttk.Button(measurement, text="从 CSV 导入点位（可选）", command=self.choose_points)
         self.import_button.pack(fill="x", pady=(3, 9))
         self.field_batch = ttk.Button(measurement, text="开始批量测角", command=self.run_field_batch,
                                       style="Accent.TButton")
@@ -563,6 +566,16 @@ class Workbench:
                                      height=self.plot.winfo_height())
         self.refresh_controls()
 
+    def edit_path(self):
+        if not self.field_recipe or (self.workflow and self.workflow.busy):
+            return
+        def apply(targets):
+            self.apply_field_recipe(replace(self.field_recipe, targets=targets))
+            self.plot.event_generate("<Configure>", width=self.plot.winfo_width(),
+                                     height=self.plot.winfo_height())
+            self.status.set(f"路径已更新，共 {len(targets)} 个点；请保存现场配方，并重新验证当前点 AF")
+        PathEditor(self.root, self.field_recipe.targets, apply)
+
     def choose_points(self):
         if not self.field_recipe or (self.workflow and self.workflow.busy):
             return
@@ -781,6 +794,7 @@ class Workbench:
         self.edit_recipe_button.configure(state="disabled" if busy else "normal")
         self.save_recipe_button.configure(state="normal" if self.field_recipe and not busy else "disabled")
         self.import_button.configure(state="normal" if self.field_recipe and not busy else "disabled")
+        self.path_button.configure(state="normal" if self.field_recipe and not busy else "disabled")
 
     def stop(self):
         if self.workflow:

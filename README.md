@@ -25,6 +25,8 @@ python zen_gui.py
 
 同机默认配置可直接点击「Gateway 只读 XY」。工作台尝试 `127.0.0.1:5000`，读取 `%PROGRAMDATA%\Carl Zeiss\ZEN APIGateway` 下的默认 CA 与令牌。自定义配置可通过进程环境覆盖 `ZEN_GATEWAY_ADDRESS`、`ZEN_GATEWAY_CA`（PEM 证书路径）和 `ZEN_GATEWAY_TOKEN`。远程连接须显式配置对应的 CA 和令牌。参见[首次上机指南](首次上机.md)。
 
+可先点击「新建／编辑配方」，再点击「编辑点位路径」，直接输入绝对 XY 坐标（µm）、修改或删除点位，并用上移／下移调整采集顺序。右侧预览显示点位编号与运动方向，编辑操作不会驱动设备。点击「应用路径」后，使用「保存现场配方」保存；取消编辑不改变原路径。至少三个非共线点才可批量测角，修改路径后须重新验证当前点 AF。CSV 导入作为可选方式保留。
+
 按联调清单先执行「Gateway 只读 XY」。加载按 `recipe.example.json` 编辑的现场配方，然后示教或导入明确标有坐标单位的 CSV。示例点位仅展示文件格式。单点 AF 验证通过后，在设备端核对安全路径和间隙，再打开批量确认。批量配方需要明确采用临时联调约定 `联调约定：Rx=atan(dZ/dY)，Ry=-atan(dZ/dX)，角度单位 °`。正式约定待核对 V1.1。
 
 运行回归测试使用 `python -B -m unittest -v test_zen_workflow`。
