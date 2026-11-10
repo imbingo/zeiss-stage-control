@@ -24,7 +24,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $payload = Join-Path $env:RUNNER_TEMP 'zen-payload'
           New-Item -ItemType Directory -Force $payload | Out-Null
-          git ls-files | ForEach-Object {
+          git -c core.quotePath=false ls-files | ForEach-Object {
             if ($_ -notlike '.github/*' -and $_ -notlike '*.png') {
               $target = Join-Path $payload $_
               New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
