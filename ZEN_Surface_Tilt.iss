@@ -1,7 +1,7 @@
 [Setup]
 AppId=ZEN.SurfaceTilt.Workbench
 AppName=ZEN AF Surface Tilt
-AppVersion=2.0.3
+AppVersion=2.0.4
 DefaultDirName={localappdata}\Programs\ZEN Surface Tilt
 DefaultGroupName=ZEN AF Surface Tilt
 PrivilegesRequired=lowest
@@ -11,7 +11,7 @@ DisableDirPage=yes
 DisableProgramGroupPage=yes
 WizardStyle=modern
 OutputDir=.
-OutputBaseFilename=ZEN_Surface_Tilt_Setup_V2.0.3
+OutputBaseFilename=ZEN_Surface_Tilt_Setup_V2.0.4
 Compression=lzma2
 SolidCompression=yes
 UninstallDisplayName=ZEN AF Surface Tilt

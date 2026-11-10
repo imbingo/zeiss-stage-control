@@ -1,11 +1,25 @@
 name: Publish validated Windows release
 on:
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Windows build run ID
+        required: true
+      source_sha:
+        description: Full commit SHA built by that run
+        required: true
+      tag:
+        description: Existing draft release tag
+        required: true
 permissions:
   contents: write
   actions: read
 jobs:
   publish:
+    env:
+      BUILD_RUN: ${{ inputs.run_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.tag }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify source build
@@ -14,17 +28,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run view 42835725530 --json conclusion,headSha > /tmp/build.json
+          gh run view "$BUILD_RUN" --json conclusion,headSha > /tmp/build.json
           python3 - <<'PY'
-          import json
+          import json, os
           data=json.load(open('/tmp/build.json'))
           assert data['conclusion']=='success', data
-          assert data['headSha']=='c41b0aebb6482c73b005e4628e882ef15dda0e36', data
+          assert data['headSha']==os.environ['SOURCE_SHA'], data
           PY
       - uses: actions/download-artifact@v4
         with:
           name: windows-setup
-          run-id: 42835725530
+          run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
           path: assets
       - name: Verify checksums and publish
@@ -35,5 +49,5 @@ jobs:
           set -euo pipefail
           cd assets
           sha256sum -c SHA256SUMS.txt
-          gh release upload v2.0.3 ZEN_Surface_Tilt_Setup_V2.0.3.exe ZEN_Surface_Tilt_Portable_V2.0.3.zip SHA256SUMS.txt --clobber
-          gh release edit v2.0.3 --draft=false --prerelease
+          gh release upload "$RELEASE_TAG" ZEN_Surface_Tilt_Setup_*.exe ZEN_Surface_Tilt_Portable_*.zip SHA256SUMS.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease

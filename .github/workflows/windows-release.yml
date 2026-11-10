@@ -84,13 +84,13 @@ jobs:
           & $iscc "/DPayload=$env:PAYLOAD" "/O$pwd/release" ZEN_Surface_Tilt.iss
           if ($LASTEXITCODE) { throw 'Installer compilation failed' }
           $install = Join-Path $env:RUNNER_TEMP 'zen-installed'
-          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.0.3.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
+          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.0.4.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
           if ($process.ExitCode) { throw "Installer failed: $($process.ExitCode)" }
           Push-Location $install
           cmd /c 'check_windows.bat --no-pause'
           if ($LASTEXITCODE) { throw 'Installed runtime check failed' }
           Pop-Location
-          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.0.3.zip
+          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.0.4.zip
           Get-ChildItem release -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:

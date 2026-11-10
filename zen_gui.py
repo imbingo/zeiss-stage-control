@@ -65,7 +65,7 @@ class Workbench:
         self.verified_xy = None
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
-        root.title("ZEN AF 表面测角 2.0.3")
+        root.title("ZEN AF 表面测角 2.0.4")
         root.geometry("1568x953")
         root.minsize(960, 680)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")
