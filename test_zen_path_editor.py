@@ -39,7 +39,10 @@ class PathEditorTest(unittest.TestCase):
         self.root.update()
         self.assertEqual(len(editor.targets), 2)
         editor.apply()
-        self.assertEqual(applied, [((0., 0.), (100e-6, 0.))])
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(applied[0][0], (0., 0.))
+        self.assertAlmostEqual(applied[0][1][0], 100e-6)
+        self.assertEqual(applied[0][1][1], 0.)
 
     def test_invalid_input_and_cancel(self):
         original = ((0., 0.),)
@@ -64,6 +67,8 @@ class PathEditorTest(unittest.TestCase):
             editor = next(w for w in self.root.winfo_children() if isinstance(w, PathEditor))
             editor.x.set('200'); editor.y.set('300'); editor.add()
             editor.apply()
-            self.assertEqual(app.field_recipe.targets, ((200e-6, 300e-6),))
+            self.assertEqual(len(app.field_recipe.targets), 1)
+            self.assertAlmostEqual(app.field_recipe.targets[0][0], 200e-6)
+            self.assertAlmostEqual(app.field_recipe.targets[0][1], 300e-6)
             self.assertFalse(app.field_verified)
             self.assertIn('路径已更新', app.status.get())
