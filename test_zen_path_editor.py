@@ -86,7 +86,9 @@ class PathEditorTest(unittest.TestCase):
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 self.root.update()
-                if not app.pending and not app.workflow.busy and app.workflow.state == '完成':
+                if (not app.pending and not app.workflow.busy
+                        and app.heading.get() == '离线演示：完成'
+                        and app.kpi[0].get() != '—'):
                     break
                 time.sleep(.02)
             self.assertEqual(app.workflow.state, '完成')
