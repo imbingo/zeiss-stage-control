@@ -1,0 +1,39 @@
+name: Publish validated Windows release
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify source build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh run view 42835725530 --json conclusion,headSha > /tmp/build.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/build.json'))
+          assert data['conclusion']=='success', data
+          assert data['headSha']=='c41b0aebb6482c73b005e4628e882ef15dda0e36', data
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-setup
+          run-id: 42835725530
+          github-token: ${{ github.token }}
+          path: assets
+      - name: Verify checksums and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd assets
+          sha256sum -c SHA256SUMS.txt
+          gh release upload v2.0.3 ZEN_Surface_Tilt_Setup_V2.0.3.exe ZEN_Surface_Tilt_Portable_V2.0.3.zip SHA256SUMS.txt --clobber
+          gh release edit v2.0.3 --draft=false --prerelease
