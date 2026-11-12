@@ -51,7 +51,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Portable runtime check failed' }
           & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_mark_gateway']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 26 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_path_editor', 'test_zen_mark_gui']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 7 or bool(result.skipped))
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_path_editor', 'test_zen_mark_gui']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 7 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Regression tests failed' }
           @'
           import sys, tempfile, time, tkinter as tk

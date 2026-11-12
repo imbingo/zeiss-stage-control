@@ -193,3 +193,10 @@ class TiffTest(unittest.TestCase):
                 path = Path(folder) / 'bad.tif'
                 with self.assertRaises(ValueError):write_tiff(path, invalid, {})
                 self.assertFalse(path.exists())
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'existing.tif'
+            temporary = path.with_suffix('.tif.tmp')
+            temporary.write_text('pre-existing file')
+            with self.assertRaises(FileExistsError):write_tiff(path, base, {})
+            self.assertEqual(temporary.read_text(), 'pre-existing file')

@@ -76,8 +76,10 @@ def write_tiff(path: Path, frame: RawFrame, metadata):
         return fraction.numerator, fraction.denominator
     resolution = (rational_resolution(frame.scale_x_m), rational_resolution(frame.scale_y_m))
     temporary = path.with_suffix(".tif.tmp")
+    created = False
     try:
         with temporary.open("xb") as stream:
+            created = True
             tifffile.imwrite(
                 stream, pixels, photometric="rgb" if pixels.ndim == 3 else "minisblack",
                 compression=None, metadata=None,
@@ -89,5 +91,6 @@ def write_tiff(path: Path, frame: RawFrame, metadata):
             os.fsync(stream.fileno())
         temporary.replace(path)
     except BaseException:
-        temporary.unlink(missing_ok=True)
+        if created:
+            temporary.unlink(missing_ok=True)
         raise
