@@ -16,7 +16,7 @@ class HardwareTestWindow(tk.Toplevel):
         super().__init__(app.root)
         self.app=app
         self.title('硬件库 · 通信与单步测试')
-        self.geometry('1080x760')
+        self.geometry('1080x700')
         self.session=HardwareTestSession(app.data_root)
         saved=app.preferences.data.get("hardware_test",{})
         self.values={k:tk.StringVar(self,value=v) for k,v in saved.items() if k!="rpc_timeout_s"}
@@ -52,9 +52,10 @@ class HardwareTestWindow(tk.Toplevel):
         ttk.Button(actions,text='请求停止后续任务',command=self.request_stop).pack(side='left',padx=4)
         ttk.Button(actions,text='确认设备恢复',command=self.recover).pack(side='left')
         ttk.Label(right,textvariable=self.info,wraplength=690).pack(fill='x')
-        self.log=tk.Text(right,wrap='word',height=16,state='disabled')
-        scrollbar=ttk.Scrollbar(right,command=self.log.yview);self.log.configure(yscrollcommand=scrollbar.set)
-        self.log.pack(fill='both',expand=True)
+        log_frame=ttk.Frame(right);log_frame.pack(fill='both',expand=True)
+        self.log=tk.Text(log_frame,wrap='word',height=16,state='disabled')
+        scrollbar=ttk.Scrollbar(log_frame,command=self.log.yview);self.log.configure(yscrollcommand=scrollbar.set)
+        self.log.pack(side='left',fill='both',expand=True);scrollbar.pack(side='right',fill='y')
         tools=ttk.Frame(self,padding=10);tools.pack(fill='x')
         ttk.Button(tools,text='复制本次结果/报错',command=self.copy_latest).pack(side='left')
         ttk.Button(tools,text='复制全部日志',command=self.copy_all).pack(side='left',padx=8)
