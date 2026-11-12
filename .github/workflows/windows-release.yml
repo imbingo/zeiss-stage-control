@@ -65,7 +65,9 @@ jobs:
               deadline = time.monotonic() + 30
               while time.monotonic() < deadline:
                   root.update()
-                  if app.workflow and not app.pending and not app.workflow.busy and app.workflow.state == '完成':
+                  if (app.workflow and not app.pending and not app.workflow.busy
+                          and app.workflow.state == '完成' and len(app.table.get_children()) == 4
+                          and app.kpi[0].get() != '—'):
                       break
                   time.sleep(.02)
               assert app.workflow.state == '完成', app.workflow.state
