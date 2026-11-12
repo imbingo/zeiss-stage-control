@@ -41,6 +41,8 @@ class HardwareWindowTests(unittest.TestCase):
         self.assertEqual(self.dialog.values['experiment_id'].get(),'abc')
         self.dialog.copy_latest()
         self.assertIn('abc',self.dialog.clipboard_get())
+        self.dialog.show_result({'title':'断开','status':'success','operation':'disconnect'})
+        self.assertEqual(self.dialog.values['experiment_id'].get(),'')
 
     def test_execute_through_workflow_and_render_log(self):
         import time

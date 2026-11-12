@@ -119,6 +119,8 @@ class HardwareTestWindow(tk.Toplevel):
         self.run_button.state(['!disabled'])
         self.info.set(report['title']+' · '+report['status']+' · '+('设备状态须人工确认' if report.get('recovery_required') else '详见日志'))
         self.log.configure(state='normal');self.log.insert('end',json.dumps(report,ensure_ascii=False,indent=2)+'\n\n');self.log.see('end');self.log.configure(state='disabled')
+        if report['operation'] in ('connect','disconnect') and 'experiment_id' in self.values:
+            self.values['experiment_id'].set('')
         result=report.get('result',{})
         if report['status']=='success' and report['operation'] in ('load_experiment','clone_experiment') and result.get('experiment_id'):
             self.values.setdefault('experiment_id',tk.StringVar(self)).set(result['experiment_id'])
