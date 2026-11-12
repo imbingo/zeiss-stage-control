@@ -60,6 +60,7 @@ class SimulatedMarkDevice(SimulatedDevice):
         return {"lower_m": low, "upper_m": high, "experiment_id": f"demo-{len(self.prepared)}"}
 
     def autofocus(self, timeout_seconds):
+        self._require_connection()
         self.af_attempts += 1
         if self.mark_fault == 'af_timeout':
             raise AutofocusTimeout("模拟局部 AF 超时")
@@ -70,6 +71,7 @@ class SimulatedMarkDevice(SimulatedDevice):
 
     def capture_frame(self, timeout_s, stop, output_name, *, kind="camera_snap"):
         import numpy as np
+        self._require_connection()
         if stop.is_set():
             raise InterruptedError("已请求停止拍摄")
         self.capture_kinds.append(kind)

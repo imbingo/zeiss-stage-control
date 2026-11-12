@@ -11,7 +11,13 @@ from zen_fit import fit_demo, validate_recipe
 from zen_hardware.mark_simulator import SimulatedMarkDevice
 from zen_marks import MarkLayer, MarkRecipe
 from zen_records import write_json
-from zen_workflow import Workflow
+
+
+def _wrap(label, pad=4):
+    """Keep long hint text wrapped to the widget's actual width."""
+    label.bind("<Configure>", lambda event: label.configure(
+        wraplength=max(1, event.width - pad)))
+    return label
 
 
 class MarkCaptureDialog(tk.Toplevel):
@@ -51,7 +57,7 @@ class MarkCaptureDialog(tk.Toplevel):
         viewport.bind("<Configure>", lambda event: viewport.itemconfigure(window, width=event.width))
         self.bind("<MouseWheel>", lambda event: viewport.yview_scroll(-int(event.delta/120), "units"))
         ttk.Label(shell, text="上下 mark 图像采集", font=("Microsoft YaHei UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(shell, textvariable=self.xy_note, wraplength=970).pack(anchor="w", pady=6)
+        _wrap(ttk.Label(shell, textvariable=self.xy_note)).pack(fill="x", anchor="w", pady=6)
         connection = ttk.Frame(shell)
         connection.pack(fill="x", pady=6)
         ttk.Label(connection, textvariable=self.mode, foreground="#315f89").pack(side="left")
@@ -69,10 +75,10 @@ class MarkCaptureDialog(tk.Toplevel):
         self.kind_combo = ttk.Combobox(options, textvariable=self.capture_kind, state="readonly", width=29,
             values=("共聚焦采集（ZEN 采集实验）", "相机拍照（ZEN 定位 / Snap）"))
         self.kind_combo.pack(side="right")
-        ttk.Label(shell, text="共聚焦请使用已在 ZEN 采集页验证过的单通道、单 Z 层、单时间点、无拼图实验；不会自动改拍相机图。", wraplength=970).pack(anchor="w", pady=3)
+        _wrap(ttk.Label(shell, text="共聚焦请使用已在 ZEN 采集页验证过的单通道、单 Z 层、单时间点、无拼图实验；不会自动改拍相机图。")).pack(fill="x", anchor="w", pady=3)
         self.af_control = ttk.Checkbutton(shell, text="定位后执行局部 AF（初次连机可取消，仅验证示教 Z 和采集保存）", variable=self.use_af)
         self.af_control.pack(anchor="w")
-        ttk.Label(shell, text="在 ZEN 中手动调清楚对应 mark 后，点击“读取当前 Z”；上下层可使用不同曝光和照明的实验。", wraplength=920).pack(anchor="w", pady=6)
+        _wrap(ttk.Label(shell, text="在 ZEN 中手动调清楚对应 mark 后，点击“读取当前 Z”；上下层可使用不同曝光和照明的实验。")).pack(fill="x", anchor="w", pady=6)
         layers = ttk.Frame(shell)
         layers.pack(fill="x", pady=4)
         for column, (key, title) in enumerate((("upper", "上 mark"), ("lower", "下 mark"))):
@@ -123,8 +129,8 @@ class MarkCaptureDialog(tk.Toplevel):
         self.loading_approval_button = ttk.Checkbutton(shell, variable=self.loading_approved,
             text="已在 ZEN 核对实验加载/运行不会换物镜或恢复设备位置（人工确认，不代表软件锁定转盘）。")
         self.loading_approval_button.pack(anchor="w", pady=3)
-        ttk.Label(shell, text="读取 Z 不代表转盘已锁定；实验列表检查无法审查全部参数。未排除换镜风险时，仅做只读检查。",
-                  foreground="#973c39", wraplength=970).pack(anchor="w", pady=3)
+        _wrap(ttk.Label(shell, text="读取 Z 不代表转盘已锁定；实验列表检查无法审查全部参数。未排除换镜风险时，仅做只读检查。",
+                  foreground="#973c39")).pack(fill="x", anchor="w", pady=3)
         controls = ttk.Frame(shell)
         controls.pack(fill="x", pady=6)
         self.capture_buttons = []
@@ -156,8 +162,8 @@ class MarkCaptureDialog(tk.Toplevel):
         self.diagnostic_save_button.pack(side="right")
         self.diagnostic_text = tk.Text(shell, height=6, wrap="word", state="disabled")
         self.diagnostic_text.pack(fill="x", pady=3)
-        ttk.Label(shell, textvariable=self.message, wraplength=940, justify="left").pack(fill="x", anchor="w", pady=8)
-        ttk.Label(shell, text="完成后停留在最后拍摄层的焦面，不自动返回。停止/超时不等于物理动作已结束；异常时须确认 XY、Z、AF 与拍摄状态。", wraplength=940, foreground="#626873").pack(side="bottom", anchor="w", pady=8)
+        _wrap(ttk.Label(shell, textvariable=self.message, justify="left")).pack(fill="x", anchor="w", pady=8)
+        _wrap(ttk.Label(shell, text="完成后停留在最后拍摄层的焦面，不自动返回。停止/超时不等于物理动作已结束；异常时须确认 XY、Z、AF 与拍摄状态。", foreground="#626873")).pack(side="bottom", fill="x", anchor="w", pady=8)
         self.restore_preferences()
         for variable in [self.output, self.capture_kind, self.use_af, self.app.xy_mode, self.reported_zen_version,
                          *self.common.values(), *(v for group in self.fields.values() for v in group.values())]:
@@ -247,18 +253,13 @@ class MarkCaptureDialog(tk.Toplevel):
         self.approved.set(False)
         self.loading_approved.set(False)
         self.app.connect_field()
-        self.message.set(self.app.status.get())
+        self.message.set("正在发起连接检查；连接建立后请先点「只读检查」或「读取当前 Z」，核对实验、倍率、Z 与 XY 后再确认参数。")
 
     def load_demo(self):
         if not self.idle():
             return
-        self.app.release_gateway()
-        self.app.pending = None
-        self.app.field_verified = False
-        self.app.clear_result()
-        self.app.workflow = Workflow(SimulatedMarkDevice(xy_enabled=self.app.xy_mode.get() != "no_xy"), self.app.data_root, simulated=True,
-                                     validate=validate_recipe, fit=fit_demo)
-        self.app._connected_mode = self.app.xy_mode.get()
+        self.app._replace_workflow(SimulatedMarkDevice(xy_enabled=self.app.xy_mode.get() != "no_xy"),
+                                   simulated=True, validate=validate_recipe, fit=fit_demo)
         self.app.workflow.connect()
         self.demo_config = True
         for key, z in (("upper", "100"), ("lower", "200")):
@@ -282,8 +283,14 @@ class MarkCaptureDialog(tk.Toplevel):
 
     def recipe(self, layers=("upper", "lower")):
         try:
-            values = {key: float(var.get()) * (1e-6 if key.endswith('_m') else 1)
-                      for key, var in self.common.items()}
+            values = {}
+            for key, var in self.common.items():
+                # The XY tolerance entry is disabled in no-XY mode; ignore any
+                # stale value left by a saved motorized-mode configuration.
+                if key == "xy_tolerance_m" and self.app.xy_mode.get() == "no_xy":
+                    values[key] = MarkRecipe.__dataclass_fields__["xy_tolerance_m"].default
+                else:
+                    values[key] = float(var.get()) * (1e-6 if key.endswith('_m') else 1)
             selected = {}
             for key, group in self.fields.items():
                 selected[key] = (MarkLayer(group["experiment"].get().strip(), float(group["z_m"].get())*1e-6,
@@ -312,7 +319,7 @@ class MarkCaptureDialog(tk.Toplevel):
             self.app.clear_result()
             self.message.set("采图任务已提交；请等待完成，期间不要手动改变 XY、物镜或倍率。")
             self.app.refresh_controls()
-        except (ValueError, RuntimeError) as error:
+        except (ValueError, RuntimeError, OSError) as error:
             self.message.set(str(error))
 
     def browse(self):
@@ -337,22 +344,25 @@ class MarkCaptureDialog(tk.Toplevel):
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
             recipe = MarkRecipe.from_dict(data)
+            disconnected = False
             if recipe.xy_mode != self.app.xy_mode.get():
                 self.app.xy_mode.set(recipe.xy_mode)
                 self.app.change_device_mode()
+                disconnected = True
             self.capture_kind.set("共聚焦采集（ZEN 采集实验）" if recipe.capture_kind == "confocal" else "相机拍照（ZEN 定位 / Snap）")
             self.use_af.set(recipe.use_autofocus)
             for key, group in self.fields.items():
                 layer = getattr(recipe, key)
-                group["experiment"].set(layer.experiment)
-                group["z_m"].set(f"{layer.z_m*1e6:.9g}")
-                group["half_range_m"].set(f"{layer.half_range_m*1e6:.9g}")
+                group["experiment"].set("" if layer is None else layer.experiment)
+                group["z_m"].set("" if layer is None else f"{layer.z_m*1e6:.9g}")
+                group["half_range_m"].set("5" if layer is None else f"{layer.half_range_m*1e6:.9g}")
             for key, var in self.common.items():
                 var.set(f"{getattr(recipe, key)*(1e6 if key.endswith('_m') else 1):.9g}")
             self.demo_config = data.get("simulated_configuration") is not False
             self.approved.set(False)
             self.loading_approved.set(False)
-            self.message.set("配置已加载。请重新核对当前 XY、物镜、两层 Z 和间隙，再勾选确认。")
+            self.message.set("配置已加载，XY 模式已切换且原连接已断开，请重新连接后再核对。" if disconnected
+                             else "配置已加载。请重新核对当前 XY、物镜、两层 Z 和间隙，再勾选确认。")
         except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
             self.message.set("采图配置读取失败，请检查文件版本、单位和参数。")
 
@@ -366,10 +376,18 @@ class MarkCaptureDialog(tk.Toplevel):
                 subprocess.Popen(["xdg-open", str(path)])
 
     def recover(self):
-        if self.app.workflow and self.app.workflow.simulated:
-            self.app.recover()
+        simulated = bool(self.app.workflow and self.app.workflow.simulated)
+        candidates = ((self.app.recover, self.app.recovery_runs),
+                      (self.app.recover_field, self.app.field_recovery_runs))
+        if not simulated:
+            candidates = candidates[::-1]
+        for action, pending in candidates:
+            if pending:
+                action(parent=self)
+                break
         else:
-            self.app.recover_field()
+            self.message.set("没有待确认的恢复记录")
+            return
         self.message.set(self.app.status.get())
         self.approved.set(False)
 

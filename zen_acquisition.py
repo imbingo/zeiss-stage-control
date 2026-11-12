@@ -112,5 +112,5 @@ def acquire(
             persist(replace(row, status="stopped" if stopped else "failed", failure_stage=stage))
             raise AcquisitionFailed(stage, index, stopped=stopped) from exc
         persist(replace(row, status="ok"))
-        if stop.is_set():
-            raise AcquisitionFailed(stage, index, stopped=True, recovery_required=False)
+        # A stop request after the last point must not discard a complete run;
+        # the between-points check above bounds any remaining work.

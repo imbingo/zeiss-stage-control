@@ -15,7 +15,7 @@ def utc_now():
 
 
 def write_json(path, value):
-    temporary = path.with_suffix(".tmp")
+    temporary = path.with_name(path.name + ".tmp")
     with temporary.open("w", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False, allow_nan=False, indent=2)
         stream.write("\n")

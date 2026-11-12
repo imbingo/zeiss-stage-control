@@ -7,8 +7,13 @@ from zen_hardware.library import OPERATIONS, HardwareTestSession
 from zen_hardware.gateway import GatewayDevice, secure_channel
 from zen_hardware.local_config import gateway_settings
 from zen_hardware.mark_simulator import SimulatedMarkDevice
-from zen_workflow import Workflow
 from zen_fit import validate_recipe, fit_field
+
+
+def _wrap(label, pad=4):
+    label.bind("<Configure>", lambda event: label.configure(
+        wraplength=max(1, event.width - pad)))
+    return label
 
 
 class HardwareTestWindow(tk.Toplevel):
@@ -21,6 +26,7 @@ class HardwareTestWindow(tk.Toplevel):
         saved=app.preferences.data.get("hardware_test",{})
         self.values={k:tk.StringVar(self,value=v) for k,v in saved.items() if k!="rpc_timeout_s"}
         self.latest=None
+        self.op=None
         self.approved=tk.BooleanVar(value=False)
         self.timeout=tk.StringVar(value=saved.get('rpc_timeout_s','60'))
         self.info=tk.StringVar(value='请选择操作。打开窗口不会连接或发送设备指令。')
@@ -32,7 +38,7 @@ class HardwareTestWindow(tk.Toplevel):
         ttk.Label(top,textvariable=self.mode).pack(side='left')
         ttk.Button(top,text='绑定现场设备',command=lambda:self.bind(False)).pack(side='left',padx=8)
         ttk.Button(top,text='绑定离线模拟器',command=lambda:self.bind(True)).pack(side='left')
-        ttk.Label(self,text='无物镜转盘运动按钮。加载/运行实验仍可能换物镜或运动：请先在 ZEN 核对实验。读到位置不代表转盘已锁定。',wraplength=1000).pack(fill='x',padx=10)
+        _wrap(ttk.Label(self,text='无物镜转盘运动按钮。加载/运行实验仍可能换物镜或运动：请先在 ZEN 核对实验。读到位置不代表转盘已锁定。')).pack(fill='x',padx=10)
         body=ttk.Panedwindow(self,orient='horizontal');body.pack(fill='both',expand=True,padx=10,pady=8)
         left=ttk.Frame(body);right=ttk.Frame(body);body.add(left,weight=1);body.add(right,weight=4)
         self.tree=ttk.Treeview(left,show='tree',selectmode='browse',height=18)
@@ -42,7 +48,7 @@ class HardwareTestWindow(tk.Toplevel):
             if not self.tree.exists(op.group):self.tree.insert('', 'end',iid=op.group,text=op.group,open=True)
             self.tree.insert(op.group,'end',iid=op.key,text=('⚠ ' if op.writes else '')+op.title)
         self.tree.bind('<<TreeviewSelect>>',self.select)
-        self.description=ttk.Label(right,wraplength=690);self.description.pack(fill='x')
+        self.description=_wrap(ttk.Label(right));self.description.pack(fill='x')
         self.form=ttk.Frame(right);self.form.pack(fill='x',pady=5)
         timeout=ttk.Frame(right);timeout.pack(fill='x')
         ttk.Label(timeout,text='客户端 RPC 超时 (s)').pack(side='left');ttk.Entry(timeout,textvariable=self.timeout,width=10).pack(side='left')
@@ -51,7 +57,7 @@ class HardwareTestWindow(tk.Toplevel):
         self.run_button=ttk.Button(actions,text='执行选中的单步',command=self.run);self.run_button.pack(side='left')
         ttk.Button(actions,text='请求停止后续任务',command=self.request_stop).pack(side='left',padx=4)
         ttk.Button(actions,text='确认设备恢复',command=self.recover).pack(side='left')
-        ttk.Label(right,textvariable=self.info,wraplength=690).pack(fill='x')
+        _wrap(ttk.Label(right,textvariable=self.info)).pack(fill='x')
         log_frame=ttk.Frame(right);log_frame.pack(fill='both',expand=True)
         self.log=tk.Text(log_frame,wrap='word',height=16,state='disabled')
         scrollbar=ttk.Scrollbar(log_frame,command=self.log.yview);self.log.configure(yscrollcommand=scrollbar.set)
@@ -60,7 +66,7 @@ class HardwareTestWindow(tk.Toplevel):
         ttk.Button(tools,text='复制本次结果/报错',command=self.copy_latest).pack(side='left')
         ttk.Button(tools,text='复制全部日志',command=self.copy_all).pack(side='left',padx=8)
         ttk.Button(tools,text='导出全部日志',command=self.export).pack(side='left')
-        ttk.Label(self,text='自动日志：'+str(self.session.directory),wraplength=1000).pack(fill='x',padx=10,pady=4)
+        _wrap(ttk.Label(self,text='自动日志：'+str(self.session.directory))).pack(fill='x',padx=10,pady=4)
         if app.workflow and hasattr(app.workflow.device,"call_hardware_operation"):self.attach(app.workflow)
         self.tree.selection_set('read_z');self.select()
 
@@ -75,10 +81,7 @@ class HardwareTestWindow(tk.Toplevel):
             else:
                 address,pem,token=gateway_settings({**os.environ,**self.app.gateway_overrides})
                 device=GatewayDevice(lambda:secure_channel(address,pem.read_bytes(),token),xy_enabled=self.app.xy_mode.get()!='no_xy')
-            self.app.release_gateway()
-            self.app.workflow=Workflow(device,self.app.data_root,simulated=simulated,validate=validate_recipe,fit=fit_field)
-            self.app._connected_mode=self.app.xy_mode.get()
-            self.app.field_verified=False;self.app.clear_result()
+            self.app._replace_workflow(device,simulated=simulated,validate=validate_recipe,fit=fit_field)
             self.values.pop('experiment_id',None)
             self.attach(self.app.workflow)
             self.info.set('已绑定，尚未连接。请选择“连接通信”。')
@@ -86,12 +89,16 @@ class HardwareTestWindow(tk.Toplevel):
         except Exception as exc:
             report={'operation':'bind','title':'绑定设备','status':'failed','simulated':simulated,
                     'error':{'code':type(exc).__name__,'message':str(exc) if isinstance(exc,(ValueError,OSError)) else '绑定失败，请检查本地配置'}}
-            self.session.append({**report,'event':'binding_error'})
+            try:self.session.append({**report,'event':'binding_error'})
+            except OSError:pass
             self.show_result(report)
 
     def select(self,event=None):
         selected=self.tree.selection()
-        if not selected or selected[0] not in OPERATIONS:return
+        if not selected or selected[0] not in OPERATIONS:
+            self.op=None
+            self.description.configure(text='请在左侧选择一个具体操作（分组条目不可执行）。')
+            return
         self.op=OPERATIONS[selected[0]]
         self.approved.set(False)
         for child in self.form.winfo_children():child.destroy()
@@ -106,13 +113,23 @@ class HardwareTestWindow(tk.Toplevel):
         workflow=self.app.workflow
         if not workflow or workflow.busy or self.session.library is None:
             self.info.set('请先绑定设备，或等待当前任务结束。');return
-        timeout=self.timeout.get()
+        if self.op is None:
+            self.info.set('请先在左侧选择一个具体操作。');return
+        try:
+            timeout=float(self.timeout.get())
+            if not 0<timeout<=600:raise ValueError
+        except (ValueError,TypeError):
+            self.info.set('RPC 超时须为 0–600 秒的数字。');return
         self.save_preferences()
         params={f.name:self.values[f.name].get() for f in self.op.fields}
         confirmed=self.approved.get();self.approved.set(False)
         self.info.set('正在执行 '+self.op.title+'；同步 RPC 可能持续至超时。')
         self.run_button.state(['disabled'])
-        workflow.run_hardware_test(self.session,self.op.key,params,confirmed=confirmed,timeout_s=timeout)
+        try:
+            workflow.run_hardware_test(self.session,self.op.key,params,confirmed=confirmed,timeout_s=timeout)
+        except Exception as exc:
+            self.run_button.state(['!disabled'])
+            self.info.set('未能提交单步：'+str(exc))
 
     def show_result(self,report):
         self.latest=report
@@ -140,14 +157,15 @@ class HardwareTestWindow(tk.Toplevel):
             if not runs:return
             if not messagebox.askyesno('演示恢复','模拟确认 Z、AF、采集及 XY（如有）均已结束？',parent=self):return
             try:
-                self.app.workflow.device.confirm_simulated_recovery()
+                if self.app.workflow and self.app.workflow.simulated:
+                    self.app.workflow.device.confirm_simulated_recovery()
                 for run in runs:confirm_recovery(run,xy_confirmed=True,af_z_confirmed=True)
                 self.app.recovery_runs=pending_recovery(self.app.data_root,simulated=True)
             except OSError:
                 self.info.set('恢复记录保存失败，请检查日志目录。');return
         else:
             self.app.field_recovery_runs=pending_recovery(self.app.data_root,simulated=False)
-            self.app.recover_field()
+            self.app.recover_field(parent=self)
         self.info.set('已处理恢复确认；实验 ID 沿用当前连接，业务采集前须重新校验。')
 
     def copy_latest(self):

@@ -7,7 +7,12 @@ import os
 def gateway_sources(env):
     address = env.get("ZEN_GATEWAY_ADDRESS") or "127.0.0.1:5000"
     root = Path(env.get("PROGRAMDATA") or r"C:\ProgramData") / "Carl Zeiss" / "ZEN APIGateway"
-    local = address.rpartition(":")[0] in {"localhost", "127.0.0.1", "[::1]"}
+    head = address.rpartition(":")[0]
+    host = head.strip().strip("[]").lower().rstrip(".")
+    if not host or ":" in host:
+        # No port present — interpret the whole address as the host.
+        host = address.strip().strip("[]").lower().rstrip(".")
+    local = host in {"localhost", "127.0.0.1", "::1"}
     certificate = env.get("ZEN_GATEWAY_CA")
     token = env.get("ZEN_GATEWAY_TOKEN")
     pem = Path(certificate) if certificate else (

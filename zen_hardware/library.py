@@ -93,8 +93,12 @@ def validate(operation, values):
         raise ValueError('AF 下限必须小于上限')
     if operation.key=='set_zstack' and result['first_um']==result['last_um']:
         raise ValueError('Z-stack 首层与末层不能相同')
-    if result.get('output_name') and any(c in result['output_name'] for c in '/\\:*?"<>|'):
-        raise ValueError('输出名不能包含路径或 Windows 保留字符')
+    if result.get('output_name'):
+        name=result['output_name']
+        reserved={'CON','PRN','AUX','NUL','CLOCK$'}|{f'COM{i}' for i in range(1,10)}|{f'LPT{i}' for i in range(1,10)}
+        if (any(c in name for c in '/\\:*?"<>|') or name in ('.','..') or name.endswith(('.',' '))
+                or name.split('.')[0].upper() in reserved):
+            raise ValueError('输出名为 Windows 保留名或包含非法字符')
     return result
 
 
@@ -104,9 +108,9 @@ class HardwareLibrary:
 
     @property
     def connected(self):
-        return self.device._channel is not None if hasattr(self.device,'_channel') else bool(getattr(self.device,'connected',False))
+        return bool(getattr(self.device,'connected',False))
 
-    def execute(self, operation, values, *, timeout_s):
+    def execute(self, operation, values):
         if operation.key=='connect':
             self.device.connect_transport()
             return {'channel_ready':True,'authentication_verified':False,'note':'通道就绪；请用独立只读调用验证认证与服务，不代表设备业务就绪'}
@@ -140,8 +144,9 @@ class HardwareTestSession:
         self.library=None;self.simulated=False;self.running_id=None
 
     def bind(self, device, *, simulated):
-        if self._gate.locked():raise RuntimeError('已有单步调用')
-        self.library=HardwareLibrary(device);self.simulated=simulated
+        if not self._gate.acquire(blocking=False):raise RuntimeError('已有单步调用')
+        try:self.library=HardwareLibrary(device);self.simulated=simulated
+        finally:self._gate.release()
 
     def append(self, event):
         payload=json.dumps(safe(event),ensure_ascii=False,allow_nan=False)
@@ -174,6 +179,7 @@ class HardwareTestSession:
             if not isfinite(timeout) or timeout<=0:raise ValueError('RPC 超时必须为有限正数（秒）')
             if self.library is None:raise ValueError('请先创建连接或载入离线模拟')
             device=self.library.device
+            had_timeout=hasattr(device,'_timeout');old_timeout=getattr(device,'_timeout',None)
             if hasattr(device,'clear_rpc_trace'):device.clear_rpc_trace()
             if operation.writes and not operation.is_stop and confirmed is not True:
                 raise ValueError('本次写入/动作尚未人工确认；未发送设备请求')
@@ -186,16 +192,15 @@ class HardwareTestSession:
                 write_json(run/'status.json',{'kind':'hardware_test','state':'running','recovery_required':True,
                                               'result_valid':False,'started_at':report['started_at'],'failure_stage':operation.title})
                 report['recovery_required']=True
-            had_timeout=hasattr(device,'_timeout');old_timeout=getattr(device,'_timeout',None)
             device._timeout=timeout
-            report['result']=safe(self.library.execute(operation,p,timeout_s=timeout))
+            report['result']=safe(self.library.execute(operation,p))
             report['status']='success'
             report['note']='RPC/逻辑操作已返回，不等于物理动作完成；不会自动执行下一步'
         except Exception as error:
             report['status']='failed'
             diagnostic=diagnostic_from_error(error)
             report['error']=diagnostic or {'code':type(error).__name__,
-                'message':str(error) if isinstance(error,(ValueError,RuntimeError,InterruptedError)) else '调用或日志失败，请检查接口与日志目录'}
+                'message':str(error) or '调用或日志失败，请检查接口与日志目录'}
             report['client_stack']=[f'{Path(f.filename).name}:{f.lineno}:{f.name}' for f in traceback.extract_tb(error.__traceback__)]
         finally:
             if device is not None:

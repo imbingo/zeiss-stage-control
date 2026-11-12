@@ -46,7 +46,7 @@ class PathEditor(tk.Toplevel):
         self.table.pack(fill="both", expand=True)
         self.table.bind("<<TreeviewSelect>>", self.select)
         self.table.bind("<Double-1>", lambda event: self.x_entry.focus_set())
-        self.preview = tk.Canvas(body, background="white", highlightthickness=1, highlightbackground="#deddda", width=360)
+        self.preview = tk.Canvas(body, background="white", highlightthickness=1, highlightbackground="#e6ebf1", width=360)
         self.preview.pack(side="right", fill="both", expand=True)
         self.preview.bind("<Configure>", lambda event: self.draw())
         entry = ttk.Frame(shell)
@@ -68,7 +68,9 @@ class PathEditor(tk.Toplevel):
         self.down_button.pack(side="left", padx=6)
         self.delete_button = ttk.Button(tools, text="删除选中点", command=self.delete)
         self.delete_button.pack(side="left")
-        ttk.Label(shell, textvariable=self.message, wraplength=820).pack(anchor="w", pady=6)
+        message = ttk.Label(shell, textvariable=self.message)
+        message.pack(fill="x", anchor="w", pady=6)
+        message.bind("<Configure>", lambda event: message.configure(wraplength=max(1, event.width)))
         footer = ttk.Frame(shell)
         footer.pack(fill="x")
         ttk.Button(footer, text="应用路径", style="Accent.TButton", command=self.apply).pack(side="right")
@@ -157,8 +159,8 @@ class PathEditor(tk.Toplevel):
         cx, cy = (min(xs)+max(xs))/2, (min(ys)+max(ys))/2
         positions = [(width/2+(x-cx)*scale, height/2-(y-cy)*scale) for x, y in self.targets]
         for a, b in zip(positions, positions[1:]):
-            canvas.create_line(*a, *b, fill="#4779a6", width=2, arrow="last")
+            canvas.create_line(*a, *b, fill="#2f6db0", width=2, arrow="last")
         for index, (x, y) in enumerate(positions):
-            canvas.create_oval(x-5, y-5, x+5, y+5, fill="#e88935" if index == self.selected else "#4779a6", outline="")
+            canvas.create_oval(x-5, y-5, x+5, y+5, fill="#f59e0b" if index == self.selected else "#2f6db0", outline="")
             canvas.create_text(x+10, y-12, text=str(index+1), anchor="w")
-        canvas.create_text(10, height-16, anchor="w", text="X →    Y ↑   ·   数字为采集顺序", fill="#626873")
+        canvas.create_text(10, height-16, anchor="w", text="X →    Y ↑   ·   数字为采集顺序", fill="#7e8893")

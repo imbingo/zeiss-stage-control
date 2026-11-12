@@ -8,6 +8,36 @@ from .gateway import GatewayDevice, connection_hint, secure_channel
 from .local_config import gateway_sources, read_control_token
 
 
+def _report_services(channel, report, xy_enabled):
+    """List Gateway-registered services via reflection and diff against needs."""
+    from .reflection import OPTIONAL_SERVICES, REQUIRED_SERVICES, list_services, short_name
+
+    try:
+        names = list_services(channel, timeout=3)
+    except ImportError:
+        report("services", "— 未完成", "未安装 grpcio-reflection，无法列出 Gateway 已注册服务。")
+        return
+    except Exception as error:
+        report("services", "— 未完成", f"无法列出服务清单：{error}；不阻止后续连接检查。")
+        return
+    if not names:
+        report("services", "✕ 失败", "Gateway 未注册任何服务。请确认 ZEN/ZEN core 正在运行并连接 Gateway、ZEN API toolkit 已激活。")
+        return
+    mode = "motorized" if xy_enabled else "no_xy"
+    missing = [short_name(s) for s in REQUIRED_SERVICES[mode] if s not in names]
+    optional_missing = [short_name(s) for s in OPTIONAL_SERVICES if s not in names]
+    if missing:
+        report("services", "✕ 失败",
+               f"已注册 {len(names)} 个服务，缺少必需服务：{'、'.join(missing)}。"
+               "请核对 ZEN 版本与本软件 API（2026.11.1）是否匹配、toolkit 是否激活。")
+    elif optional_missing:
+        report("services", "— 待确认",
+               f"已注册 {len(names)} 个服务；缺少可选服务：{'、'.join(optional_missing)}，"
+               "上下 mark 采图/AF 可能不可用，角度扫描不受影响。")
+    else:
+        report("services", "✓ 通过", f"Gateway 已注册 {len(names)} 个服务，所需接口齐全。")
+
+
 def check_gateway(env, report, *, xy_enabled=True):
     address, pem, token, token_file = gateway_sources(env)
     host, separator, port = address.rpartition(":")
@@ -35,10 +65,13 @@ def check_gateway(env, report, *, xy_enabled=True):
         report("token", "✓ 通过", "已读取控制令牌，Gateway 是否接受见下方。")
     if not (address_ok and certificate and token):
         report("gateway", "— 待检查", "修正上方配置后重新检查。")
+        report("services", "— 待检查", "连接建立后才查询 Gateway 已注册服务。")
         report("stage", "— 待检查" if xy_enabled else "— 不适用", "等待读取 XY。" if xy_enabled else "无电动 XY，不查询载物台。")
         return
 
-    device = GatewayDevice(lambda: secure_channel(address, certificate, token), rpc_timeout=3, xy_enabled=xy_enabled)
+    channel = secure_channel(address, certificate, token)
+    device = GatewayDevice(lambda: channel, rpc_timeout=3, xy_enabled=xy_enabled)
+    _report_services(channel, report, xy_enabled)
     try:
         position = device.connect()
         if xy_enabled:

@@ -12,6 +12,10 @@ from threading import Thread
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from matplotlib import rcParams
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+
 from zen_fit import DEMO_CONVENTION, FIELD_CONVENTION, fit_demo, fit_field, validate_recipe
 from zen_hardware.gateway import GatewayDevice, secure_channel
 from zen_hardware.local_config import gateway_settings
@@ -22,36 +26,36 @@ from zen_recipe import load_points, load_recipe
 from zen_path_editor import PathEditor
 from zen_workflow import Recipe, Workflow
 
+rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
+rcParams["axes.unicode_minus"] = False
+rcParams.update({
+    "figure.facecolor": "#ffffff", "axes.facecolor": "#ffffff",
+    "axes.edgecolor": "#d8dee4", "axes.linewidth": 0.8,
+    "axes.labelcolor": "#5b6672", "axes.labelsize": 9,
+    "grid.color": "#edf0f3", "grid.linewidth": 0.7,
+    "xtick.color": "#9aa4ae", "ytick.color": "#9aa4ae",
+    "xtick.labelsize": 8, "ytick.labelsize": 8,
+})
+
 
 DEMO_POINTS = ((0., 0.), (.001, 0.), (.001, .001), (0., .001))
-WORKSPACE = "#f2f1f0"
+WORKSPACE = "#f5f6f8"
 PAPER = "#ffffff"
-INK = "#27313b"
-MUTED = "#626873"
-ACCENT = "#4779a6"
-BORDER = "#e4e3e2"
+CARD_LINE = "#e6ebf1"
+INK = "#14202c"
+MUTED = "#7e8893"
+ACCENT = "#2f6db0"
+ACCENT_SOFT = "#eaf3fd"
+DANGER = "#dc2626"
+OK = "#1f7a4d"
+WARN = "#b45309"
 
 
-def rounded_panel(parent):
-    panel = tk.Frame(parent, bg=WORKSPACE)
-    backdrop = tk.Canvas(panel, bg=WORKSPACE, highlightthickness=0)
-    backdrop.place(relwidth=1, relheight=1)
-
-    def draw_border(event):
-        width, height = event.width - 1, event.height - 1
-        radius = min(14, width / 2, height / 2)
-        backdrop.delete("panel")
-        backdrop.create_polygon(
-            radius, 1, width-radius, 1, width, 1, width, radius,
-            width, height-radius, width, height, width-radius, height,
-            radius, height, 1, height, 1, height-radius, 1, radius, 1, 1,
-            smooth=True, splinesteps=16, fill=PAPER, outline=BORDER, tags="panel",
-        )
-
-    backdrop.bind("<Configure>", draw_border)
-    content = tk.Frame(panel, bg=PAPER)
-    content.pack(fill="both", expand=True, padx=12, pady=9)
-    return panel, content
+def card(parent):
+    frame = tk.Frame(parent, bg=PAPER, highlightthickness=1, highlightbackground=CARD_LINE)
+    inner = tk.Frame(frame, bg=PAPER)
+    inner.pack(fill="both", expand=True, padx=14, pady=10)
+    return frame, inner
 
 
 class Workbench:
@@ -67,192 +71,213 @@ class Workbench:
         self.field_recipe = None
         self.field_verified = False
         self.verified_xy = None
+        self.current_xy = None
+        self.active_index = None
+        self.point_status = {}
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
         root.title("ZEN AF 表面测角 2.4.0")
-        root.geometry("1568x953")
-        root.minsize(960, 680)
+        root.geometry("1440x900")
+        root.minsize(1120, 700)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")
-        ink, blue, surface, line = INK, ACCENT, WORKSPACE, BORDER
-        style = ttk.Style(root)
-        style.theme_use("clam")
-        style.configure("TFrame", background=surface)
-        style.configure("TLabel", background=surface, foreground=ink)
-        style.configure("Paper.TFrame", background=PAPER)
-        style.configure("TButton", background=PAPER, foreground=ink, padding=(8, 6),
-                        bordercolor="#deddda", lightcolor=PAPER, darkcolor=PAPER)
-        style.map("TButton", background=[("active", "#edf2f6")], foreground=[("disabled", "#787d83")])
-        style.configure("Accent.TButton", background=blue, foreground="white", padding=(8, 6),
-                        bordercolor=blue, lightcolor=blue, darkcolor=blue)
-        style.map("Accent.TButton", background=[("disabled", "#e8ecef"), ("active", "#39668e")],
-                  bordercolor=[("disabled", "#dfe4e8")], foreground=[("disabled", MUTED), ("!disabled", "white")])
-        style.configure("Treeview", rowheight=28, background=PAPER, foreground=ink,
-                        font=("Microsoft YaHei UI", 9),
-                        fieldbackground=PAPER, borderwidth=0)
-        style.configure("Treeview.Heading", background="#f5f4f3", foreground=MUTED,
-                        borderwidth=0, relief="flat", font=("Microsoft YaHei UI", 9, "bold"))
-        style.configure("Horizontal.TProgressbar", background=blue, troughcolor="#e6e5e3")
-        shell = ttk.Frame(root)
-        shell.pack(fill="both", expand=True)
-        header = tk.Frame(shell, bg="#faf9f8", highlightthickness=1, highlightbackground=line)
+        self._style(root)
+        header = tk.Frame(root, bg=PAPER, highlightthickness=1, highlightbackground=CARD_LINE)
         header.pack(fill="x")
-        self.mode_badge = tk.Label(header, text="真实设备", bg="#dce8f9", fg=ink, padx=10, pady=4,
-                                   font=("Microsoft YaHei UI", 10, "bold"))
-        self.mode_badge.pack(side="left", padx=(26, 0))
+        brand = tk.Frame(header, bg=ACCENT, width=10, height=10)
+        brand.pack_propagate(False)
+        brand.pack(side="left", padx=(18, 9), pady=15)
+        tk.Label(header, text="ZEN AF 表面测角", bg=PAPER, fg=INK,
+                 font=("Microsoft YaHei UI", 13, "bold")).pack(side="left")
+        self.mode_badge = tk.Label(header, text="真实设备", bg="#dce8f9", fg="#10244a",
+                                   padx=9, pady=3, font=("Microsoft YaHei UI", 9, "bold"))
+        self.mode_badge.pack(side="left", padx=14)
         self.heading = tk.StringVar(value="设备：未连接")
-        tk.Label(header, textvariable=self.heading, bg="#faf9f8", fg=ink,
-                 font=("Microsoft YaHei UI", 13, "bold"), pady=13).pack(side="left", padx=15)
+        tk.Label(header, textvariable=self.heading, bg=PAPER, fg=MUTED,
+                 font=("Microsoft YaHei UI", 10)).pack(side="left", padx=6)
         engineering = ttk.Menubutton(header, text="演示与测试")
-        engineering.pack(side="left", padx=15)
-        menu = tk.Menu(engineering, tearoff=False)
-        engineering.configure(menu=menu)
+        engineering.pack(side="right", padx=(4, 16))
+        self.engineering_menu = tk.Menu(engineering, tearoff=False)
+        engineering.configure(menu=self.engineering_menu)
         self.demo = ttk.Button(header, text="正常演示", command=lambda: self.launch(None))
         self.fault = ttk.Button(header, text="第 3 点 AF 超时演示", command=lambda: self.launch("af_timeout"))
         self.single = ttk.Button(header, text="单点 AF 演示", command=lambda: self.launch(None, single_point=True))
         self.recover_button = ttk.Button(header, text="确认演示恢复", command=self.recover)
-        for button in (self.demo, self.fault, self.single, self.recover_button):
-            menu.add_command(label=button.cget("text"), command=button.invoke)
-        footer = tk.Frame(shell, bg="#faf9f8", highlightthickness=1, highlightbackground=line)
-        footer.pack(side="bottom", fill="x", pady=(10, 0))
+        self.menu_buttons = (self.demo, self.fault, self.single, self.recover_button)
+        for button in self.menu_buttons:
+            self.engineering_menu.add_command(label=button.cget("text"), command=button.invoke)
+
+        footer = tk.Frame(root, bg=PAPER, highlightthickness=1, highlightbackground=CARD_LINE)
+        footer.pack(side="bottom", fill="x")
         self.status = tk.StringVar(value="演示状态待确认" if self.recovery_runs else "可先新建配方、编辑路径，或在「演示与测试」中运行演示")
         self.export_button = ttk.Button(footer, text="导出结果", command=self.export)
-        self.export_button.pack(side="right", padx=14)
+        self.export_button.pack(side="right", padx=14, pady=6)
         self.stop_button = ttk.Button(footer, text="停止后续采集", state="disabled", command=self.stop)
         self.stop_button.pack(side="right")
-        self.progress = ttk.Progressbar(footer, maximum=len(DEMO_POINTS), length=96)
+        self.progress = ttk.Progressbar(footer, maximum=len(DEMO_POINTS), length=110)
         self.progress.pack(side="right", padx=10)
-        status_label = tk.Label(footer, textvariable=self.status, bg="#faf9f8", fg=ink,
-                                justify="left", anchor="w", pady=9)
+        status_label = tk.Label(footer, textvariable=self.status, bg=PAPER, fg=INK,
+                                justify="left", anchor="w", pady=8)
         status_label.pack(side="left", fill="x", expand=True, padx=16)
         status_label.bind("<Configure>", lambda event: status_label.configure(
             wraplength=max(1, event.width - 4)))
 
-        body = ttk.Frame(shell)
+        body = ttk.Frame(root)
         body.pack(fill="both", expand=True)
-        body.grid_columnconfigure(0, weight=7, uniform="workbench")
-        body.grid_columnconfigure(1, weight=3, uniform="workbench")
-        body.grid_rowconfigure(0, weight=1)
-        main = ttk.Frame(body, padding=(24, 17, 18, 0))
-        main.grid(row=0, column=0, sticky="nsew")
-        inspector_shell = tk.Frame(body, bg=surface, highlightthickness=1, highlightbackground=line)
-        inspector_shell.grid(row=0, column=1, sticky="nsew", padx=(0, 12), pady=(12, 0))
-        self.inspector_view = tk.Canvas(inspector_shell, bg=surface, highlightthickness=0)
-        scroll = ttk.Scrollbar(inspector_shell, orient="vertical", command=self.inspector_view.yview)
+        sidebar_shell = tk.Frame(body, bg=WORKSPACE, width=352)
+        sidebar_shell.pack(side="left", fill="y")
+        sidebar_shell.pack_propagate(False)
+        self.inspector_view = tk.Canvas(sidebar_shell, bg=WORKSPACE, highlightthickness=0)
+        scroll = ttk.Scrollbar(sidebar_shell, orient="vertical", command=self.inspector_view.yview)
         scroll.pack(side="right", fill="y")
         self.inspector_view.pack(side="left", fill="both", expand=True)
         self.inspector_view.configure(yscrollcommand=scroll.set)
-        inspector = ttk.Frame(self.inspector_view, padding=(10, 4))
+        inspector = ttk.Frame(self.inspector_view, padding=(12, 8, 6, 8))
         window = self.inspector_view.create_window(0, 0, window=inspector, anchor="nw")
         inspector.bind("<Configure>", lambda event: self.inspector_view.configure(
-            scrollregion=self.inspector_view.bbox(window)))
+            scrollregion=self.inspector_view.bbox("all")))
         self.inspector_view.bind("<Configure>", lambda event: self.inspector_view.itemconfigure(
             window, width=event.width))
+        self.step_badges = {}
 
-        def section(number, title):
-            group = ttk.Frame(inspector)
-            group.pack(fill="x", pady=(8, 6))
-            banner = ttk.Frame(group)
-            banner.pack(fill="x", pady=(0, 7))
-            tk.Label(banner, text=number, bg=surface, fg=MUTED,
-                     font=("Segoe UI", 10, "bold")).pack(side="left", padx=(2, 9))
-            ttk.Label(banner, text=title,
-                      font=("Microsoft YaHei UI", 12, "bold")).pack(side="left")
-            return group
+        def step(number, title):
+            group = tk.Frame(inspector, bg=PAPER, highlightthickness=1, highlightbackground=CARD_LINE)
+            group.pack(fill="x", pady=(4, 8))
+            head = tk.Frame(group, bg=PAPER)
+            head.pack(fill="x", padx=12, pady=(9, 1))
+            badge = tk.Label(head, text=number, bg="#eef2f6", fg="#5b6672", width=2,
+                             font=("Segoe UI", 9, "bold"))
+            badge.pack(side="left")
+            self.step_badges[number] = badge
+            tk.Label(head, text=title, bg=PAPER, fg=INK,
+                     font=("Microsoft YaHei UI", 11, "bold")).pack(side="left", padx=8)
+            inner = tk.Frame(group, bg=PAPER)
+            inner.pack(fill="x", padx=12, pady=(2, 10))
+            return inner
 
         def row(parent):
-            frame = ttk.Frame(parent)
+            frame = tk.Frame(parent, bg=PAPER)
             frame.pack(fill="x", pady=4)
             return frame
 
-        connection = section("01", "设备连接")
+        connection = step("1", "设备连接")
         self.mode_buttons = []
         for label, value in (("有电动 XY · 角度扫描 / 采图", "motorized"), ("无电动 XY · 仅单点采图", "no_xy")):
             button = ttk.Radiobutton(connection, text=label, variable=self.xy_mode,
-                                     value=value, command=self.change_device_mode)
+                                     value=value, command=self.change_device_mode,
+                                     style="Card.TRadiobutton")
             button.pack(anchor="w", pady=2)
             self.mode_buttons.append(button)
         actions = row(connection)
-        self.connect_button = ttk.Button(actions, text="Gateway 只读 XY", command=self.connect_field)
-        self.connect_button.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.connect_button = ttk.Button(actions, text="Gateway 只读 XY", command=self.connect_field,
+                                         style="Accent.TButton")
+        self.connect_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.disconnect_button = ttk.Button(actions, text="断开", command=self.disconnect)
+        self.disconnect_button.pack(side="left", padx=(0, 6))
         ttk.Button(actions, text="连接设置", command=self.configure_gateway).pack(side="right")
         actions = row(connection)
         self.xy = tk.StringVar(value="XY  —")
-        ttk.Label(actions, textvariable=self.xy).pack(side="left")
+        tk.Label(actions, textvariable=self.xy, bg=PAPER, fg=INK,
+                 font=("Consolas", 10)).pack(side="left")
         self.field_recover = ttk.Button(actions, text="确认现场恢复", command=self.recover_field)
         self.field_recover.pack(side="right")
-        ttk.Button(connection, text="硬件库 · 通信与单步测试", command=self.open_hardware_tests).pack(fill="x", pady=4)
+        ttk.Button(connection, text="硬件库 · 通信与单步测试", command=self.open_hardware_tests).pack(fill="x", pady=(4, 2))
         self.preflight_button = ttk.Button(connection, text="开机检查", command=self.open_preflight)
-        self.preflight_button.pack(fill="x", pady=(4, 0))
-        ttk.Separator(inspector).pack(fill="x", pady=5)
+        self.preflight_button.pack(fill="x", pady=2)
 
-        recipe = section("02", "测量配方")
+        recipe = step("2", "测量配方")
         self.recipe_button = ttk.Button(recipe, text="加载现场配方", command=self.choose_recipe)
-        self.recipe_button.pack(fill="x", pady=(4, 8))
+        self.recipe_button.pack(fill="x", pady=(2, 6))
         actions = row(recipe)
         self.edit_recipe_button = ttk.Button(actions, text="新建／编辑配方", command=self.edit_recipe)
-        self.edit_recipe_button.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.edit_recipe_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.save_recipe_button = ttk.Button(actions, text="保存现场配方", command=self.save_recipe)
         self.save_recipe_button.pack(side="right", fill="x", expand=True)
         self.recipe_info = tk.StringVar(value="现场配方未加载")
-        ttk.Label(recipe, textvariable=self.recipe_info, wraplength=250, padding=(0, 8)).pack(anchor="w")
-        ttk.Separator(inspector).pack(fill="x", pady=5)
+        recipe_text = ttk.Label(recipe, textvariable=self.recipe_info, style="Muted.TLabel")
+        recipe_text.pack(anchor="w", pady=(2, 0))
+        recipe_text.bind("<Configure>", lambda event: recipe_text.configure(
+            wraplength=max(1, event.width)))
 
-        measurement = section("03", "采集测量")
+        measurement = step("3", "采集测量")
         self.path_button = ttk.Button(measurement, text="编辑点位路径", command=self.edit_path)
-        self.path_button.pack(fill="x", pady=(3, 4))
+        self.path_button.pack(fill="x", pady=(2, 3))
         self.import_button = ttk.Button(measurement, text="从 CSV 导入点位（可选）", command=self.choose_points)
-        self.import_button.pack(fill="x", pady=(3, 9))
+        self.import_button.pack(fill="x", pady=(0, 6))
         self.field_batch = ttk.Button(measurement, text="开始批量测角", command=self.run_field_batch,
                                       style="Accent.TButton")
-        self.field_batch.pack(fill="x", pady=4)
+        self.field_batch.pack(fill="x", pady=3)
         self.field_af = ttk.Button(measurement, text="当前点 AF", command=self.run_field_af)
-        self.field_af.pack(fill="x", pady=4)
-        point_tools = ttk.Frame(measurement)
-        ttk.Button(measurement, text="点位管理", command=lambda: (
+        self.field_af.pack(fill="x", pady=3)
+        point_tools = tk.Frame(measurement, bg=PAPER)
+        ttk.Button(measurement, text="点位管理 ▾", command=lambda: (
             point_tools.pack_forget() if point_tools.winfo_manager() else point_tools.pack(fill="x")
-        )).pack(anchor="w", pady=6)
+        )).pack(anchor="w", pady=(6, 0))
         actions = row(point_tools)
         self.teach_button = ttk.Button(actions, text="示教当前 XY", command=self.teach)
         self.teach_button.pack(side="left")
         self.delete_button = ttk.Button(actions, text="删除选中点", command=self.delete_point)
         self.delete_button.pack(side="right")
-        self.points = tk.Listbox(point_tools, height=3, exportselection=False)
+        self.points = tk.Listbox(point_tools, height=3, exportselection=False, bd=0,
+                                 highlightthickness=1, highlightbackground=CARD_LINE,
+                                 selectbackground=ACCENT_SOFT, selectforeground=INK)
         self.points.pack(fill="x")
 
-        images = section("04", "对位图像")
+        images = step("4", "对位图像")
         self.mark_button = ttk.Button(images, text="上下 mark 采图", command=self.open_mark_capture)
-        self.mark_button.pack(fill="x", pady=4)
-        ttk.Label(images, text="当前点 · 上下层 TIFF · 交给 SOMA 分析", wraplength=250).pack(anchor="w")
+        self.mark_button.pack(fill="x", pady=3)
+        ttk.Label(images, text="当前点 · 上下层 TIFF · 交给 SOMA 分析",
+                  style="Muted.TLabel").pack(anchor="w")
 
-        metric_panel, metrics = rounded_panel(main)
-        metric_panel.pack(fill="x", pady=(0, 12))
+        main = ttk.Frame(body, padding=(16, 14, 16, 0))
+        main.pack(side="left", fill="both", expand=True)
+
+        metrics_row = ttk.Frame(main)
+        metrics_row.pack(fill="x", pady=(0, 12))
         self.kpi = [tk.StringVar(value="—") for _ in range(4)]
-        for index, (label, value) in enumerate(zip(("Rx", "Ry", "RMS", "PV"), self.kpi)):
-            metrics.columnconfigure(index, weight=1, uniform="metric")
-            tile = tk.Frame(metrics, bg=PAPER)
-            tile.grid(row=0, column=index, sticky="ew", padx=6)
-            tk.Label(tile, text=label, bg=PAPER, fg=MUTED,
-                     font=("Segoe UI", 10)).pack(anchor="w")
-            readings = tk.Frame(tile, bg=PAPER)
-            readings.pack(anchor="w")
-            tk.Label(readings, textvariable=value, bg=PAPER, fg="#315f89" if index < 2 else ink,
-                     font=("Segoe UI", 19, "bold")).pack(side="left")
-            tk.Label(readings, text="µrad" if index < 2 else "µm", bg=PAPER,
-                     fg=MUTED).pack(side="left", anchor="s", padx=(3, 0), pady=(0, 5))
+        for index, (label, unit, value) in enumerate(zip(
+                ("Rx", "Ry", "RMS", "PV"), ("µrad", "µrad", "µm", "µm"), self.kpi)):
+            tile, tile_inner = card(metrics_row)
+            tile.pack(side="left", fill="both", expand=True, padx=(0 if index == 0 else 10, 0))
+            tk.Label(tile_inner, text=label, bg=PAPER, fg=MUTED,
+                     font=("Microsoft YaHei UI", 9, "bold")).pack(anchor="w")
+            readings = tk.Frame(tile_inner, bg=PAPER)
+            readings.pack(anchor="w", pady=(1, 0))
+            tk.Label(readings, textvariable=value, bg=PAPER, fg=ACCENT if index < 2 else INK,
+                     font=("Consolas", 19, "bold")).pack(side="left")
+            tk.Label(readings, text=unit, bg=PAPER, fg=MUTED,
+                     font=("Microsoft YaHei UI", 9)).pack(side="left", anchor="s", padx=(4, 0), pady=(0, 4))
 
-        plot_panel, plot_frame = rounded_panel(main)
-        tk.Label(plot_frame, text="XY 点位", bg=PAPER, fg=ink, padx=4, pady=4,
-                 font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        self.plot = tk.Canvas(plot_frame, background=PAPER, highlightthickness=0)
-        self.plot.pack(fill="both", expand=True)
-        self.plot.bind("<Configure>", self.draw)
-        detail_panel, detail = rounded_panel(main)
-        detail_panel.pack(side="bottom", fill="x")
-        plot_panel.pack(fill="both", expand=True, pady=(0, 11))
-        tk.Label(detail, text="逐点明细", bg=PAPER, fg=ink, padx=4, pady=4,
-                 font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w")
-        table_body = ttk.Frame(detail, style="Paper.TFrame")
-        table_body.pack(fill="both", expand=True)
+        plot_panel, plot_frame = card(main)
+        plot_panel.pack(fill="both", expand=True)
+        head = tk.Frame(plot_frame, bg=PAPER)
+        head.pack(fill="x")
+        tk.Label(head, text="XY 点位路径", bg=PAPER, fg=INK,
+                 font=("Microsoft YaHei UI", 11, "bold")).pack(side="left")
+        self.plot_hint = tk.StringVar(value="")
+        tk.Label(head, textvariable=self.plot_hint, bg=PAPER, fg=MUTED).pack(side="right")
+        self.plot_fig = Figure(figsize=(5, 3.1), dpi=100, constrained_layout=True)
+        self.plot_ax = self.plot_fig.add_subplot(111)
+        self.plot_canvas = FigureCanvasTkAgg(self.plot_fig, master=plot_frame)
+        toolbar = NavigationToolbar2Tk(self.plot_canvas, plot_frame, pack_toolbar=False)
+        toolbar.configure(background=PAPER)
+        for child in toolbar.winfo_children():
+            try:
+                child.configure(background=PAPER)
+            except tk.TclError:
+                pass
+        toolbar.update()
+        toolbar.pack(side="bottom", fill="x")
+        self.plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.plot_annotation = None
+        self.plot_fig.canvas.mpl_connect("motion_notify_event", self._plot_hover)
+        self._reset_plot()
+
+        detail_panel, detail = card(main)
+        detail_panel.pack(fill="x", pady=(12, 0))
+        tk.Label(detail, text="逐点明细", bg=PAPER, fg=INK,
+                 font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w")
+        table_body = ttk.Frame(detail, style="Card.TFrame")
+        table_body.pack(fill="both", expand=True, pady=(6, 0))
         columns = (
             ("point", "点位", 46), ("target", "目标 XY (µm)", 106),
             ("before", "AF 前 XY (µm)", 112), ("after", "AF 后 XY (µm)", 112),
@@ -263,7 +288,9 @@ class Workbench:
             self.table.heading(key, text=title)
             self.table.column(key, width=width, minwidth=width, anchor="center")
         self.table.tag_configure("failed", foreground="#973c39", background="#fbeceb")
-        self.table.tag_configure("stripe", background="#f7f6f5")
+        self.table.tag_configure("ok", foreground=OK)
+        self.table.tag_configure("stopped", foreground=WARN)
+        self.table.tag_configure("stripe", background="#f7f8fa")
         vertical = ttk.Scrollbar(table_body, orient="vertical", command=self.table.yview)
         horizontal = ttk.Scrollbar(table_body, orient="horizontal", command=self.table.xview)
         self.table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
@@ -279,14 +306,48 @@ class Workbench:
         self.refresh_controls()
         root.after(40, self.poll)
 
+    def _style(self, root):
+        style = ttk.Style(root)
+        style.theme_use("clam")
+        style.configure("TFrame", background=WORKSPACE)
+        style.configure("TLabel", background=WORKSPACE, foreground=INK)
+        style.configure("Card.TFrame", background=PAPER)
+        style.configure("Card.TLabel", background=PAPER, foreground=INK)
+        style.configure("Muted.TLabel", background=PAPER, foreground=MUTED)
+        style.configure("Card.TRadiobutton", background=PAPER)
+        style.configure("Card.TCheckbutton", background=PAPER)
+        style.configure("TButton", background=PAPER, foreground=INK, padding=(9, 6),
+                        bordercolor="#dde2e7", lightcolor=PAPER, darkcolor=PAPER)
+        style.map("TButton", background=[("active", "#edf2f6")],
+                  foreground=[("disabled", "#8a94a3")])
+        style.configure("Accent.TButton", background=ACCENT, foreground="white", padding=(9, 6),
+                        bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT)
+        style.map("Accent.TButton", background=[("disabled", "#e8ecef"), ("active", "#255b93")],
+                  bordercolor=[("disabled", "#dfe4e8")],
+                  foreground=[("disabled", MUTED), ("!disabled", "white")])
+        style.configure("Treeview", rowheight=28, background=PAPER, foreground=INK,
+                        font=("Microsoft YaHei UI", 9), fieldbackground=PAPER, borderwidth=0)
+        style.configure("Treeview.Heading", background="#f6f8fa", foreground=MUTED,
+                        borderwidth=0, relief="flat", font=("Microsoft YaHei UI", 9, "bold"))
+        style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor="#e9edf1")
+        style.configure("TMenubutton", background=PAPER, foreground=INK)
+
+    def _set_step(self, key, active, warn=False):
+        badge = self.step_badges[key]
+        if warn:
+            badge.configure(bg="#fde8e8", fg=DANGER)
+        elif active:
+            badge.configure(bg=ACCENT, fg="white")
+        else:
+            badge.configure(bg="#eef2f6", fg="#5b6672")
+
     def change_device_mode(self):
         if self.workflow and self.workflow.busy:
             self.xy_mode.set(self._connected_mode)
             return
-        self.release_gateway()
-        self.workflow = None
-        self.pending = None
+        self._drop_workflow()
         self._connected_mode = self.xy_mode.get()
+        self._reset_plot()
         self.preferences.update(xy_mode=self.xy_mode.get())
         self.field_verified = False
         self.clear_result()
@@ -318,6 +379,46 @@ class Workbench:
     def release_gateway(self):
         if self.workflow and isinstance(self.workflow.device, GatewayDevice):
             self.workflow.device.close()
+
+    def disconnect(self):
+        if self.workflow is None or self.workflow.busy:
+            return
+        self._drop_workflow()
+        no_xy = self.xy_mode.get() == "no_xy"
+        self.heading.set("设备：未连接 · 无 XY 单点采图" if no_xy else "设备：未连接")
+        self.status.set("已断开客户端通道；物理动作是否停止需在设备端确认。")
+        self.refresh_controls()
+
+    def _drop_workflow(self):
+        """Discard the current workflow after delivering its queued events."""
+        old, self.workflow = self.workflow, None
+        self.pending = None
+        if old is not None:
+            self._drain_events(old)
+            if isinstance(old.device, GatewayDevice):
+                old.device.close()
+        self.current_xy = None
+        self.active_index = None
+        self._redraw_plot()
+
+    def _drain_events(self, workflow):
+        """Deliver events still queued on a workflow being replaced."""
+        try:
+            while True:
+                kind, *data = workflow.events.get_nowait()
+                self._handle_event(workflow, kind, data)
+        except Empty:
+            pass
+
+    def _replace_workflow(self, device, *, simulated, validate, fit):
+        """Single entry point for swapping the bound device/connection."""
+        self._drop_workflow()
+        self.workflow = Workflow(device, self.data_root, simulated=simulated,
+                                 validate=validate, fit=fit)
+        self._connected_mode = self.xy_mode.get()
+        self.field_verified = False
+        self.verified_xy = None
+        self.clear_result()
 
     def configure_gateway(self):
         if self.workflow and self.workflow.busy:
@@ -371,8 +472,8 @@ class Workbench:
         rows = {}
         for index, (key, title) in enumerate((
             ("address", "Gateway 地址"), ("ca", "CA 证书文件"), ("token", "控制令牌"),
-            ("gateway", "Gateway 只读 Z" if self.xy_mode.get() == "no_xy" else "Gateway 只读 XY"), ("stage", "XY 检查" if self.xy_mode.get() == "no_xy" else "载物台状态"),
-            ("recipe", "测量配方"), ("license", "ZEN API 许可证"),
+            ("gateway", "Gateway 只读 Z" if self.xy_mode.get() == "no_xy" else "Gateway 只读 XY"), ("stage", "载物台状态"),
+            ("services", "已注册服务"), ("recipe", "测量配方"), ("license", "ZEN API 许可证"),
         ), 1):
             ttk.Label(panel, text=title, width=18).grid(row=index, column=0, sticky="nw", pady=5)
             status = ttk.Label(panel, width=13, text="— 待检查")
@@ -396,9 +497,9 @@ class Workbench:
 
         update_license()
         ttk.Checkbutton(panel, text="我已在 ZEN 确认 API 许可", variable=license_confirmed,
-                        command=update_license).grid(row=8, column=2, sticky="w", pady=6)
+                        command=update_license).grid(row=9, column=2, sticky="w", pady=6)
         controls = ttk.Frame(panel)
-        controls.grid(row=9, column=0, columnspan=3, sticky="e", pady=(10, 0))
+        controls.grid(row=10, column=0, columnspan=3, sticky="e", pady=(10, 0))
         ttk.Button(controls, text="蔡司官方排查文档", command=lambda: webbrowser.open(
             "https://github.com/zeiss-microscopy/OAD/blob/master/ZEN-API/README.md#troubleshooting"
         )).pack(side="left", padx=(0, 10))
@@ -409,7 +510,7 @@ class Workbench:
             env = {**os.environ, **self.gateway_overrides}
             xy_enabled = self.xy_mode.get() != "no_xy"
             updates = Queue()
-            for key in ("address", "ca", "token", "gateway", "stage"):
+            for key in ("address", "ca", "token", "gateway", "stage", "services"):
                 update_row(key, "… 检查中", "")
             recipe = self.field_recipe
             if not xy_enabled:
@@ -431,7 +532,7 @@ class Workbench:
                 try:
                     check_gateway(env, lambda *result: updates.put(result), xy_enabled=xy_enabled)
                 except Exception:
-                    for key in ("address", "ca", "token", "gateway", "stage"):
+                    for key in ("address", "ca", "token", "gateway", "stage", "services"):
                         updates.put((key, "— 未完成", "请核对 Gateway 配置后重试。"))
                 finally:
                     updates.put(None)
@@ -468,66 +569,103 @@ class Workbench:
         def channel():
             return secure_channel(address, pem_path.read_bytes(), token)
 
-        self.pending = None
-        self.field_verified = False
-        self.clear_result()
         self.xy.set("XY  —")
         self.table.delete(*self.table.get_children())
         self.progress["value"] = 0
-        self.plot.delete("all")
-        self.release_gateway()
-        self._connected_mode = self.xy_mode.get()
-        self.workflow = Workflow(GatewayDevice(channel, xy_enabled=self.xy_mode.get() != "no_xy"), self.data_root,
-                                 simulated=False, validate=validate_recipe, fit=fit_field)
+        self._replace_workflow(GatewayDevice(channel, xy_enabled=self.xy_mode.get() != "no_xy"),
+                               simulated=False, validate=validate_recipe, fit=fit_field)
         self.show_field_heading()
         self.workflow.connect()
         self.refresh_controls()
 
-    def draw(self, event):
-        c = self.plot
-        c.delete("all")
-        points = DEMO_POINTS if self.workflow and self.workflow.simulated else (
-            self.field_recipe.targets if self.field_recipe else ()
-        )
-        if not points:
-            c.create_text(event.width / 2, event.height / 2, text="等待加载或示教 XY 点位", fill="#64748b")
-            return
-        xs, ys = zip(*[(x * 1e6, y * 1e6) for x, y in points])
-        xmin, xmax = min(xs), max(xs)
-        ymin, ymax = min(ys), max(ys)
-        left, top = 105, 22
-        right, bottom = event.width - 56, event.height - 58
-        if right <= left or bottom <= top:
-            return
-        xpad, ypad = (xmax - xmin or 100) * .1, (ymax - ymin or 100) * .1
-        xmin, xmax, ymin, ymax = xmin-xpad, xmax+xpad, ymin-ypad, ymax+ypad
-        ink = INK
-        divisions = 6 if right - left < 520 else 12
-        for index in range(divisions + 1):
-            ratio = index / divisions
-            x = left + ratio * (right-left)
-            y = bottom - ratio * (bottom-top)
-            c.create_line(x, top, x, bottom, fill="#eae9e7")
-            c.create_line(left, y, right, y, fill="#eae9e7")
-            c.create_text(x, bottom+16, text=f"{xmin + ratio*(xmax-xmin):,.0f}", fill=ink)
-            c.create_text(left-10, y, anchor="e", text=f"{ymin + ratio*(ymax-ymin):,.0f}", fill=ink)
-        c.create_line(left, top, left, bottom, right, bottom, fill=ink)
-        c.create_text((left+right)/2, bottom+39, text="X (µm)", fill=ink)
-        c.create_text(27, (top+bottom)/2, text="Y (µm)", angle=90, fill=ink)
-        positions = [(left + (x-xmin)/(xmax-xmin)*(right-left),
-                      bottom - (y-ymin)/(ymax-ymin)*(bottom-top)) for x, y in zip(xs, ys)]
-        if len(positions) > 1:
-            c.create_line(*[value for point in positions for value in point],
-                          dash=(6, 4), width=2, fill="#9ab4ca")
-        for index, (x, y) in enumerate(positions, 1):
-            c.create_oval(x-6, y-6, x+6, y+6, fill=ACCENT, outline="")
-            c.create_text(x+10, y-13, anchor="w", text=str(index), fill=ink,
-                          font=("Segoe UI", 13, "bold"))
+    def _plot_points(self):
+        if self.workflow and self.workflow.simulated:
+            return DEMO_POINTS
+        return self.field_recipe.targets if self.field_recipe else ()
 
-    def show_field_heading(self):
+    def _reset_plot(self):
+        self.point_status = {}
+        self.current_xy = None
+        self.active_index = None
+        self._redraw_plot()
+
+    def _redraw_plot(self):
+        ax = getattr(self, "plot_ax", None)
+        if ax is None:
+            return
+        ax.clear()
+        ax.set_xlabel("X (µm)")
+        ax.set_ylabel("Y (µm)")
+        ax.grid(True)
+        for spine in ax.spines.values():
+            spine.set_color("#d8dee4")
+        points = self._plot_points()
+        self.plot_hint.set("" if not points else f"{len(points)} 个点位 · 工具栏可平移缩放")
+        if not points:
+            ax.text(0.5, 0.5, "等待加载或示教 XY 点位", transform=ax.transAxes,
+                    ha="center", va="center", color="#8a94a3", fontsize=10)
+        else:
+            xs = [x * 1e6 for x, _ in points]
+            ys = [y * 1e6 for _, y in points]
+            if len(points) > 1:
+                ax.plot(xs, ys, linestyle=(0, (5, 4)), linewidth=1.4,
+                        color="#9ab4ca", zorder=1)
+            colors = [{"ok": OK, "failed": DANGER, "stopped": WARN}.get(
+                self.point_status.get(index), ACCENT) for index in range(1, len(points) + 1)]
+            ax.scatter(xs, ys, s=46, c=colors, edgecolors="white", linewidths=1.0, zorder=3)
+            if self.active_index and 1 <= self.active_index <= len(points):
+                ax.scatter([xs[self.active_index - 1]], [ys[self.active_index - 1]],
+                           s=120, facecolors="none", edgecolors=INK, linewidths=1.4, zorder=4)
+            for index, (x, y) in enumerate(zip(xs, ys), 1):
+                ax.annotate(str(index), (x, y), textcoords="offset points",
+                            xytext=(7, 6), fontsize=8, color="#5b6672", zorder=4)
+            if self.current_xy and all(map(isfinite, self.current_xy)):
+                ax.scatter([self.current_xy[0] * 1e6], [self.current_xy[1] * 1e6],
+                           marker="+", s=170, c=DANGER, linewidths=1.8, zorder=5,
+                           label="当前设备 XY")
+                ax.legend(loc="upper right", fontsize=8, frameon=True)
+            ax.set_aspect("equal", adjustable="datalim")
+            ax.margins(0.12)
+        self.plot_annotation = ax.annotate(
+            "", xy=(0, 0), xytext=(12, 12), textcoords="offset points", fontsize=8,
+            bbox=dict(boxstyle="round,pad=0.3", fc=PAPER, ec=CARD_LINE))
+        self.plot_annotation.set_visible(False)
+        self.plot_canvas.draw_idle()
+
+    def _plot_hover(self, event):
+        annotation = self.plot_annotation
+        if annotation is None:
+            return
+        show = False
+        points = self._plot_points()
+        if event.inaxes is self.plot_ax and points and event.xdata is not None:
+            xs = [x * 1e6 for x, _ in points]
+            ys = [y * 1e6 for _, y in points]
+            xlim, ylim = self.plot_ax.get_xlim(), self.plot_ax.get_ylim()
+            xspan = max(abs(xlim[1] - xlim[0]), 1e-9)
+            yspan = max(abs(ylim[1] - ylim[0]), 1e-9)
+            best = min(range(len(xs)),
+                       key=lambda i: ((xs[i] - event.xdata) / xspan) ** 2
+                       + ((ys[i] - event.ydata) / yspan) ** 2)
+            if (((xs[best] - event.xdata) / xspan) ** 2
+                    + ((ys[best] - event.ydata) / yspan) ** 2) < 0.0009:
+                index = best + 1
+                state = {"ok": "完成", "failed": "失败", "stopped": "已中止"}.get(
+                    self.point_status.get(index), "待测")
+                annotation.xy = (xs[best], ys[best])
+                annotation.set_text(
+                    f"点 {index} · {state}\nX {xs[best]:.3f} µm   Y {ys[best]:.3f} µm")
+                annotation.set_visible(True)
+                show = True
+        if not show:
+            annotation.set_visible(False)
+        self.plot_canvas.draw_idle()
+
+    def show_field_heading(self, workflow=None):
+        workflow = workflow or self.workflow
         name = self.field_recipe.name if self.field_recipe else "未加载配方"
-        state = self.workflow.state
-        if not self.workflow.xy_enabled:
+        state = workflow.state
+        if not workflow.xy_enabled:
             self.heading.set(f"设备：{state} · 无 XY 单点采图（XY 未校验）")
         else:
             self.heading.set(f"设备：{state}   |   配方：{name}")
@@ -623,8 +761,8 @@ class Workbench:
             self.clear_result()
             self.table.delete(*self.table.get_children())
             self.show_field_heading()
-            self.plot.event_generate("<Configure>", width=self.plot.winfo_width(),
-                                     height=self.plot.winfo_height())
+        self.point_status.clear()
+        self._redraw_plot()
         self.refresh_controls()
 
     def edit_path(self):
@@ -632,8 +770,6 @@ class Workbench:
             return
         def apply(targets):
             self.apply_field_recipe(replace(self.field_recipe, targets=targets))
-            self.plot.event_generate("<Configure>", width=self.plot.winfo_width(),
-                                     height=self.plot.winfo_height())
             self.status.set(f"路径已更新，共 {len(targets)} 个点；请保存现场配方，并重新验证当前点 AF")
         PathEditor(self.root, self.field_recipe.targets, apply)
 
@@ -689,6 +825,8 @@ class Workbench:
         ):
             return
         self.table.delete(*self.table.get_children())
+        self.point_status.clear()
+        self._redraw_plot()
         self.field_verified = False
         self.clear_result()
         self.progress.configure(maximum=1, value=0)
@@ -729,6 +867,8 @@ class Workbench:
             dialog.destroy()
             self.clear_result()
             self.table.delete(*self.table.get_children())
+            self.point_status.clear()
+            self._redraw_plot()
             self.progress.configure(maximum=len(recipe.targets), value=0)
             self.workflow.start(recipe, path_confirmed=True, confirmed_start=start_xy)
             self.refresh_controls()
@@ -748,21 +888,20 @@ class Workbench:
         self.table.delete(*self.table.get_children())
         self.progress["value"] = 0
         self.progress["maximum"] = 1 if single_point else len(DEMO_POINTS)
-        self.release_gateway()
-        self.workflow = Workflow(SimulatedDevice(fault=fault), self.data_root,
-                                 simulated=True, validate=validate_recipe, fit=fit_demo)
+        self._replace_workflow(SimulatedDevice(fault=fault), simulated=True,
+                               validate=validate_recipe, fit=fit_demo)
         recipe = Recipe("演示配方", "Demo AF", DEMO_POINTS, 1e-6, 3, 2, DEMO_CONVENTION)
         self.pending = (recipe, single_point)
         self.workflow.connect()
         self.heading.set("离线演示：连接检查")
-        self.plot.event_generate("<Configure>", width=self.plot.winfo_width(),
-                                 height=self.plot.winfo_height())
+        self._reset_plot()
         self.refresh_controls()
 
-    def recover(self):
+    def recover(self, parent=None):
         if not self.recovery_runs or (self.workflow and self.workflow.busy):
             return
-        if not messagebox.askyesno("演示恢复", "模拟现场确认 XY 与 AF/Z 动作均已结束？"):
+        if not messagebox.askyesno("演示恢复", "模拟现场确认 XY 与 AF/Z 动作均已结束？",
+                                   parent=parent or self.root):
             return
         try:
             if self.workflow and self.workflow.simulated:
@@ -773,22 +912,23 @@ class Workbench:
         except OSError:
             self.status.set("恢复记录保存失败，请检查数据目录")
         else:
-            self.release_gateway()
-            self.workflow = None
+            self._drop_workflow()
             self.heading.set("设备：未连接")
             self.status.set("演示恢复已记录，可重新运行")
         self.refresh_controls()
 
-    def recover_field(self):
+    def recover_field(self, parent=None):
         if not self.field_recovery_runs or (self.workflow and self.workflow.busy):
             return
         if not messagebox.askyesno(
-            "独立确认 XY", "请按现场规程检查：有电动 XY 时确认其动作已结束；无电动 XY 时确认样品已固定、手动水平调整已结束。是否已确认？"
+            "独立确认 XY", "请按现场规程检查：有电动 XY 时确认其动作已结束；无电动 XY 时确认样品已固定、手动水平调整已结束。是否已确认？",
+            parent=parent or self.root,
         ):
             return
         if not messagebox.askyesno(
             "独立确认 AF/Z",
             "请在 ZEN 或设备端独立确认软件 AF、Z 轴和拍摄均已结束。是否已确认？",
+            parent=parent or self.root,
         ):
             return
         try:
@@ -837,12 +977,16 @@ class Workbench:
         for button in (self.demo, self.fault, self.single):
             button.configure(state="disabled" if busy or locked else "normal")
         self.recover_button.configure(state="normal" if self.recovery_runs and not busy else "disabled")
+        for index, button in enumerate(self.menu_buttons):
+            self.engineering_menu.entryconfigure(
+                index, state="disabled" if button.instate(["disabled"]) else "normal")
         self.export_button.configure(
             state="normal" if workflow and workflow.result is not None and not busy else "disabled"
         )
         self.stop_button.configure(state="normal" if busy else "disabled")
         self.mark_button.configure(state="disabled" if busy else "normal")
         self.connect_button.configure(state="disabled" if busy else "normal", text="Gateway 只读 Z" if self.xy_mode.get() == "no_xy" else "Gateway 只读 XY")
+        self.disconnect_button.configure(state="normal" if workflow and not busy else "disabled")
         for button in self.mode_buttons:
             button.configure(state="disabled" if busy else "normal")
         self.preflight_button.configure(state="disabled" if busy else "normal")
@@ -859,6 +1003,11 @@ class Workbench:
         self.save_recipe_button.configure(state="normal" if self.field_recipe and not busy else "disabled")
         self.import_button.configure(state="normal" if self.field_recipe and not busy else "disabled")
         self.path_button.configure(state="normal" if self.field_recipe and not busy else "disabled")
+        self._set_step("1", bool(workflow and workflow.state in {"就绪", "完成", "已中止"}),
+                       warn=bool(workflow and workflow.state == "设备状态待确认"))
+        self._set_step("2", bool(self.field_recipe))
+        self._set_step("3", busy or self.field_verified)
+        self._set_step("4", bool(workflow and workflow.mark_output_path))
 
     def stop(self):
         if self.workflow:
@@ -873,77 +1022,81 @@ class Workbench:
         self.release_gateway()
         self.root.destroy()
 
+    def _handle_event(self, workflow, kind, data):
+        if kind == "state":
+            state, point, detail = data
+            if workflow.simulated:
+                self.heading.set(f"离线演示：{state}")
+            else:
+                self.show_field_heading(workflow)
+            if not workflow.simulated and detail == "单点 AF 验证完成":
+                self.field_verified = True
+            message = f"{state} · 点位 {point or '—'} {detail}"
+            if state == "设备状态待确认" and workflow.simulated:
+                self.recovery_runs = pending_recovery(self.data_root, simulated=True)
+            if state == "设备状态待确认" and not workflow.simulated:
+                self.field_verified = False
+                self.field_recovery_runs = pending_recovery(self.data_root, simulated=False)
+                message += " · 请在设备端分别确认 XY 与 AF/Z，记录恢复后重新连接"
+                message += " · 本轮无有效结果，请独立确认 XY 与 AF/Z"
+            self.active_index = point or None
+            self._redraw_plot()
+            self.status.set(message)
+        elif kind == "hardware_result":
+            dialog = getattr(self, "hardware_dialog", None)
+            if dialog and dialog.winfo_exists():dialog.show_result(data[0])
+        elif kind == "mark_diagnostic":
+            dialog = getattr(self, "mark_dialog", None)
+            if dialog and dialog.winfo_exists():
+                dialog.show_diagnostic(data[0])
+        elif kind in {"mark_z", "mark_error"}:
+            dialog = getattr(self, "mark_dialog", None)
+            if kind == "mark_error":
+                self.status.set(data[0])
+                if dialog and dialog.winfo_exists():
+                    dialog.message.set(data[0])
+            elif dialog and dialog.winfo_exists():
+                dialog.set_z(*data)
+        elif kind == "verified_xy":
+            self.verified_xy = data[0]
+        elif kind == "z_only":
+            self.xy.set(f"XY：未配置 / 未校验；Z {data[0]*1e6:.3f} µm")
+        elif kind == "xy":
+            x, y = data[0]
+            self.current_xy = (x, y)
+            self.xy.set(f"XY  {x*1e6:.3f}, {y*1e6:.3f} µm")
+            self._redraw_plot()
+        elif kind == "taught":
+            self.apply_taught_point(workflow, data[0])
+        elif kind == "stop":
+            self.status.set(data[0])
+        elif kind == "row":
+            row = data[0]
+            z = "—" if row.z is None else f"{row.z*1e6:.3f}"
+            label = {"ok": "完成", "failed": "失败", "stopped": "已中止"}[row.status]
+            def xy_text(xy):
+                return "—" if xy is None else f"{xy[0]*1e6:.3f},{xy[1]*1e6:.3f}"
+
+            item = self.table.insert("", "end", values=(
+                row.index, xy_text(row.target), xy_text(row.before_af),
+                xy_text(row.after_af), z, label, row.failure_stage or "—",
+            ), tags=(("stripe" if row.index % 2 == 0 else ""), row.status))
+            self.table.see(item)
+            self.progress["value"] = row.index
+            self.point_status[row.index] = row.status
+            self._redraw_plot()
+        elif kind == "result":
+            r = data[0]
+            for value, formatted in zip(self.kpi, (
+                f"{r['rx_urad']:+.3f}", f"{r['ry_urad']:+.3f}",
+                f"{r['rms_m']*1e6:.3f}", f"{r['pv_m']*1e6:.3f}",
+            )):
+                value.set(formatted)
+
     def poll(self):
         workflow = self.workflow
         if workflow:
-            while True:
-                try:
-                    kind, *data = workflow.events.get_nowait()
-                except Empty:
-                    break
-                if kind == "state":
-                    state, point, detail = data
-                    if workflow.simulated:
-                        self.heading.set(f"离线演示：{state}")
-                    else:
-                        self.show_field_heading()
-                    if not workflow.simulated and detail == "单点 AF 验证完成":
-                        self.field_verified = True
-                    message = f"{state} · 点位 {point or '—'} {detail}"
-                    if state == "设备状态待确认" and workflow.simulated:
-                        self.recovery_runs = pending_recovery(self.data_root, simulated=True)
-                    if state == "设备状态待确认" and not workflow.simulated:
-                        self.field_verified = False
-                        self.field_recovery_runs = pending_recovery(self.data_root, simulated=False)
-                        message += " · 请在设备端分别确认 XY 与 AF/Z，记录恢复后重新连接"
-                        message += " · 本轮无有效结果，请独立确认 XY 与 AF/Z"
-                    self.status.set(message)
-                elif kind == "hardware_result":
-                    dialog = getattr(self, "hardware_dialog", None)
-                    if dialog and dialog.winfo_exists():dialog.show_result(data[0])
-                elif kind == "mark_diagnostic":
-                    dialog = getattr(self, "mark_dialog", None)
-                    if dialog and dialog.winfo_exists():
-                        dialog.show_diagnostic(data[0])
-                elif kind in {"mark_z", "mark_error"}:
-                    dialog = getattr(self, "mark_dialog", None)
-                    if kind == "mark_error":
-                        self.status.set(data[0])
-                        if dialog and dialog.winfo_exists():
-                            dialog.message.set(data[0])
-                    elif dialog and dialog.winfo_exists():
-                        dialog.set_z(*data)
-                elif kind == "verified_xy":
-                    self.verified_xy = data[0]
-                elif kind == "z_only":
-                    self.xy.set(f"XY：未配置 / 未校验；Z {data[0]*1e6:.3f} µm")
-                elif kind == "xy":
-                    x, y = data[0]
-                    self.xy.set(f"XY  {x*1e6:.3f}, {y*1e6:.3f} µm")
-                elif kind == "taught":
-                    self.apply_taught_point(workflow, data[0])
-                elif kind == "stop":
-                    self.status.set(data[0])
-                elif kind == "row":
-                    row = data[0]
-                    z = "—" if row.z is None else f"{row.z*1e6:.3f}"
-                    label = {"ok": "完成", "failed": "失败", "stopped": "已中止"}[row.status]
-                    def xy_text(xy):
-                        return "—" if xy is None else f"{xy[0]*1e6:.3f},{xy[1]*1e6:.3f}"
-
-                    item = self.table.insert("", "end", values=(
-                        row.index, xy_text(row.target), xy_text(row.before_af),
-                        xy_text(row.after_af), z, label, row.failure_stage or "—",
-                    ), tags=(("stripe" if row.index % 2 == 0 else ""), row.status))
-                    self.table.see(item)
-                    self.progress["value"] = row.index
-                elif kind == "result":
-                    r = data[0]
-                    for value, formatted in zip(self.kpi, (
-                        f"{r['rx_urad']:+.3f}", f"{r['ry_urad']:+.3f}",
-                        f"{r['rms_m']*1e6:.3f}", f"{r['pv_m']*1e6:.3f}",
-                    )):
-                        value.set(formatted)
+            self._drain_events(workflow)
             if self.pending and not workflow.busy:
                 (recipe, single_point), self.pending = self.pending, None
                 if workflow.state == "就绪":

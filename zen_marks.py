@@ -41,7 +41,7 @@ class MarkRecipe:
     z_tolerance_m: float = .5e-6
     af_timeout_s: float = 10
     arrival_timeout_s: float = 5
-    capture_timeout_s: float = 20
+    capture_timeout_s: float = 60
     settle_s: float = .2
     xy_mode: str = "motorized"
     capture_kind: str = "camera_snap"
@@ -80,7 +80,7 @@ class MarkRecipe:
                      **{key: value[key] for key in keys},
                      xy_mode=value.get("xy_mode", "motorized"), capture_kind=value.get("capture_kind", "camera_snap"),
                      use_autofocus=value.get("use_autofocus", True))
-        recipe.validate()
+        recipe.validate(tuple(key for key in ("upper", "lower") if getattr(recipe, key) is not None))
         return recipe
 
 

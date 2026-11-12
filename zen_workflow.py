@@ -152,9 +152,6 @@ class Workflow:
                     confirmed_start=confirmed_start,
                 )
                 result = None if single_point else self.fit(tuple(rows))
-                if self._stop.is_set():
-                    raise AcquisitionFailed("结果发布", len(rows), stopped=True,
-                                            recovery_required=False)
                 records.finish("complete", recovery_required=False, result=result)
                 self.result = result
                 if single_point:
@@ -290,8 +287,8 @@ class Workflow:
                 # not disable the existing angle-scanning capability.
                 self.device.read_z()
                 self.device.read_optics()
-                starting = True
                 records = MarkRecords(self.root, output, recipe, layers, self.simulated)
+                starting = True
                 self.mark_run_path, self.mark_output_path = records.path, records.output
                 self.result = None
                 self.result_path = None
@@ -355,7 +352,16 @@ class Workflow:
         if session.library is None or session.library.device is not self.device:
             raise ValueError("测试会话与当前设备不一致，请重新绑定")
         def action():
-            report=session.execute(operation,parameters,confirmed=confirmed,timeout_s=timeout_s,stop=self._stop)
+            try:
+                report=session.execute(operation,parameters,confirmed=confirmed,timeout_s=timeout_s,stop=self._stop)
+            except Exception as error:
+                from zen_hardware.rpc_diagnostics import diagnostic_from_error
+                from zen_records import safe
+                report={'operation':operation,'parameters':safe(parameters),'status':'failed','writes':True,
+                        'recovery_required':True,'result':None,
+                        'note':'单步调用未按预期返回；须现场确认设备动作已结束',
+                        'error':diagnostic_from_error(error) or {'code':type(error).__name__,
+                            'message':str(error) or '调用失败，请检查接口与日志目录'}}
             if report['recovery_required']:
                 self._state("设备状态待确认",detail="硬件单步已返回或失败；须现场核对动作结束，日志中保留实际结果")
             elif operation=='disconnect':

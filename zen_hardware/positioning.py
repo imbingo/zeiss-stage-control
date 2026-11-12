@@ -48,7 +48,9 @@ def wait_for_arrival(
                 on_read(xy)
             if stop.is_set():
                 raise PositionCheckInterrupted("已请求停止后续采集，设备状态需独立确认")
-            if within_tolerance and monotonic() <= deadline:
+            if within_tolerance:
+                # A fresh in-tolerance read is a valid confirmation even if the
+                # deadline passed between polls; the timeout only bounds the wait.
                 return xy
         remaining = deadline - monotonic()
         if remaining <= 0:

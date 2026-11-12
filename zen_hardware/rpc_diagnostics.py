@@ -10,10 +10,10 @@ class GatewayCallError(RuntimeError, grpc.RpcError):
         self.method = method
         self.status = status
         hint = {
-            grpc.StatusCode.UNIMPLEMENTED: "当前 ZEN/Gateway 未实现或未注册此方法，不会跳过或自动换接口",
+            grpc.StatusCode.UNIMPLEMENTED: "当前 ZEN/Gateway 未实现或未注册此方法，不会跳过或自动换接口；请核对 ZEN 版本、API toolkit 是否激活，以及该机型是否提供此服务",
             grpc.StatusCode.NOT_FOUND: "指定的实验或对象不存在，请核对名称；这不等于接口未实现",
             grpc.StatusCode.UNAUTHENTICATED: "认证失败，请核对当前 Gateway 控制令牌",
-            grpc.StatusCode.PERMISSION_DENIED: "没有该调用的权限，请核对 ZEN 控制权限和许可证",
+            grpc.StatusCode.PERMISSION_DENIED: "控制类调用被拒绝。请启用 Unsupervised API Mode（ZEN：Tools → Options → ZEN API；ZEN core：主页 API Mode 或 Maintenance → General Options → ZEN API），并确认 ZEN API toolkit 已激活",
             grpc.StatusCode.UNAVAILABLE: "服务不可用，请核对 ZEN 注册状态与 Gateway 转发",
             grpc.StatusCode.DEADLINE_EXCEEDED: "调用超时；若已涉及设备动作，须现场确认动作结束",
         }.get(status, "接口调用失败，请保留诊断记录")
@@ -58,8 +58,9 @@ class RpcDiagnosticsMixin:
     def _rpc_failure(self, method, error):
         if isinstance(error, GatewayCallError):
             return error
-        self._rpc_record(method, error.code().name)
-        return GatewayCallError(method, error.code())
+        status = error.code() or grpc.StatusCode.UNKNOWN
+        self._rpc_record(method, status.name)
+        return GatewayCallError(method, status)
 
     def _rpc_record(self, method, code):
         if not hasattr(self, '_rpc_trace'):

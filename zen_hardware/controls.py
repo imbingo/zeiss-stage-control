@@ -9,13 +9,14 @@ def as_dict(reply):
 
 
 class GatewayControlsMixin:
-    def _control_rpc(self, package, service, method, request, **values):
+    def _control_rpc(self, package, service, method, request, timeout_s=None, **values):
         from importlib import import_module
         module = import_module('zen_api.'+package+'_pb2')
         stub = self._mark_stub('zen_api.'+package+'_pb2_grpc', service+'Stub')
         request_type = getattr(module, request)
         return self._rpc('zen_api.'+package.rsplit('.', 1)[0]+'.'+service+'.'+method,
-                         getattr(stub, method), request_type(**values), timeout=self._timeout)
+                         getattr(stub, method), request_type(**values),
+                         timeout=self._timeout if timeout_s is None else timeout_s)
 
     def call_hardware_operation(self, operation, p):
         """Arguments already validated by HardwareLibrary; each branch is explicit."""
@@ -42,7 +43,7 @@ class GatewayControlsMixin:
             self.load_experiment(p['experiment_name']);return {'experiment_id':self._experiment_id}
         if operation == 'clone_experiment':
             reply=self._control_rpc(experiment,'ExperimentService','Clone','ExperimentServiceCloneRequest',experiment_id=p['experiment_id'])
-            if not reply.experiment_id:raise ValueError('Clone 未返回实验 ID')
+            if not reply.experiment_id or reply.experiment_id==p['experiment_id']:raise ValueError('Clone 未返回独立实验 ID，拒绝在原实验上继续操作')
             self._experiment_id=reply.experiment_id
             return as_dict(reply)
         if operation == 'export_experiment':
@@ -62,8 +63,8 @@ class GatewayControlsMixin:
             package='lm.acquisition.v1.experiment_sw_autofocus_service'
             if operation=='af':
                 return as_dict(self._control_rpc(package,'ExperimentSwAutofocusService','FindAutoFocus',
-                    'ExperimentSwAutofocusServiceFindAutoFocusRequest', experiment_id=p['experiment_id'],
-                    timeout=DoubleValue(value=p['af_timeout_s'])))
+                    'ExperimentSwAutofocusServiceFindAutoFocusRequest', timeout_s=p['af_timeout_s']+self._timeout,
+                    experiment_id=p['experiment_id'], timeout=DoubleValue(value=p['af_timeout_s'])))
             reply=self._control_rpc(package,'ExperimentSwAutofocusService','GetAutofocusParameters',
                                     'ExperimentSwAutofocusServiceGetAutofocusParametersRequest',experiment_id=p['experiment_id'])
             if operation=='get_af':return as_dict(reply)

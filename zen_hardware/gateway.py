@@ -28,8 +28,8 @@ def connection_hint(error):
     if isinstance(error, grpc.RpcError):
         return {
             grpc.StatusCode.UNAUTHENTICATED: "Gateway 认证失败。从当前 Gateway 的托盘菜单复制全局控制令牌，填入连接设置后重试。",
-            grpc.StatusCode.PERMISSION_DENIED: "Gateway 拒绝只读请求。先核对连接设置中的令牌是否来自当前 Gateway，再确认 ZEN API 工具包已启用。",
-            grpc.StatusCode.UNIMPLEMENTED: "当前服务未提供该 XY 方法。核对 ZEN 版本、设备和当前配置是否支持该方法。",
+            grpc.StatusCode.PERMISSION_DENIED: "Gateway 拒绝该调用。请启用 Unsupervised API Mode（ZEN：Tools → Options → ZEN API；ZEN core：主页 API Mode），确认 ZEN API toolkit 已激活，再核对令牌是否来自当前 Gateway。",
+            grpc.StatusCode.UNIMPLEMENTED: "当前 ZEN/Gateway 未注册该方法。请核对 ZEN 版本与本软件所需 API（2026.11.1）是否匹配，以及 ZEN API toolkit 是否已激活。",
             grpc.StatusCode.UNAVAILABLE: "请启动 ZEN 或 ZEN Core。将鼠标移到 Gateway 托盘图标，确认 ZEN 已连接并注册服务，再核对当前配置是否提供 XY 方法。",
             grpc.StatusCode.DEADLINE_EXCEEDED: "XY 读取超时。查看 Gateway 托盘提示，确认 ZEN 正在运行并已注册服务，再重新检查。",
         }.get(error.code(), "XY 服务调用失败，请检查 ZEN 和 Gateway 状态")
@@ -63,6 +63,10 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
         self._timeout = rpc_timeout
         self._channel = None
         self._experiment_id = None
+
+    @property
+    def connected(self):
+        return self._channel is not None
 
     def close(self):
         channel, self._channel = self._channel, None

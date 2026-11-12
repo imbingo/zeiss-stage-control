@@ -167,6 +167,29 @@ class WorkflowTest(unittest.TestCase):
                     restarted.start(RECIPE, path_confirmed=True)
                 self.assertEqual(restarted_device.moves, [])
 
+    def test_stop_after_last_point_keeps_result(self):
+        class StopAtLastPoint(SimulatedDevice):
+            owner = None
+
+            def autofocus(self, timeout_seconds):
+                z = super().autofocus(timeout_seconds)
+                if self.af_attempts == len(RECIPE.targets) and self.owner is not None:
+                    self.owner.stop()
+                return z
+
+        device = StopAtLastPoint(delay_seconds=0)
+        workflow = self.connected(device)
+        device.owner = workflow
+        workflow.start(RECIPE, path_confirmed=True)
+        self.wait(workflow)
+        self.assertEqual(workflow.state, "完成")
+        self.assertIsNotNone(workflow.result)
+        run, = (run for run in self.root.rglob("status.json"))
+        status = json.loads(run.read_text(encoding="utf-8"))
+        self.assertEqual(status["state"], "complete")
+        self.assertTrue(status["result_valid"])
+        self.assertFalse(status["recovery_required"])
+
     def test_stop_during_af_and_duplicate_start(self):
         device = BlockingAutofocus()
         workflow = self.connected(device)
