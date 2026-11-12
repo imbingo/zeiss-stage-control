@@ -99,7 +99,8 @@ class GatewayDevice(GatewayMarkMixin, RpcDiagnosticsMixin):
             raise RuntimeError("无 XY 单点采图模式不提供 XY 操作")
         from zen_api.hardware.v1.simple_stage_service_pb2 import SimpleStageServiceGetPositionRequest
 
-        reply = self._xy.GetPosition(SimpleStageServiceGetPositionRequest(), timeout=self._timeout)
+        reply = self._rpc("zen_api.hardware.v1.SimpleStageService.GetPosition", self._xy.GetPosition,
+                          SimpleStageServiceGetPositionRequest(), timeout=self._timeout)
         return reply.x, reply.y
 
     def motion_state(self):
@@ -108,7 +109,7 @@ class GatewayDevice(GatewayMarkMixin, RpcDiagnosticsMixin):
         from zen_api.hardware.v1.stage_service_pb2 import StageServiceGetStageMotionStateRequest
         from zen_api.hardware.v1 import stage_motion_state_pb2 as states
 
-        reply = self._stage.GetStageMotionState(
+        reply = self._rpc("zen_api.hardware.v1.StageService.GetStageMotionState", self._stage.GetStageMotionState,
             StageServiceGetStageMotionStateRequest(), timeout=self._timeout
         )
         return {
@@ -123,7 +124,7 @@ class GatewayDevice(GatewayMarkMixin, RpcDiagnosticsMixin):
         from google.protobuf.wrappers_pb2 import DoubleValue
         from zen_api.hardware.v1.simple_stage_service_pb2 import SimpleStageServiceMoveToRequest
 
-        self._xy.MoveTo(
+        self._rpc("zen_api.hardware.v1.SimpleStageService.MoveTo", self._xy.MoveTo,
             SimpleStageServiceMoveToRequest(x=DoubleValue(value=x), y=DoubleValue(value=y)),
             timeout=self._timeout,
         )

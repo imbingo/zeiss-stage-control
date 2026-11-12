@@ -123,9 +123,12 @@ class GatewayMarkMixin:
         streaming = self._mark_stub('zen_api.acquisition.v1beta.experiment_streaming_service_pb2_grpc', 'ExperimentStreamingServiceStub')
         # Subscribe BEFORE triggering this single exposure. A unique clone ID
         # prevents a live/previous/AF frame from being mistaken for this snap.
-        stream = streaming.MonitorExperiment(ExperimentStreamingServiceMonitorExperimentRequest(
-            experiment_id=experiment_id, channel_index=Int32Value(value=0), enable_raw_data=False,
-        ), timeout=timeout_s)
+        try:
+            stream = streaming.MonitorExperiment(ExperimentStreamingServiceMonitorExperimentRequest(
+                experiment_id=experiment_id, channel_index=Int32Value(value=0), enable_raw_data=False,
+            ), timeout=timeout_s)
+        except grpc.RpcError as error:
+            raise self._rpc_failure("zen_api.acquisition.v1beta.ExperimentStreamingService.MonitorExperiment", error) from error
         messages, started, closing = Queue(), Event(), Event()
         def receive():
             started.set()
@@ -152,7 +155,10 @@ class GatewayMarkMixin:
             method = self._experiments.RunExperiment if kind == 'confocal' else self._experiments.RunSnap
             request = ExperimentServiceRunExperimentRequest if kind == 'confocal' else ExperimentServiceRunSnapRequest
             capture_method = "zen_api.acquisition.v1beta.ExperimentService." + ("RunExperiment" if kind == "confocal" else "RunSnap")
-            snap = method.future(request(experiment_id=experiment_id, output_name=output_name), timeout=timeout_s)
+            try:
+                snap = method.future(request(experiment_id=experiment_id, output_name=output_name), timeout=timeout_s)
+            except grpc.RpcError as error:
+                raise self._rpc_failure(capture_method, error) from error
             while True:
                 if stop.is_set():
                     raise InterruptedError("已请求停止拍摄")
