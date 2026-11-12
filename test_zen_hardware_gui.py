@@ -42,4 +42,17 @@ class HardwareWindowTests(unittest.TestCase):
         self.dialog.copy_latest()
         self.assertIn('abc',self.dialog.clipboard_get())
 
+    def test_execute_through_workflow_and_render_log(self):
+        import time
+        self.dialog.bind(True)
+        self.dialog.tree.selection_set('connect');self.dialog.select();self.dialog.run()
+        deadline=time.monotonic()+3
+        while self.app.workflow.busy and time.monotonic()<deadline:time.sleep(.01)
+        self.assertFalse(self.app.workflow.busy)
+        self.app.poll()
+        self.assertEqual(self.dialog.latest['status'],'success')
+        self.assertTrue(self.dialog.session.library.connected)
+        self.assertIn('channel_ready',self.dialog.log.get('1.0','end'))
+        self.assertEqual(self.app.workflow.device.lab_calls,[])
+
 if __name__=='__main__':unittest.main()

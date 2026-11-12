@@ -82,7 +82,11 @@ class HardwareTestWindow(tk.Toplevel):
             self.attach(self.app.workflow)
             self.info.set('已绑定，尚未连接。请选择“连接通信”。')
             self.select()
-        except Exception as exc:messagebox.showerror('绑定失败',str(exc),parent=self)
+        except Exception as exc:
+            report={'operation':'bind','title':'绑定设备','status':'failed','simulated':simulated,
+                    'error':{'code':type(exc).__name__,'message':str(exc) if isinstance(exc,(ValueError,OSError)) else '绑定失败，请检查本地配置'}}
+            self.session.append({**report,'event':'binding_error'})
+            self.show_result(report)
 
     def select(self,event=None):
         selected=self.tree.selection()
@@ -101,8 +105,7 @@ class HardwareTestWindow(tk.Toplevel):
         workflow=self.app.workflow
         if not workflow or workflow.busy or self.session.library is None:
             self.info.set('请先绑定设备，或等待当前任务结束。');return
-        try:timeout=float(self.timeout.get())
-        except ValueError:self.info.set('客户端超时请填写秒数。');return
+        timeout=self.timeout.get()
         self.save_preferences()
         params={f.name:self.values[f.name].get() for f in self.op.fields}
         confirmed=self.approved.get();self.approved.set(False)
