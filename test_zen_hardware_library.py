@@ -42,11 +42,11 @@ class HardwareLibraryTests(unittest.TestCase):
 
     def test_logs_include_failed_validation_and_omit_unknown_secrets(self):
         self.run_op('read_z',{'token':'SECRET'})
-        lines=[json.loads(x) for x in self.session.jsonl_path.read_text().splitlines()]
+        lines=[json.loads(x) for x in self.session.jsonl_path.read_text(encoding='utf-8').splitlines()]
         self.assertEqual(lines[-2]['event'],'begin');self.assertEqual(lines[-1]['event'],'result')
         self.assertEqual(lines[-1]['status'],'failed')
         self.assertIn('duration_ms',lines[-1]);self.assertIn('client_stack',lines[-1])
-        self.assertNotIn('SECRET',self.session.log_path.read_text())
+        self.assertNotIn('SECRET',self.session.log_path.read_text(encoding='utf-8'))
 
     def test_nonfinite_input_rejected(self):
         r=self.run_op('move_z',{'z_um':'nan'},confirmed=True)
