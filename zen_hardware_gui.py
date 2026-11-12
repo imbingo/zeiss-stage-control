@@ -134,13 +134,21 @@ class HardwareTestWindow(tk.Toplevel):
 
     def recover(self):
         if self.app.workflow and self.app.workflow.busy:return
-        from zen_records import pending_recovery
-        if self.session.simulated:self.app.recovery_runs=pending_recovery(self.app.data_root,simulated=True)
-        else:self.app.field_recovery_runs=pending_recovery(self.app.data_root,simulated=False)
-        (self.app.recover if self.session.simulated else self.app.recover_field)()
-        if not self.app.workflow:
-            self.session.library=None
-            self.mode.set("未绑定设备，请重新绑定并连接")
+        from zen_records import pending_recovery, confirm_recovery
+        if self.session.simulated:
+            runs=pending_recovery(self.app.data_root,simulated=True)
+            if not runs:return
+            if not messagebox.askyesno('演示恢复','模拟确认 Z、AF、采集及 XY（如有）均已结束？',parent=self):return
+            try:
+                self.app.workflow.device.confirm_simulated_recovery()
+                for run in runs:confirm_recovery(run,xy_confirmed=True,af_z_confirmed=True)
+                self.app.recovery_runs=pending_recovery(self.app.data_root,simulated=True)
+            except OSError:
+                self.info.set('恢复记录保存失败，请检查日志目录。');return
+        else:
+            self.app.field_recovery_runs=pending_recovery(self.app.data_root,simulated=False)
+            self.app.recover_field()
+        self.info.set('已处理恢复确认；实验 ID 沿用当前连接，业务采集前须重新校验。')
 
     def copy_latest(self):
         if self.latest:self.clipboard_clear();self.clipboard_append(json.dumps(self.latest,ensure_ascii=False,indent=2))

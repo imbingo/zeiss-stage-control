@@ -57,4 +57,18 @@ class HardwareWindowTests(unittest.TestCase):
         self.assertIn('channel_ready',self.dialog.log.get('1.0','end'))
         self.assertEqual(self.app.workflow.device.lab_calls,[])
 
+    def test_simulated_recovery_preserves_loaded_experiment(self):
+        from unittest.mock import patch
+        self.dialog.bind(True)
+        self.dialog.session.execute('connect')
+        report=self.dialog.session.execute('load_experiment',{'experiment_name':'Demo upper'},confirmed=True)
+        self.dialog.show_result(report)
+        identity=self.dialog.values['experiment_id'].get()
+        workflow=self.app.workflow
+        with patch('zen_hardware_gui.messagebox.askyesno',return_value=True):self.dialog.recover()
+        self.assertIs(self.app.workflow,workflow)
+        self.assertEqual(self.dialog.values['experiment_id'].get(),identity)
+        result=self.dialog.session.execute('af',{'experiment_id':identity,'af_timeout_s':1},confirmed=True)
+        self.assertEqual(result['status'],'success')
+
 if __name__=='__main__':unittest.main()
