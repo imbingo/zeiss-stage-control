@@ -84,3 +84,10 @@ class SimulatedMarkDevice(SimulatedDevice):
         if self.mark_fault == 'scale' and self.capture_count == 2:
             frame = replace(frame, scale_x_m=.4e-6)
         return frame
+
+    def inspect_mark_experiments(self, names):
+        return {"kind": "read_only_experiment_check", "device_actions_performed": False,
+                "available_experiments": ["Demo upper", "Demo lower"],
+                "requested_experiments": [{"name": name, "exists": name in ("Demo upper", "Demo lower")} for name in names if name],
+                "z_m": self.read_z(), "optics_positions": self.read_optics(), "rpc_trace": [],
+                "limitations": ["离线模拟报告不证明现场接口可用，不检查或锁定真实转盘"]}

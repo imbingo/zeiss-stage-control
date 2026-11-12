@@ -49,9 +49,9 @@ jobs:
           Set-Location $env:PAYLOAD
           cmd /c 'check_windows.bat --no-pause'
           if ($LASTEXITCODE) { throw 'Portable runtime check failed' }
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 34 or bool(result.skipped))"
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 42 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_path_editor', 'test_zen_mark_gui']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 8 or bool(result.skipped))"
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_path_editor', 'test_zen_mark_gui']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 10 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Regression tests failed' }
           @'
           import sys, tempfile, time, tkinter as tk
@@ -89,13 +89,13 @@ jobs:
           & $iscc "/DPayload=$env:PAYLOAD" "/O$pwd/release" ZEN_Surface_Tilt.iss
           if ($LASTEXITCODE) { throw 'Installer compilation failed' }
           $install = Join-Path $env:RUNNER_TEMP 'zen-installed'
-          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.2.0.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
+          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.3.0.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
           if ($process.ExitCode) { throw "Installer failed: $($process.ExitCode)" }
           Push-Location $install
           cmd /c 'check_windows.bat --no-pause'
           if ($LASTEXITCODE) { throw 'Installed runtime check failed' }
           Pop-Location
-          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.2.0.zip
+          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.3.0.zip
           Get-ChildItem release -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:

@@ -37,6 +37,7 @@ class Workflow:
         self.state = "未连接"
         self.mark_run_path = None
         self.mark_output_path = None
+        self.mark_diagnostic_report = None
 
     @property
     def xy_enabled(self):
@@ -242,6 +243,10 @@ class Workflow:
 
     @staticmethod
     def _mark_hint(error):
+        from zen_hardware.rpc_diagnostics import diagnostic_from_error
+        diagnostic = diagnostic_from_error(error)
+        if diagnostic:
+            return diagnostic["message"]
         from zen_hardware.mark_gateway import MarkCapabilityError
         if isinstance(error, (MarkCapabilityError, ValueError, TimeoutError, InterruptedError)):
             return str(error)
@@ -257,11 +262,13 @@ class Workflow:
             pass
         return "采图接口调用失败，请检查设备和 ZEN 实验；详细位置见运行阶段"
 
-    def start_mark_capture(self, recipe, output, *, layers=("upper", "lower"), confirmed=False):
+    def start_mark_capture(self, recipe, output, *, layers=("upper", "lower"), confirmed=False, experiment_loading_confirmed=False):
         from pathlib import Path
         from zen_marks import MarkRecords, capture_marks, CaptureStopped
         if not confirmed:
             raise ValueError("请先确认两层 Z 路径、搜索范围、物镜间隙和拍摄参数")
+        if not experiment_loading_confirmed:
+            raise ValueError("未确认 ZEN 实验加载/运行不会换物镜或恢复位置，禁止加载和拍摄；读到 Z 不代表转盘已锁定")
         recipe.validate(layers)
         if (recipe.xy_mode == "motorized") != self.xy_enabled:
             raise ValueError("采图配置的 XY 模式与当前连接不同，请重新选择模式并连接")
@@ -276,6 +283,8 @@ class Workflow:
         self.mark_output_path = None
         def action():
             records, starting = None, False
+            if hasattr(self.device, "clear_rpc_trace"):
+                self.device.clear_rpc_trace()
             try:
                 # Capability checks are read-only. Missing optional services do
                 # not disable the existing angle-scanning capability.
@@ -288,6 +297,8 @@ class Workflow:
                 self.result_path = None
                 capture_marks(self.device, recipe, layers, self._stop, records,
                               lambda detail: self._state("对位采图", detail=detail))
+                records.document["rpc_trace"] = self.device.rpc_trace() if hasattr(self.device, "rpc_trace") else []
+                records.document["operator_experiment_loading_confirmed"] = experiment_loading_confirmed
                 records.finish("complete", recovery=False)
                 final = "下 mark" if layers[-1] == "lower" else "上 mark"
                 self._state("就绪", detail=f"采图完成，停留在{final}焦面；图片目录：{records.output}")
@@ -295,6 +306,10 @@ class Workflow:
                 stopped = isinstance(error, (CaptureStopped, InterruptedError)) or self._stop.is_set()
                 detail = "已停止后续拍摄" if stopped else self._mark_hint(error)
                 if records is not None:
+                    from zen_hardware.rpc_diagnostics import diagnostic_from_error
+                    records.document["error"] = diagnostic_from_error(error)
+                    records.document["rpc_trace"] = self.device.rpc_trace() if hasattr(self.device, "rpc_trace") else []
+                    records.document["operator_experiment_loading_confirmed"] = experiment_loading_confirmed
                     try:
                         records.finish("stopped" if stopped else "failed", recovery=True,
                                        stage=records.document["status"]["failure_stage"] + " · " + detail)
@@ -304,5 +319,33 @@ class Workflow:
                     self._state("设备状态待确认", detail=detail + "；请确认 XY、Z、AF 与拍摄均已结束")
                 else:
                     self._state(previous, detail=detail)
+                from zen_hardware.rpc_diagnostics import diagnostic_from_error
+                from zen_records import utc_now
+                self.mark_diagnostic_report = {
+                    "kind": "capture_failure", "checked_at": utc_now(), "simulated": self.simulated,
+                    "error": diagnostic_from_error(error) or {"message": detail},
+                    "rpc_trace": self.device.rpc_trace() if hasattr(self.device, "rpc_trace") else [],
+                    "recovery_required": starting, "device_actions_possible": starting,
+                }
+                self.events.put(("mark_diagnostic", self.mark_diagnostic_report))
                 self.events.put(("mark_error", detail))
+        self._launch(action)
+
+    def inspect_mark_experiments(self, names, *, reported_zen_version=""):
+        if self.state == "未连接":
+            raise RuntimeError("请先连接 Gateway；此检查不会加载实验或动作")
+        def action():
+            if hasattr(self.device, "clear_rpc_trace"):
+                self.device.clear_rpc_trace()
+            try:
+                report = self.device.inspect_mark_experiments(tuple(names))
+            except Exception as error:
+                from zen_hardware.rpc_diagnostics import diagnostic_from_error
+                report = {"kind": "read_only_experiment_check", "device_actions_performed": False,
+                          "errors": [diagnostic_from_error(error) or {"message": self._mark_hint(error)}]}
+            from zen_records import utc_now
+            report.update({"checked_at": utc_now(), "simulated": self.simulated,
+                           "reported_zen_version": reported_zen_version, "version_source": "operator"})
+            self.mark_diagnostic_report = report
+            self.events.put(("mark_diagnostic", report))
         self._launch(action)

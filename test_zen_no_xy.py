@@ -44,7 +44,7 @@ class NoXYTest(unittest.TestCase):
         while not self.workflow.events.empty():events.append(self.workflow.events.get())
         taught=next(event for event in events if event[0]=='mark_z')
         self.assertIsNone(taught[3])
-        self.workflow.start_mark_capture(self.recipe, self.base/'images', confirmed=True);self.wait()
+        self.workflow.start_mark_capture(self.recipe, self.base/'images', confirmed=True, experiment_loading_confirmed=True);self.wait()
         self.assertEqual(self.workflow.state, '就绪')
         self.assertEqual(self.device.moves, [])
         self.assertEqual(self.device.af_attempts, 0)
@@ -64,13 +64,13 @@ class NoXYTest(unittest.TestCase):
     def test_angle_and_mismatched_connection_modes_are_rejected(self):
         with self.assertRaises(RuntimeError):self.workflow.start(RECIPE, path_confirmed=True)
         with self.assertRaises(RuntimeError):self.workflow.teach_xy()
-        with self.assertRaises(ValueError):self.workflow.start_mark_capture(MARKS, self.base/'images', confirmed=True)
+        with self.assertRaises(ValueError):self.workflow.start_mark_capture(MARKS, self.base/'images', confirmed=True, experiment_loading_confirmed=True)
         self.assertEqual(self.device.z_moves, [])
         self.assertEqual(self.device.capture_count, 0)
 
     def test_af_failure_still_locks_no_xy_mode_after_reconnect(self):
         self.device.mark_fault='af_timeout'
-        self.workflow.start_mark_capture(replace(self.recipe, use_autofocus=True), self.base/'images', confirmed=True)
+        self.workflow.start_mark_capture(replace(self.recipe, use_autofocus=True), self.base/'images', confirmed=True, experiment_loading_confirmed=True)
         self.wait()
         self.assertEqual(self.workflow.state, '设备状态待确认')
         self.workflow.connect();self.wait()

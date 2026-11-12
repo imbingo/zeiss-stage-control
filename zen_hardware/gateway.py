@@ -6,6 +6,7 @@ secure, authenticated channel with retries disabled for device commands.
 
 from . import AutofocusTimeout, DeviceDisconnected, Motion
 from .mark_gateway import GatewayMarkMixin
+from .rpc_diagnostics import RpcDiagnosticsMixin
 
 
 def connection_hint(error):
@@ -53,8 +54,9 @@ def secure_channel(address, certificate, token):
     return grpc.secure_channel(address, credentials, options=(("grpc.enable_retries", 0), ("grpc.max_receive_message_length", 256 * 1024 * 1024)))
 
 
-class GatewayDevice(GatewayMarkMixin):
+class GatewayDevice(GatewayMarkMixin, RpcDiagnosticsMixin):
     def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True):
+        self.clear_rpc_trace()
         self.xy_enabled = xy_enabled
         self._channel_factory = channel_factory
         self._timeout = rpc_timeout
@@ -130,7 +132,7 @@ class GatewayDevice(GatewayMarkMixin):
         from zen_api.acquisition.v1beta.experiment_service_pb2 import ExperimentServiceLoadRequest
 
         self._experiment_id = None
-        reply = self._experiments.Load(
+        reply = self._rpc("zen_api.acquisition.v1beta.ExperimentService.Load", self._experiments.Load,
             ExperimentServiceLoadRequest(experiment_name=name), timeout=self._timeout
         )
         if not reply.experiment_id:
@@ -150,11 +152,12 @@ class GatewayDevice(GatewayMarkMixin):
             experiment_id=self._experiment_id, timeout=DoubleValue(value=timeout_seconds)
         )
         try:
-            reply = self._af.FindAutoFocus(request, timeout=timeout_seconds + self._timeout)
+            reply = self._rpc("zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.FindAutoFocus",
+                              self._af.FindAutoFocus, request, timeout=timeout_seconds + self._timeout)
         except grpc.RpcError as exc:
             if exc.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-                raise AutofocusTimeout("AF 调用超时，设备状态待确认") from None
+                raise AutofocusTimeout("AF 调用超时，设备状态待确认") from exc
             if exc.code() == grpc.StatusCode.UNAVAILABLE:
-                raise DeviceDisconnected("AF 期间 Gateway 不可用，设备状态待确认") from None
+                raise DeviceDisconnected("AF 期间 Gateway 不可用，设备状态待确认") from exc
             raise
         return reply.focus_position

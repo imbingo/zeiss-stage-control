@@ -25,7 +25,11 @@ class MarkCaptureDialog(tk.Toplevel):
         self.demo_config = False
         self.closed = False
         self.last_app_status = None
+        self._save_job = None
+        self._rpc_report = None
         self.approved = tk.BooleanVar(value=False)
+        self.loading_approved = tk.BooleanVar(value=False)
+        self.reported_zen_version = tk.StringVar(value="3.12")
         self.capture_kind = tk.StringVar(value="共聚焦采集（ZEN 采集实验）")
         self.use_af = tk.BooleanVar(value=True)
         self.xy_note = tk.StringVar()
@@ -115,6 +119,11 @@ class MarkCaptureDialog(tk.Toplevel):
         self.approval_button = ttk.Checkbutton(shell, variable=self.approved,
             text="已固定样品且不会手动移动水平位置；已核对 Z 路径/AF 范围、物镜/倍率/ROI，以及通道 0 的单幅采集设置。")
         self.approval_button.pack(anchor="w", pady=8)
+        self.loading_approval_button = ttk.Checkbutton(shell, variable=self.loading_approved,
+            text="已在 ZEN 核对实验加载/运行不会换物镜或恢复设备位置（人工确认，不代表软件锁定转盘）。")
+        self.loading_approval_button.pack(anchor="w", pady=3)
+        ttk.Label(shell, text="读取 Z 不代表转盘已锁定；实验列表检查无法审查全部参数。未排除换镜风险时，仅做只读检查。",
+                  foreground="#973c39", wraplength=970).pack(anchor="w", pady=3)
         controls = ttk.Frame(shell)
         controls.pack(fill="x", pady=6)
         self.capture_buttons = []
@@ -134,13 +143,94 @@ class MarkCaptureDialog(tk.Toplevel):
         self.open_button.pack(side="left")
         self.recover_button = ttk.Button(utilities, text="恢复确认", command=self.recover)
         self.recover_button.pack(side="right")
+        diagnostics = ttk.Frame(shell)
+        diagnostics.pack(fill="x", pady=4)
+        ttk.Label(diagnostics, text="ZEN 版本（人工记录，不决定兼容性）").pack(side="left")
+        self.version_entry = ttk.Entry(diagnostics, textvariable=self.reported_zen_version, width=10)
+        self.version_entry.pack(side="left", padx=6)
+        self.editable.append(self.version_entry)
+        self.inspect_button = ttk.Button(diagnostics, text="只读检查实验名（不加载）", command=self.inspect_experiments)
+        self.inspect_button.pack(side="left", padx=8)
+        self.diagnostic_save_button = ttk.Button(diagnostics, text="保存诊断报告", command=self.save_diagnostic)
+        self.diagnostic_save_button.pack(side="right")
+        self.diagnostic_text = tk.Text(shell, height=6, wrap="word", state="disabled")
+        self.diagnostic_text.pack(fill="x", pady=3)
         ttk.Label(shell, textvariable=self.message, wraplength=940, justify="left").pack(fill="x", anchor="w", pady=8)
         ttk.Label(shell, text="完成后停留在最后拍摄层的焦面，不自动返回。停止/超时不等于物理动作已结束；异常时须确认 XY、Z、AF 与拍摄状态。", wraplength=940, foreground="#626873").pack(side="bottom", anchor="w", pady=8)
-        for variable in [self.output, self.capture_kind, self.use_af, self.app.xy_mode, *self.common.values(), *(v for group in self.fields.values() for v in group.values())]:
-            variable.trace_add("write", lambda *args: self.approved.set(False))
+        self.restore_preferences()
+        for variable in [self.output, self.capture_kind, self.use_af, self.app.xy_mode, self.reported_zen_version,
+                         *self.common.values(), *(v for group in self.fields.values() for v in group.values())]:
+            variable.trace_add("write", self.parameters_changed)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.grab_set()
         self._refresh_job = self.after(100, self.refresh)
+
+    def restore_preferences(self):
+        saved = self.app.preferences.data.get("mark_capture")
+        if not saved:
+            return
+        for key, group in self.fields.items():
+            for name, variable in group.items():
+                if name in saved.get(key, {}):variable.set(saved[key][name])
+        for key, variable in self.common.items():
+            if key in saved.get("common", {}):variable.set(saved["common"][key])
+        if "output" in saved:self.output.set(saved["output"])
+        if "reported_zen_version" in saved:self.reported_zen_version.set(saved["reported_zen_version"])
+        if "capture_kind" in saved:
+            self.capture_kind.set("共聚焦采集（ZEN 采集实验）" if saved["capture_kind"] == "confocal" else "相机拍照（ZEN 定位 / Snap）")
+        self.use_af.set(saved.get("use_autofocus", True))
+        self.demo_config = saved.get("simulated_configuration", True)
+        self.approved.set(False)
+        self.loading_approved.set(False)
+        self.message.set("已自动恢复上次参数；示教 Z 为历史值，尚未核对本次位置。请先做只读检查，重新核对间隙和实验，不会自动连接或动作。")
+
+    def parameters_changed(self, *args):
+        self.approved.set(False)
+        self.loading_approved.set(False)
+        if self._save_job:
+            self.after_cancel(self._save_job)
+        self._save_job = self.after(350, self.persist_preferences)
+
+    def persist_preferences(self):
+        self._save_job = None
+        saved = {key: {name: var.get() for name, var in group.items()} for key, group in self.fields.items()}
+        saved.update({"common": {key: var.get() for key, var in self.common.items()},
+                      "output": self.output.get(), "capture_kind": "confocal" if self.capture_kind.get().startswith("共聚焦") else "camera_snap",
+                      "use_autofocus": self.use_af.get(), "simulated_configuration": self.demo_config,
+                      "reported_zen_version": self.reported_zen_version.get()})
+        if not self.app.preferences.update(xy_mode=self.app.xy_mode.get(), mark_capture=saved):
+            self.message.set("自动保存配置失败或旧配置不可读；本次参数仍可用，可另存配置文件。")
+
+    def inspect_experiments(self):
+        try:
+            if self.app.workflow is None:
+                raise ValueError("请先连接 Gateway；只读检查不会加载实验、移动 Z 或拍摄")
+            names = tuple(group["experiment"].get().strip() for group in self.fields.values())
+            self.app.workflow.inspect_mark_experiments(names, reported_zen_version=self.reported_zen_version.get().strip())
+            self.message.set("正在只读查询实验名与位置，不加载实验、不动作。")
+        except (ValueError, RuntimeError) as error:
+            self.message.set(str(error))
+
+    def show_diagnostic(self, report):
+        self._rpc_report = report
+        self.diagnostic_text.configure(state="normal")
+        self.diagnostic_text.delete("1.0", "end")
+        self.diagnostic_text.insert("1.0", json.dumps(report, ensure_ascii=False, indent=2))
+        self.diagnostic_text.configure(state="disabled")
+        self.message.set("只读检查已结束，列表通过也不证明转盘安全或采集接口可用。可保存诊断报告。" if report.get("kind") == "read_only_experiment_check"
+                         else "采图失败方法已记录。可保存诊断报告；设备动作结束情况仍需现场确认，不要反复试拍。")
+
+    def save_diagnostic(self):
+        if self._rpc_report is None:
+            return
+        path = filedialog.asksaveasfilename(parent=self, defaultextension=".json", filetypes=[("诊断报告", "*.json")])
+        if path:
+            try:
+                write_json(Path(path), self._rpc_report)
+            except (OSError, ValueError):
+                self.message.set("诊断报告保存失败，请检查目录权限。")
+            else:
+                self.message.set("诊断报告已保存；包含方法名和状态码，不包含令牌或请求体。")
 
     def idle(self):
         return not (self.app.workflow and self.app.workflow.busy)
@@ -154,6 +244,7 @@ class MarkCaptureDialog(tk.Toplevel):
                 group["z_m"].set("")
         self.demo_config = False
         self.approved.set(False)
+        self.loading_approved.set(False)
         self.app.connect_field()
         self.message.set(self.app.status.get())
 
@@ -215,7 +306,7 @@ class MarkCaptureDialog(tk.Toplevel):
                 raise ValueError("请选择图像输出目录")
             recipe = self.recipe(layers)
             workflow.start_mark_capture(recipe, Path(self.output.get()), layers=layers,
-                                        confirmed=self.approved.get())
+                                        confirmed=self.approved.get(), experiment_loading_confirmed=self.loading_approved.get())
             self.app.field_verified = False
             self.app.clear_result()
             self.message.set("采图任务已提交；请等待完成，期间不要手动改变 XY、物镜或倍率。")
@@ -259,6 +350,7 @@ class MarkCaptureDialog(tk.Toplevel):
                 var.set(f"{getattr(recipe, key)*(1e6 if key.endswith('_m') else 1):.9g}")
             self.demo_config = data.get("simulated_configuration") is not False
             self.approved.set(False)
+            self.loading_approved.set(False)
             self.message.set("配置已加载。请重新核对当前 XY、物镜、两层 Z 和间隙，再勾选确认。")
         except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
             self.message.set("采图配置读取失败，请检查文件版本、单位和参数。")
@@ -292,8 +384,10 @@ class MarkCaptureDialog(tk.Toplevel):
         self.xy_note.set("XY 未配置、未校验，须手动固定样品；仅控制 Z 和保存 TIFF，不能进行角度扫描。" if no_xy else "当前 XY 不主动移动，软件校验 XY 回读；图像保存为 TIFF 后交给 SOMA 分析。")
         for entry in self.editable:
             entry.configure(state="disabled" if busy else "normal")
-        for button in (*self.mode_controls, self.af_control, self.connect_button, self.demo_button, self.browse_button, self.load_button, self.save_button, self.approval_button):
+        for button in (*self.mode_controls, self.af_control, self.loading_approval_button, self.connect_button, self.demo_button, self.browse_button, self.load_button, self.save_button, self.approval_button):
             button.configure(state="disabled" if busy else "normal")
+        self.inspect_button.configure(state="normal" if workflow and not busy and workflow.state != "未连接" else "disabled")
+        self.diagnostic_save_button.configure(state="normal" if self._rpc_report and not busy else "disabled")
         self.kind_combo.configure(state="disabled" if busy else "readonly")
         self.common_entries["xy_tolerance_m"].configure(state="disabled" if busy or no_xy else "normal")
         for button in (*self.read_buttons, *self.capture_buttons):
@@ -319,6 +413,11 @@ class MarkCaptureDialog(tk.Toplevel):
         # timer through the root would leave a stale command in the child and
         # cause errors on close/reopen or when shutting down the application.
         self.closed = True
+        save_job = getattr(self, "_save_job", None)
+        if save_job:
+            self.after_cancel(save_job)
+            self._save_job = None
+        self.persist_preferences()
         job = getattr(self, "_refresh_job", None)
         if job:
             self.after_cancel(job)

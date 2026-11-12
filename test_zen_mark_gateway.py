@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import importlib
+import json
 from pathlib import Path
 import tempfile
 from threading import Event, Thread
@@ -15,6 +16,7 @@ from google.protobuf.message_factory import GetMessageClass
 
 from zen_hardware.gateway import GatewayDevice
 from zen_hardware.mark_gateway import MarkCapabilityError
+from zen_hardware.rpc_diagnostics import GatewayCallError
 
 try:
     from zen_api.acquisition.v1beta.frame_data_pb2 import FrameData
@@ -26,6 +28,7 @@ except ImportError:
 class MarkGatewayTest(unittest.TestCase):
     def setUp(self):
         self.calls = []
+        self.reject_method = None
         self.xy_missing = self.optics_missing = self.omit_xy = self.omit_z = False
         self.reject_confocal = False
         self.images_count = 1
@@ -82,6 +85,8 @@ class MarkGatewayTest(unittest.TestCase):
 
     def handle(self, service, method, response, req, ctx):
         self.calls.append((service, method))
+        if method == self.reject_method:
+            ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "synthetic-private-detail-not-for-export")
         if self.xy_missing and service.endswith((".SimpleStageService", ".StageService")):
             ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "No XY installed")
         if service.endswith('.SimpleStageService') and method == 'GetPosition':
@@ -94,6 +99,8 @@ class MarkGatewayTest(unittest.TestCase):
         if service.endswith(('.ObjectiveChangerService', '.OptovarService')) and method == 'GetPosition':
             if self.optics_missing:ctx.abort(grpc.StatusCode.UNIMPLEMENTED, 'Fixed optics')
             return response(value=1)
+        if method == 'GetAvailableExperiments':
+            return response(experiments=[{'name':'PLLOW扫描'}, {'name':'Upper'}])
         if method == 'Load':
             identity = 'original:'+req.experiment_name
             self.params[identity] = dict(auto_focus_mode=1, contrast_measure=1, autofocus_sampling=1,
@@ -244,3 +251,55 @@ class MarkGatewayTest(unittest.TestCase):
         self.prepare();self.images_count=2
         with self.assertRaises(ValueError):self.device.capture_frame(2, Event(), 'stack', kind='confocal')
         self.assertEqual(self.stops, 1)
+
+    def test_preparation_failure_identifies_exact_method_without_private_details(self):
+        for method in ('Load', 'Clone', 'GetAutofocusParameters', 'SetAutofocusParameters'):
+            with self.subTest(method=method):
+                self.reject_method=method
+                with self.assertRaises(GatewayCallError) as caught:self.prepare()
+                error=caught.exception
+                self.assertTrue(error.method.endswith('.'+method))
+                self.assertEqual(error.code(), grpc.StatusCode.UNIMPLEMENTED)
+                self.assertNotIn('synthetic-private-detail', json.dumps(error.to_dict()))
+                self.assertEqual(self.z_moves, [])
+                self.assertEqual(self.snaps, 0)
+
+    def test_read_only_inspection_does_not_load_clone_or_move(self):
+        self.calls.clear()
+        report=self.device.inspect_mark_experiments(('PLLOW扫描', 'missing'))
+        self.assertEqual(report['requested_experiments'], [{'name':'PLLOW扫描','exists':True}, {'name':'missing','exists':False}])
+        self.assertFalse(report['device_actions_performed'])
+        self.assertEqual({method for service,method in self.calls}, {'GetAvailableExperiments', 'GetPosition'})
+        self.assertEqual(self.z_moves, [])
+        self.assertEqual(self.snaps, 0)
+
+    def test_unsupported_read_only_listing_is_unknown_not_missing(self):
+        self.reject_method='GetAvailableExperiments'
+        report=self.device.inspect_mark_experiments(('PLLOW扫描',))
+        self.assertIsNone(report['requested_experiments'][0]['exists'])
+        self.assertEqual(report['errors'][0]['code'], 'UNIMPLEMENTED')
+        self.assertTrue(report['errors'][0]['method'].endswith('.GetAvailableExperiments'))
+        self.assertEqual(self.z_moves, [])
+
+    def test_capture_failure_persists_rpc_method_and_status(self):
+        from zen_workflow import Workflow
+        from zen_fit import validate_recipe, fit_demo
+        from test_zen_marks import MARKS
+        with tempfile.TemporaryDirectory() as folder:
+            base=Path(folder)
+            workflow=Workflow(self.device, base/'records', simulated=False, validate=validate_recipe, fit=fit_demo)
+            def wait():
+                deadline=time.monotonic()+4
+                while workflow.busy and time.monotonic()<deadline:time.sleep(.01)
+                self.assertFalse(workflow.busy)
+            workflow.connect();wait()
+            self.reject_method='Clone'
+            workflow.start_mark_capture(MARKS, base/'images', confirmed=True, experiment_loading_confirmed=True);wait()
+            self.assertEqual(workflow.state, '设备状态待确认')
+            report=json.loads((workflow.mark_output_path/'capture.json').read_text(encoding='utf-8'))
+            self.assertTrue(report['error']['method'].endswith('.Clone'))
+            self.assertEqual(report['error']['code'], 'UNIMPLEMENTED')
+            self.assertIn('ExperimentService.Clone', report['status']['failure_stage'])
+            self.assertNotIn('synthetic-private-detail', json.dumps(report))
+            self.assertEqual(self.z_moves, [])
+            self.assertEqual(self.snaps, 0)

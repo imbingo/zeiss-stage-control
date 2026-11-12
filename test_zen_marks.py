@@ -48,7 +48,7 @@ class MarkCaptureTest(unittest.TestCase):
 
     def test_pair_is_lossless_calibrated_and_xy_never_moves(self):
         w = self.connected()
-        w.start_mark_capture(MARKS, self.output, confirmed=True); self.wait(w)
+        w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True); self.wait(w)
         self.assertEqual(w.state, '就绪')
         self.assertEqual(w.device.moves, [])
         self.assertEqual(w.device.z_moves, [100e-6, 200e-6])
@@ -75,10 +75,18 @@ class MarkCaptureTest(unittest.TestCase):
             n, d = image.pages[0].tags['XResolution'].value
             self.assertAlmostEqual(n/d, 50000)
 
+    def test_loading_requires_separate_operator_confirmation(self):
+        w = self.connected()
+        with self.assertRaisesRegex(ValueError, '未确认 ZEN 实验'):
+            w.start_mark_capture(MARKS, self.output, confirmed=True)
+        self.assertEqual(w.device.prepared, [])
+        self.assertEqual(w.device.z_moves, [])
+        self.assertEqual(w.device.capture_count, 0)
+
     def test_single_layer_and_config_roundtrip(self):
         self.assertEqual(MARKS, MarkRecipe.from_dict(MARKS.to_dict()))
         w = self.connected()
-        w.start_mark_capture(replace(MARKS, lower=None), self.output, layers=('upper',), confirmed=True)
+        w.start_mark_capture(replace(MARKS, lower=None), self.output, layers=('upper',), confirmed=True, experiment_loading_confirmed=True)
         self.wait(w)
         self.assertEqual(w.device.capture_count, 1)
         self.assertTrue((w.mark_output_path / 'upper.tif').exists())
@@ -93,9 +101,9 @@ class MarkCaptureTest(unittest.TestCase):
                        replace(MARKS, upper=replace(MARKS.upper, experiment='')),
                        replace(MARKS, upper=replace(MARKS.upper, half_range_m=-1))):
             with self.subTest(recipe=recipe):
-                with self.assertRaises(ValueError):w.start_mark_capture(recipe, self.output, confirmed=True)
+                with self.assertRaises(ValueError):w.start_mark_capture(recipe, self.output, confirmed=True, experiment_loading_confirmed=True)
         with self.assertRaises(ValueError):w.start_mark_capture(MARKS, self.output)
-        with self.assertRaises(ValueError):w.start_mark_capture(MARKS, self.root / 'field', confirmed=True)
+        with self.assertRaises(ValueError):w.start_mark_capture(MARKS, self.root / 'field', confirmed=True, experiment_loading_confirmed=True)
         self.assertEqual(w.device.z_moves, [])
         self.assertEqual(w.device.capture_count, 0)
 
@@ -105,14 +113,14 @@ class MarkCaptureTest(unittest.TestCase):
             with self.subTest(fault=fault):
                 self.root = self.base / fault
                 w = self.connected(SimulatedMarkDevice(fault=fault), simulated=False)
-                w.start_mark_capture(MARKS, self.output, confirmed=True); self.wait(w)
+                w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True); self.wait(w)
                 self.assertEqual(w.state, '设备状态待确认')
                 self.assertEqual(len(list(w.mark_output_path.glob('*.tif'))), saved)
                 self.assertEqual(w.device.moves, [])
                 run, = pending_recovery(self.root, simulated=False)
                 self.assertEqual(run, w.mark_run_path)
                 with self.assertRaises(RuntimeError):w.start(RECIPE, path_confirmed=True, single_point=True)
-                with self.assertRaises(RuntimeError):w.start_mark_capture(MARKS, self.output, confirmed=True)
+                with self.assertRaises(RuntimeError):w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True)
                 w.connect(); self.wait(w)
                 self.assertEqual(w.state, '设备状态待确认')
                 confirm_recovery(run, xy_confirmed=True, af_z_confirmed=True)
@@ -130,10 +138,10 @@ class MarkCaptureTest(unittest.TestCase):
                 if not self.release.wait(3):raise AssertionError('AF test not released')
                 return super().autofocus(timeout)
         device = BlockingAF(); w = self.connected(device)
-        w.start_mark_capture(MARKS, self.output, confirmed=True)
+        w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True)
         try:
             self.assertTrue(device.entered.wait(2))
-            with self.assertRaises(RuntimeError):w.start_mark_capture(MARKS, self.output, confirmed=True)
+            with self.assertRaises(RuntimeError):w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True)
             with self.assertRaises(RuntimeError):w.read_mark_z('upper')
             w.stop()
         finally:
@@ -147,7 +155,7 @@ class MarkCaptureTest(unittest.TestCase):
         class MissingFocus(SimulatedMarkDevice):
             def read_z(self):raise MarkCapabilityError('No Focus v2')
         w = self.connected(MissingFocus())
-        w.start_mark_capture(MARKS, self.output, confirmed=True); self.wait(w)
+        w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True); self.wait(w)
         self.assertEqual(w.state, '就绪')
         self.assertIsNone(w.mark_run_path)
         self.assertEqual(w.device.z_moves, [])
@@ -157,7 +165,7 @@ class MarkCaptureTest(unittest.TestCase):
     def test_tiff_write_failure_prevents_lower_layer_and_persists_lock(self):
         w = self.connected()
         with patch('zen_marks.write_tiff', side_effect=OSError('disk full')):
-            w.start_mark_capture(MARKS, self.output, confirmed=True); self.wait(w)
+            w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True); self.wait(w)
         self.assertEqual(w.device.capture_count, 1)
         self.assertEqual(len(w.device.z_moves), 1)
         self.assertEqual(w.state, '设备状态待确认')
@@ -166,7 +174,7 @@ class MarkCaptureTest(unittest.TestCase):
     def test_output_setup_failure_leaves_central_recovery_record(self):
         self.output.write_text('not a directory')
         w = self.connected()
-        w.start_mark_capture(MARKS, self.output, confirmed=True); self.wait(w)
+        w.start_mark_capture(MARKS, self.output, confirmed=True, experiment_loading_confirmed=True); self.wait(w)
         self.assertEqual(w.state, '设备状态待确认')
         self.assertEqual(w.device.z_moves, [])
         self.assertEqual(len(pending_recovery(self.root, simulated=True)), 1)

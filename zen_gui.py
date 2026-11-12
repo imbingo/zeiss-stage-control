@@ -57,17 +57,19 @@ def rounded_panel(parent):
 class Workbench:
     def __init__(self, root, data_root):
         self.root, self.data_root = root, data_root
+        from zen_preferences import Preferences
+        self.preferences = Preferences(data_root / "preferences" / "ui.json")
         self.workflow = None
-        self.gateway_overrides = {}
-        self.xy_mode = tk.StringVar(value="motorized")
-        self._connected_mode = "motorized"
+        self.gateway_overrides = dict(self.preferences.data.get("connection", {}))
+        self.xy_mode = tk.StringVar(value=self.preferences.data.get("xy_mode", "motorized"))
+        self._connected_mode = self.xy_mode.get()
         self.pending = None
         self.field_recipe = None
         self.field_verified = False
         self.verified_xy = None
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
-        root.title("ZEN AF 表面测角 2.2.0")
+        root.title("ZEN AF 表面测角 2.3.0")
         root.geometry("1568x953")
         root.minsize(960, 680)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")
@@ -268,6 +270,11 @@ class Workbench:
         vertical.pack(side="right", fill="y")
         self.table.pack(side="left", fill="both", expand=True)
         root.protocol("WM_DELETE_WINDOW", self.close)
+        if self.xy_mode.get() == "no_xy":
+            self.xy.set("XY：未配置 / 未校验")
+            self.heading.set("设备：未连接 · 无 XY 单点采图")
+        if self.preferences.warning:
+            self.status.set(self.preferences.warning)
         self.refresh_controls()
         root.after(40, self.poll)
 
@@ -279,6 +286,7 @@ class Workbench:
         self.workflow = None
         self.pending = None
         self._connected_mode = self.xy_mode.get()
+        self.preferences.update(xy_mode=self.xy_mode.get())
         self.field_verified = False
         self.clear_result()
         self.table.delete(*self.table.get_children())
@@ -335,6 +343,7 @@ class Workbench:
         def apply():
             self.gateway_overrides = {key: value.get().strip() for key, value in fields.items()
                                       if value.get().strip()}
+            self.preferences.update(connection=self.gateway_overrides, xy_mode=self.xy_mode.get())
             dialog.destroy()
             self.connect_field()
 
@@ -883,6 +892,10 @@ class Workbench:
                         message += " · 请在设备端分别确认 XY 与 AF/Z，记录恢复后重新连接"
                         message += " · 本轮无有效结果，请独立确认 XY 与 AF/Z"
                     self.status.set(message)
+                elif kind == "mark_diagnostic":
+                    dialog = getattr(self, "mark_dialog", None)
+                    if dialog and dialog.winfo_exists():
+                        dialog.show_diagnostic(data[0])
                 elif kind in {"mark_z", "mark_error"}:
                     dialog = getattr(self, "mark_dialog", None)
                     if kind == "mark_error":
