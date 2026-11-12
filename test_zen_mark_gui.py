@@ -1,6 +1,7 @@
 """Windows UI acceptance for current-position paired mark capture."""
 
 import json
+import gc
 from pathlib import Path
 import tempfile
 import time
@@ -33,6 +34,10 @@ class MarkGuiTest(unittest.TestCase):
         for task in self.root.tk.call('after', 'info'):
             self.root.after_cancel(task)
         self.root.destroy()
+        self.root = None
+        self.dialog = None
+        self.app = None
+        gc.collect()
 
     def wait(self, condition):
         deadline = time.monotonic() + 8

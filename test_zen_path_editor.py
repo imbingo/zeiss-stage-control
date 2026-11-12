@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import json
+import gc
 import time
 from unittest.mock import patch
 import tkinter as tk
@@ -24,6 +25,8 @@ class PathEditorTest(unittest.TestCase):
         for task in self.root.tk.call('after', 'info'):
             self.root.after_cancel(task)
         self.root.destroy()
+        self.root = None
+        gc.collect()
 
     def test_edit_order_and_apply(self):
         applied = []
