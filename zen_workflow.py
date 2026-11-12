@@ -312,7 +312,10 @@ class Workflow:
                                        stage=records.document["status"]["failure_stage"] + " · " + detail)
                     except OSError:
                         detail = "图像或状态写入失败，请检查运行记录与输出目录"
-                if starting:
+                # A run record may exist even when starting is False: MarkRecords
+                # writes its fail-closed status before creating the output dir.
+                recovery_open = starting or bool(pending_recovery(self.root, simulated=self.simulated))
+                if recovery_open:
                     self._state("设备状态待确认", detail=detail + "；请确认 XY、Z、AF 与拍摄均已结束")
                 else:
                     self._state(previous, detail=detail)
@@ -322,7 +325,7 @@ class Workflow:
                     "kind": "capture_failure", "checked_at": utc_now(), "simulated": self.simulated,
                     "error": diagnostic_from_error(error) or {"message": detail},
                     "rpc_trace": self.device.rpc_trace() if hasattr(self.device, "rpc_trace") else [],
-                    "recovery_required": starting, "device_actions_possible": starting,
+                    "recovery_required": recovery_open, "device_actions_possible": recovery_open,
                 }
                 self.events.put(("mark_diagnostic", self.mark_diagnostic_report))
                 self.events.put(("mark_error", detail))

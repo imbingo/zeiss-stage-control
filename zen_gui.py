@@ -267,7 +267,19 @@ class Workbench:
                 pass
         toolbar.update()
         toolbar.pack(side="bottom", fill="x")
-        self.plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+        plot_widget = self.plot_canvas.get_tk_widget()
+        plot_widget.pack(fill="both", expand=True)
+        _orig_plot_destroy = plot_widget.destroy
+        def _safe_plot_destroy(_orig=_orig_plot_destroy, w=plot_widget):
+            # Timers cancelled through another widget's after_cancel leave dead
+            # names in _tclCommands; prune them so Misc.destroy cannot fail.
+            if w._tclCommands:
+                w._tclCommands = [
+                    name for name in w._tclCommands
+                    if w.tk.call("info", "commands", name)
+                ]
+            _orig()
+        plot_widget.destroy = _safe_plot_destroy
         self.plot_annotation = None
         self.plot_fig.canvas.mpl_connect("motion_notify_event", self._plot_hover)
         self._reset_plot()
