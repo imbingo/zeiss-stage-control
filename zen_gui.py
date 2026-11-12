@@ -65,7 +65,7 @@ class Workbench:
         self.verified_xy = None
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
-        root.title("ZEN AF 表面测角 2.0.5")
+        root.title("ZEN AF 表面测角 2.1.0")
         root.geometry("1568x953")
         root.minsize(960, 680)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")
@@ -208,6 +208,11 @@ class Workbench:
         self.points = tk.Listbox(point_tools, height=3, exportselection=False)
         self.points.pack(fill="x")
 
+        images = section("04", "对位图像")
+        self.mark_button = ttk.Button(images, text="上下 mark 采图", command=self.open_mark_capture)
+        self.mark_button.pack(fill="x", pady=4)
+        ttk.Label(images, text="当前点 · 上下层 TIFF · 交给 SOMA 分析", wraplength=250).pack(anchor="w")
+
         metric_panel, metrics = rounded_panel(main)
         metric_panel.pack(fill="x", pady=(0, 12))
         self.kpi = [tk.StringVar(value="—") for _ in range(4)]
@@ -257,6 +262,16 @@ class Workbench:
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh_controls()
         root.after(40, self.poll)
+
+    def open_mark_capture(self):
+        if self.workflow and self.workflow.busy:
+            return
+        existing = getattr(self, "mark_dialog", None)
+        if existing and existing.winfo_exists():
+            existing.lift()
+            return
+        from zen_mark_gui import MarkCaptureDialog
+        self.mark_dialog = MarkCaptureDialog(self)
 
     def clear_result(self):
         for value in self.kpi:
@@ -727,7 +742,7 @@ class Workbench:
             return
         if not messagebox.askyesno(
             "独立确认 AF/Z",
-            "请在 ZEN 或设备端独立确认软件 AF 与 Z 轴动作均已结束。是否已确认？",
+            "请在 ZEN 或设备端独立确认软件 AF、Z 轴和拍摄均已结束。是否已确认？",
         ):
             return
         try:
@@ -780,6 +795,7 @@ class Workbench:
             state="normal" if workflow and workflow.result is not None and not busy else "disabled"
         )
         self.stop_button.configure(state="normal" if busy else "disabled")
+        self.mark_button.configure(state="disabled" if busy else "normal")
         self.connect_button.configure(state="disabled" if busy else "normal")
         self.preflight_button.configure(state="disabled" if busy else "normal")
         self.field_recover.configure(
@@ -834,6 +850,14 @@ class Workbench:
                         message += " · 请在设备端分别确认 XY 与 AF/Z，记录恢复后重新连接"
                         message += " · 本轮无有效结果，请独立确认 XY 与 AF/Z"
                     self.status.set(message)
+                elif kind in {"mark_z", "mark_error"}:
+                    dialog = getattr(self, "mark_dialog", None)
+                    if kind == "mark_error":
+                        self.status.set(data[0])
+                        if dialog and dialog.winfo_exists():
+                            dialog.message.set(data[0])
+                    elif dialog and dialog.winfo_exists():
+                        dialog.set_z(*data)
                 elif kind == "verified_xy":
                     self.verified_xy = data[0]
                 elif kind == "xy":

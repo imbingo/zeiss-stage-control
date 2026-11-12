@@ -5,6 +5,7 @@ secure, authenticated channel with retries disabled for device commands.
 """
 
 from . import AutofocusTimeout, DeviceDisconnected, Motion
+from .mark_gateway import GatewayMarkMixin
 
 
 def connection_hint(error):
@@ -49,10 +50,10 @@ def secure_channel(address, certificate, token):
         grpc.ssl_channel_credentials(root_certificates=certificate),
         grpc.metadata_call_credentials(metadata),
     )
-    return grpc.secure_channel(address, credentials, options=(("grpc.enable_retries", 0),))
+    return grpc.secure_channel(address, credentials, options=(("grpc.enable_retries", 0), ("grpc.max_receive_message_length", 256 * 1024 * 1024)))
 
 
-class GatewayDevice:
+class GatewayDevice(GatewayMarkMixin):
     def __init__(self, channel_factory, *, rpc_timeout=5.0):
         self._channel_factory = channel_factory
         self._timeout = rpc_timeout

@@ -35,6 +35,8 @@ class Workflow:
         self.result = None
         self.result_path = None
         self.state = "未连接"
+        self.mark_run_path = None
+        self.mark_output_path = None
 
     @property
     def busy(self):
@@ -204,3 +206,86 @@ class Workflow:
             raise RuntimeError("运行期间锁定配方与点位")
         self.result = None
         self.result_path = None
+
+    def read_mark_z(self, layer):
+        if layer not in ("upper", "lower"):
+            raise ValueError("未知的 mark 层")
+        if self.state not in {"就绪", "完成", "已中止"}:
+            raise RuntimeError("请先连接并确认设备就绪")
+        def action():
+            try:
+                if pending_recovery(self.root, simulated=self.simulated):
+                    raise RuntimeError("设备状态待确认")
+                z = self.device.read_z()
+                xy = self.device.read_xy()
+                if not isfinite(z) or not all(map(isfinite, xy)):
+                    raise ValueError("无效的 XYZ 回读")
+                self.events.put(("mark_z", layer, z, xy))
+            except Exception as error:
+                self.events.put(("mark_error", self._mark_hint(error)))
+        self._launch(action)
+
+    @staticmethod
+    def _mark_hint(error):
+        from zen_hardware.mark_gateway import MarkCapabilityError
+        if isinstance(error, (MarkCapabilityError, ValueError, TimeoutError, InterruptedError)):
+            return str(error)
+        if isinstance(error, ImportError):
+            return "缺少采图依赖或存根，请使用完整新版安装包"
+        if isinstance(error, OSError) and not isinstance(error, DeviceDisconnected):
+            return "图像或运行记录读写失败，请检查目录权限和剩余空间"
+        try:
+            import grpc
+            if isinstance(error, grpc.RpcError) and error.code() == grpc.StatusCode.UNIMPLEMENTED:
+                return "现场缺少采图所需的 Focus v2、物镜／中间倍率状态或图像流接口"
+        except ImportError:
+            pass
+        return "采图接口调用失败，请检查设备和 ZEN 实验；详细位置见运行阶段"
+
+    def start_mark_capture(self, recipe, output, *, layers=("upper", "lower"), confirmed=False):
+        from pathlib import Path
+        from zen_marks import MarkRecords, capture_marks, CaptureStopped
+        if not confirmed:
+            raise ValueError("请先确认两层 Z 路径、搜索范围、物镜间隙和拍摄参数")
+        recipe.validate(layers)
+        if self.state not in {"就绪", "完成", "已中止"}:
+            raise RuntimeError("请先连接并确认设备就绪")
+        if pending_recovery(self.root, simulated=self.simulated):
+            raise RuntimeError("存在未确认的设备状态，请先完成恢复确认")
+        if Path(output).expanduser().resolve().is_relative_to(self.root.resolve()):
+            raise ValueError("图像输出请选择运行记录目录之外的位置")
+        previous = self.state
+        self.mark_run_path = None
+        self.mark_output_path = None
+        def action():
+            records, starting = None, False
+            try:
+                # Capability checks are read-only. Missing optional services do
+                # not disable the existing angle-scanning capability.
+                self.device.read_z()
+                self.device.read_optics()
+                starting = True
+                records = MarkRecords(self.root, output, recipe, layers, self.simulated)
+                self.mark_run_path, self.mark_output_path = records.path, records.output
+                self.result = None
+                self.result_path = None
+                capture_marks(self.device, recipe, layers, self._stop, records,
+                              lambda detail: self._state("对位采图", detail=detail))
+                records.finish("complete", recovery=False)
+                final = "下 mark" if layers[-1] == "lower" else "上 mark"
+                self._state("就绪", detail=f"采图完成，停留在{final}焦面；图片目录：{records.output}")
+            except Exception as error:
+                stopped = isinstance(error, (CaptureStopped, InterruptedError)) or self._stop.is_set()
+                detail = "已停止后续拍摄" if stopped else self._mark_hint(error)
+                if records is not None:
+                    try:
+                        records.finish("stopped" if stopped else "failed", recovery=True,
+                                       stage=records.document["status"]["failure_stage"] + " · " + detail)
+                    except OSError:
+                        detail = "图像或状态写入失败，请检查运行记录与输出目录"
+                if starting:
+                    self._state("设备状态待确认", detail=detail + "；请确认 XY、Z、AF 与拍摄均已结束")
+                else:
+                    self._state(previous, detail=detail)
+                self.events.put(("mark_error", detail))
+        self._launch(action)
