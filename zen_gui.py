@@ -59,13 +59,15 @@ class Workbench:
         self.root, self.data_root = root, data_root
         self.workflow = None
         self.gateway_overrides = {}
+        self.xy_mode = tk.StringVar(value="motorized")
+        self._connected_mode = "motorized"
         self.pending = None
         self.field_recipe = None
         self.field_verified = False
         self.verified_xy = None
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
-        root.title("ZEN AF 表面测角 2.1.0")
+        root.title("ZEN AF 表面测角 2.2.0")
         root.geometry("1568x953")
         root.minsize(960, 680)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")
@@ -161,6 +163,12 @@ class Workbench:
             return frame
 
         connection = section("01", "设备连接")
+        self.mode_buttons = []
+        for label, value in (("有电动 XY · 角度扫描 / 采图", "motorized"), ("无电动 XY · 仅单点采图", "no_xy")):
+            button = ttk.Radiobutton(connection, text=label, variable=self.xy_mode,
+                                     value=value, command=self.change_device_mode)
+            button.pack(anchor="w", pady=2)
+            self.mode_buttons.append(button)
         actions = row(connection)
         self.connect_button = ttk.Button(actions, text="Gateway 只读 XY", command=self.connect_field)
         self.connect_button.pack(side="left", fill="x", expand=True, padx=(0, 8))
@@ -263,6 +271,22 @@ class Workbench:
         self.refresh_controls()
         root.after(40, self.poll)
 
+    def change_device_mode(self):
+        if self.workflow and self.workflow.busy:
+            self.xy_mode.set(self._connected_mode)
+            return
+        self.release_gateway()
+        self.workflow = None
+        self.pending = None
+        self._connected_mode = self.xy_mode.get()
+        self.field_verified = False
+        self.clear_result()
+        self.table.delete(*self.table.get_children())
+        self.xy.set("XY：未配置 / 未校验" if self.xy_mode.get() == "no_xy" else "XY  —")
+        self.heading.set("设备：未连接 · 无 XY 单点采图" if self.xy_mode.get() == "no_xy" else "设备：未连接")
+        self.status.set("模式已切换，请重新连接。无 XY 模式不能角度扫描，也不能校验水平漂移。")
+        self.refresh_controls()
+
     def open_mark_capture(self):
         if self.workflow and self.workflow.busy:
             return
@@ -332,7 +356,7 @@ class Workbench:
         rows = {}
         for index, (key, title) in enumerate((
             ("address", "Gateway 地址"), ("ca", "CA 证书文件"), ("token", "控制令牌"),
-            ("gateway", "Gateway 只读 XY"), ("stage", "载物台状态"),
+            ("gateway", "Gateway 只读 Z" if self.xy_mode.get() == "no_xy" else "Gateway 只读 XY"), ("stage", "XY 检查" if self.xy_mode.get() == "no_xy" else "载物台状态"),
             ("recipe", "测量配方"), ("license", "ZEN API 许可证"),
         ), 1):
             ttk.Label(panel, text=title, width=18).grid(row=index, column=0, sticky="nw", pady=5)
@@ -368,11 +392,14 @@ class Workbench:
 
         def run_check():
             env = {**os.environ, **self.gateway_overrides}
+            xy_enabled = self.xy_mode.get() != "no_xy"
             updates = Queue()
             for key in ("address", "ca", "token", "gateway", "stage"):
                 update_row(key, "… 检查中", "")
             recipe = self.field_recipe
-            if recipe is None:
+            if not xy_enabled:
+                update_row("recipe", "— 不适用", "无 XY 模式仅单点采图，不要求角度配方。")
+            elif recipe is None:
                 update_row("recipe", "— 待配置", "加载或新建现场配方。")
             else:
                 try:
@@ -387,7 +414,7 @@ class Workbench:
 
             def worker():
                 try:
-                    check_gateway(env, lambda *result: updates.put(result))
+                    check_gateway(env, lambda *result: updates.put(result), xy_enabled=xy_enabled)
                 except Exception:
                     for key in ("address", "ca", "token", "gateway", "stage"):
                         updates.put((key, "— 未完成", "请核对 Gateway 配置后重试。"))
@@ -434,7 +461,8 @@ class Workbench:
         self.progress["value"] = 0
         self.plot.delete("all")
         self.release_gateway()
-        self.workflow = Workflow(GatewayDevice(channel), self.data_root,
+        self._connected_mode = self.xy_mode.get()
+        self.workflow = Workflow(GatewayDevice(channel, xy_enabled=self.xy_mode.get() != "no_xy"), self.data_root,
                                  simulated=False, validate=validate_recipe, fit=fit_field)
         self.show_field_heading()
         self.workflow.connect()
@@ -484,7 +512,10 @@ class Workbench:
     def show_field_heading(self):
         name = self.field_recipe.name if self.field_recipe else "未加载配方"
         state = self.workflow.state
-        self.heading.set(f"设备：{state}   |   配方：{name}")
+        if not self.workflow.xy_enabled:
+            self.heading.set(f"设备：{state} · 无 XY 单点采图（XY 未校验）")
+        else:
+            self.heading.set(f"设备：{state}   |   配方：{name}")
 
     def choose_recipe(self):
         if self.workflow and self.workflow.busy:
@@ -651,7 +682,7 @@ class Workbench:
 
     def field_ready(self):
         workflow = self.workflow
-        return bool(workflow and not workflow.simulated and not workflow.busy
+        return bool(workflow and workflow.xy_enabled and not workflow.simulated and not workflow.busy
                     and workflow.state in {"就绪", "完成", "已中止"})
 
     def run_field_batch(self):
@@ -737,7 +768,7 @@ class Workbench:
         if not self.field_recovery_runs or (self.workflow and self.workflow.busy):
             return
         if not messagebox.askyesno(
-            "独立确认 XY", "请按现场规程在设备端检查。是否已独立确认载物台 XY 动作结束？"
+            "独立确认 XY", "请按现场规程检查：有电动 XY 时确认其动作已结束；无电动 XY 时确认样品已固定、手动水平调整已结束。是否已确认？"
         ):
             return
         if not messagebox.askyesno(
@@ -796,7 +827,9 @@ class Workbench:
         )
         self.stop_button.configure(state="normal" if busy else "disabled")
         self.mark_button.configure(state="disabled" if busy else "normal")
-        self.connect_button.configure(state="disabled" if busy else "normal")
+        self.connect_button.configure(state="disabled" if busy else "normal", text="Gateway 只读 Z" if self.xy_mode.get() == "no_xy" else "Gateway 只读 XY")
+        for button in self.mode_buttons:
+            button.configure(state="disabled" if busy else "normal")
         self.preflight_button.configure(state="disabled" if busy else "normal")
         self.field_recover.configure(
             state="normal" if self.field_recovery_runs and not busy else "disabled"
@@ -860,6 +893,8 @@ class Workbench:
                         dialog.set_z(*data)
                 elif kind == "verified_xy":
                     self.verified_xy = data[0]
+                elif kind == "z_only":
+                    self.xy.set(f"XY：未配置 / 未校验；Z {data[0]*1e6:.3f} µm")
                 elif kind == "xy":
                     x, y = data[0]
                     self.xy.set(f"XY  {x*1e6:.3f}, {y*1e6:.3f} µm")

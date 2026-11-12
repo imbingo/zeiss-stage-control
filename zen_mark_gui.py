@@ -19,23 +19,34 @@ class MarkCaptureDialog(tk.Toplevel):
         super().__init__(app.root)
         self.app = app
         self.title("对位图像采集 · 当前 XY")
-        self.geometry("1000x720")
-        self.minsize(900, 680)
+        self.geometry("1050x760")
+        self.minsize(950, 650)
         self.transient(app.root)
         self.demo_config = False
         self.closed = False
         self.last_app_status = None
         self.approved = tk.BooleanVar(value=False)
+        self.capture_kind = tk.StringVar(value="共聚焦采集（ZEN 采集实验）")
+        self.use_af = tk.BooleanVar(value=True)
+        self.xy_note = tk.StringVar()
         self.mode = tk.StringVar(value="设备：未连接")
         self.message = tk.StringVar(value="先连接现场设备，或载入离线演示。现场 Z 不提供默认值。")
         self.output = tk.StringVar(value=str(app.data_root.parent / "ZENMarkImages"))
         self.fields = {}
         self.read_buttons = []
         self.editable = []
-        shell = ttk.Frame(self, padding=16)
-        shell.pack(fill="both", expand=True)
+        viewport = tk.Canvas(self, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=viewport.yview)
+        scrollbar.pack(side="right", fill="y")
+        viewport.pack(side="left", fill="both", expand=True)
+        viewport.configure(yscrollcommand=scrollbar.set)
+        shell = ttk.Frame(viewport, padding=16)
+        window = viewport.create_window(0, 0, window=shell, anchor="nw")
+        shell.bind("<Configure>", lambda event: viewport.configure(scrollregion=viewport.bbox("all")))
+        viewport.bind("<Configure>", lambda event: viewport.itemconfigure(window, width=event.width))
+        self.bind("<MouseWheel>", lambda event: viewport.yview_scroll(-int(event.delta/120), "units"))
         ttk.Label(shell, text="上下 mark 图像采集", font=("Microsoft YaHei UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(shell, text="当前 XY 不主动移动；每层先 Z 定位、局部 AF，再保存一张原始 TIFF。图像交给 SOMA 分析。").pack(anchor="w", pady=6)
+        ttk.Label(shell, textvariable=self.xy_note, wraplength=970).pack(anchor="w", pady=6)
         connection = ttk.Frame(shell)
         connection.pack(fill="x", pady=6)
         ttk.Label(connection, textvariable=self.mode, foreground="#315f89").pack(side="left")
@@ -43,6 +54,19 @@ class MarkCaptureDialog(tk.Toplevel):
         self.connect_button.pack(side="right")
         self.demo_button = ttk.Button(connection, text="载入离线演示", command=self.load_demo)
         self.demo_button.pack(side="right", padx=8)
+        options = ttk.Frame(shell)
+        options.pack(fill="x", pady=3)
+        self.mode_controls = []
+        for label, mode in (("有电动 XY", "motorized"), ("无电动 XY · 单点采图", "no_xy")):
+            control = ttk.Radiobutton(options, text=label, variable=app.xy_mode, value=mode, command=app.change_device_mode)
+            control.pack(side="left", padx=(0, 12))
+            self.mode_controls.append(control)
+        self.kind_combo = ttk.Combobox(options, textvariable=self.capture_kind, state="readonly", width=29,
+            values=("共聚焦采集（ZEN 采集实验）", "相机拍照（ZEN 定位 / Snap）"))
+        self.kind_combo.pack(side="right")
+        ttk.Label(shell, text="共聚焦请使用已在 ZEN 采集页验证过的单通道、单 Z 层、单时间点、无拼图实验；不会自动改拍相机图。", wraplength=970).pack(anchor="w", pady=3)
+        self.af_control = ttk.Checkbutton(shell, text="定位后执行局部 AF（初次连机可取消，仅验证示教 Z 和采集保存）", variable=self.use_af)
+        self.af_control.pack(anchor="w")
         ttk.Label(shell, text="在 ZEN 中手动调清楚对应 mark 后，点击“读取当前 Z”；上下层可使用不同曝光和照明的实验。", wraplength=920).pack(anchor="w", pady=6)
         layers = ttk.Frame(shell)
         layers.pack(fill="x", pady=4)
@@ -67,9 +91,10 @@ class MarkCaptureDialog(tk.Toplevel):
         common = ttk.LabelFrame(shell, text="采集检查参数", padding=8)
         common.pack(fill="x", pady=8)
         self.common = {}
+        self.common_entries = {}
         defaults = (("xy_tolerance_m", "XY 容差 (µm)", "1"), ("z_tolerance_m", "Z 容差 (µm)", "0.5"),
                     ("af_timeout_s", "AF 超时 (s)", "10"), ("arrival_timeout_s", "Z 到位超时 (s)", "5"),
-                    ("capture_timeout_s", "拍摄超时 (s)", "20"), ("settle_s", "稳定等待 (s)", "0.2"))
+                    ("capture_timeout_s", "拍摄超时 (s)", "60"), ("settle_s", "稳定等待 (s)", "0.2"))
         for index, (key, title, initial) in enumerate(defaults):
             row, column = divmod(index, 3)
             ttk.Label(common, text=title).grid(row=row, column=column*2, sticky="w", padx=(4, 5), pady=4)
@@ -77,6 +102,7 @@ class MarkCaptureDialog(tk.Toplevel):
             entry = ttk.Entry(common, textvariable=var, width=10)
             entry.grid(row=row, column=column*2+1, sticky="ew", padx=(0, 16))
             self.editable.append(entry)
+            self.common_entries[key] = entry
             common.columnconfigure(column*2+1, weight=1)
         output_row = ttk.Frame(shell)
         output_row.pack(fill="x", pady=5)
@@ -87,7 +113,7 @@ class MarkCaptureDialog(tk.Toplevel):
         self.browse_button = ttk.Button(output_row, text="选择目录", command=self.browse)
         self.browse_button.pack(side="right")
         self.approval_button = ttk.Checkbutton(shell, variable=self.approved,
-            text="已确认两层均可成像、Z 路径与 AF 范围安全；两套实验使用同一物镜/倍率/ROI，且仅拍通道 0 的单张图像。")
+            text="已固定样品且不会手动移动水平位置；已核对 Z 路径/AF 范围、物镜/倍率/ROI，以及通道 0 的单幅采集设置。")
         self.approval_button.pack(anchor="w", pady=8)
         controls = ttk.Frame(shell)
         controls.pack(fill="x", pady=6)
@@ -110,7 +136,7 @@ class MarkCaptureDialog(tk.Toplevel):
         self.recover_button.pack(side="right")
         ttk.Label(shell, textvariable=self.message, wraplength=940, justify="left").pack(fill="x", anchor="w", pady=8)
         ttk.Label(shell, text="完成后停留在最后拍摄层的焦面，不自动返回。停止/超时不等于物理动作已结束；异常时须确认 XY、Z、AF 与拍摄状态。", wraplength=940, foreground="#626873").pack(side="bottom", anchor="w", pady=8)
-        for variable in [self.output, *self.common.values(), *(v for group in self.fields.values() for v in group.values())]:
+        for variable in [self.output, self.capture_kind, self.use_af, self.app.xy_mode, *self.common.values(), *(v for group in self.fields.values() for v in group.values())]:
             variable.trace_add("write", lambda *args: self.approved.set(False))
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.grab_set()
@@ -138,8 +164,9 @@ class MarkCaptureDialog(tk.Toplevel):
         self.app.pending = None
         self.app.field_verified = False
         self.app.clear_result()
-        self.app.workflow = Workflow(SimulatedMarkDevice(), self.app.data_root, simulated=True,
+        self.app.workflow = Workflow(SimulatedMarkDevice(xy_enabled=self.app.xy_mode.get() != "no_xy"), self.app.data_root, simulated=True,
                                      validate=validate_recipe, fit=fit_demo)
+        self.app._connected_mode = self.app.xy_mode.get()
         self.app.workflow.connect()
         self.demo_config = True
         for key, z in (("upper", "100"), ("lower", "200")):
@@ -158,7 +185,8 @@ class MarkCaptureDialog(tk.Toplevel):
 
     def set_z(self, key, z, xy):
         self.fields[key]["z_m"].set(f"{z*1e6:.6f}")
-        self.message.set(f"已读取{'上' if key == 'upper' else '下'} mark：Z {z*1e6:.6f} µm；XY {xy[0]*1e6:.3f}, {xy[1]*1e6:.3f} µm")
+        position = "XY：未配置 / 未校验" if xy is None else f"XY {xy[0]*1e6:.3f}, {xy[1]*1e6:.3f} µm"
+        self.message.set(f"已读取{'上' if key == 'upper' else '下'} mark：Z {z*1e6:.6f} µm；{position}")
 
     def recipe(self, layers=("upper", "lower")):
         try:
@@ -168,7 +196,9 @@ class MarkCaptureDialog(tk.Toplevel):
             for key, group in self.fields.items():
                 selected[key] = (MarkLayer(group["experiment"].get().strip(), float(group["z_m"].get())*1e-6,
                                           float(group["half_range_m"].get())*1e-6) if key in layers else None)
-            recipe = MarkRecipe(**selected, **values)
+            recipe = MarkRecipe(**selected, **values, xy_mode=self.app.xy_mode.get(),
+                                capture_kind="confocal" if self.capture_kind.get().startswith("共聚焦") else "camera_snap",
+                                use_autofocus=self.use_af.get())
             recipe.validate(layers)
             return recipe
         except (ValueError, TypeError, OverflowError) as error:
@@ -215,6 +245,11 @@ class MarkCaptureDialog(tk.Toplevel):
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
             recipe = MarkRecipe.from_dict(data)
+            if recipe.xy_mode != self.app.xy_mode.get():
+                self.app.xy_mode.set(recipe.xy_mode)
+                self.app.change_device_mode()
+            self.capture_kind.set("共聚焦采集（ZEN 采集实验）" if recipe.capture_kind == "confocal" else "相机拍照（ZEN 定位 / Snap）")
+            self.use_af.set(recipe.use_autofocus)
             for key, group in self.fields.items():
                 layer = getattr(recipe, key)
                 group["experiment"].set(layer.experiment)
@@ -252,11 +287,15 @@ class MarkCaptureDialog(tk.Toplevel):
         busy = bool(workflow and workflow.busy)
         ready = bool(workflow and not busy and workflow.state in {"就绪", "完成", "已中止"})
         simulated = bool(workflow and workflow.simulated)
-        self.mode.set(f"{'离线演示' if simulated else '真实设备'}：{workflow.state if workflow else '未连接'}")
+        no_xy = self.app.xy_mode.get() == "no_xy"
+        self.mode.set(f"{'离线演示' if simulated else '真实设备'}：{workflow.state if workflow else '未连接'} · {'无 XY 单点采图' if no_xy else '有电动 XY'}")
+        self.xy_note.set("XY 未配置、未校验，须手动固定样品；仅控制 Z 和保存 TIFF，不能进行角度扫描。" if no_xy else "当前 XY 不主动移动，软件校验 XY 回读；图像保存为 TIFF 后交给 SOMA 分析。")
         for entry in self.editable:
             entry.configure(state="disabled" if busy else "normal")
-        for button in (self.connect_button, self.demo_button, self.browse_button, self.load_button, self.save_button, self.approval_button):
+        for button in (*self.mode_controls, self.af_control, self.connect_button, self.demo_button, self.browse_button, self.load_button, self.save_button, self.approval_button):
             button.configure(state="disabled" if busy else "normal")
+        self.kind_combo.configure(state="disabled" if busy else "readonly")
+        self.common_entries["xy_tolerance_m"].configure(state="disabled" if busy or no_xy else "normal")
         for button in (*self.read_buttons, *self.capture_buttons):
             button.configure(state="normal" if ready else "disabled")
         self.stop_button.configure(state="normal" if busy else "disabled")

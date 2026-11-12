@@ -43,8 +43,13 @@ class MarkRecipe:
     arrival_timeout_s: float = 5
     capture_timeout_s: float = 20
     settle_s: float = .2
+    xy_mode: str = "motorized"
+    capture_kind: str = "camera_snap"
+    use_autofocus: bool = True
 
     def validate(self, layers=("upper", "lower")):
+        if self.xy_mode not in ("motorized", "no_xy") or self.capture_kind not in ("camera_snap", "confocal"):
+            raise ValueError("XY 模式或采集方式无效")
         if tuple(layers) not in (("upper",), ("lower",), ("upper", "lower")):
             raise ValueError("采集层选择无效")
         values = (self.xy_tolerance_m, self.z_tolerance_m, self.af_timeout_s,
@@ -56,7 +61,9 @@ class MarkRecipe:
             if layer is None:
                 raise ValueError("请先配置并示教所选层的 Z")
             layer.validate()
-        if len(layers) == 2:
+        if type(self.use_autofocus) is not bool:
+            raise ValueError("自动对焦选项无效")
+        if len(layers) == 2 and self.use_autofocus:
             a, b = self.upper.bounds, self.lower.bounds
             if not (a[1] < b[0] or b[1] < a[0]):
                 raise ValueError("上下层 AF 搜索范围不能重叠，请减小半范围或重新示教 Z")
@@ -70,7 +77,9 @@ class MarkRecipe:
             raise ValueError("不支持的采图配置版本或单位")
         keys = ("xy_tolerance_m", "z_tolerance_m", "af_timeout_s", "arrival_timeout_s", "capture_timeout_s", "settle_s")
         recipe = cls(*(MarkLayer(**value[key]) if value[key] is not None else None for key in ("upper", "lower")),
-                     **{key: value[key] for key in keys})
+                     **{key: value[key] for key in keys},
+                     xy_mode=value.get("xy_mode", "motorized"), capture_kind=value.get("capture_kind", "camera_snap"),
+                     use_autofocus=value.get("use_autofocus", True))
         recipe.validate()
         return recipe
 
@@ -140,18 +149,22 @@ def capture_marks(device, recipe, layers, stop, records, progress):
         return xy
 
     checkpoint()
-    start_xy = read_xy()
+    xy_enabled = recipe.xy_mode == "motorized"
+    start_xy = read_xy() if xy_enabled else None
     optics = device.read_optics()
     records.document["optics_positions"] = optics
+    records.document["optics_verified"] = [v is not None for v in optics]
+    records.document["xy_verified"] = xy_enabled
+    records.document["xy_mode"] = recipe.xy_mode
     records.document["start_xy_m"] = start_xy
     records.sync()
 
     def guard():
         checkpoint()
-        xy = read_xy()
+        xy = read_xy() if xy_enabled else None
         if device.read_optics() != optics:
             raise ValueError("物镜或中间倍率位置发生变化，已停止采图")
-        if hypot(xy[0] - start_xy[0], xy[1] - start_xy[1]) > recipe.xy_tolerance_m:
+        if xy_enabled and hypot(xy[0] - start_xy[0], xy[1] - start_xy[1]) > recipe.xy_tolerance_m:
             raise ValueError("XY 已偏离起点，已停止采图")
         return xy
 
@@ -187,13 +200,15 @@ def capture_marks(device, recipe, layers, stop, records, progress):
         layer = getattr(recipe, key)
         title = "上 mark" if key == "upper" else "下 mark"
         stage(f"{title} · 加载临时实验和限定 AF 范围")
-        actual_settings = device.prepare_mark_experiment(layer.experiment, *layer.bounds)
+        actual_settings = device.prepare_mark_experiment(layer.experiment, *layer.bounds, use_autofocus=recipe.use_autofocus)
         guard()
         stage(f"{title} · Z 定位")
         device.move_z(layer.z_m)
-        settle_z(layer.z_m)
-        stage(f"{title} · 局部 AF")
-        focused_z = device.autofocus(recipe.af_timeout_s)
+        actual_z = settle_z(layer.z_m)
+        focused_z = actual_z
+        if recipe.use_autofocus:
+            stage(f"{title} · 局部 AF")
+            focused_z = device.autofocus(recipe.af_timeout_s)
         low, high = layer.bounds
         if not isfinite(focused_z) or not low <= focused_z <= high:
             raise ValueError("AF 返回焦面超出所选层的限定范围")
@@ -201,7 +216,7 @@ def capture_marks(device, recipe, layers, stop, records, progress):
         if not low <= actual_z <= high:
             raise ValueError("AF 后 Z 回读超出限定范围")
         stage(f"{title} · 单张拍摄")
-        frame = device.capture_frame(recipe.capture_timeout_s, stop, f"mark_{records.document['run_id']}_{key}")
+        frame = device.capture_frame(recipe.capture_timeout_s, stop, f"mark_{records.document['run_id']}_{key}", kind=recipe.capture_kind)
         frame.array()  # Validate before publishing a file or proceeding to the other layer.
         guard()
         after_z = device.read_z()
@@ -209,14 +224,16 @@ def capture_marks(device, recipe, layers, stop, records, progress):
                 or abs(after_z-actual_z) > recipe.z_tolerance_m):
             raise ValueError("拍摄过程中 Z 改变或偏离焦面")
         x, y, z = frame.xyz_m
-        if (hypot(x-start_xy[0], y-start_xy[1]) > recipe.xy_tolerance_m
+        if frame.xy_verified != xy_enabled:
+            raise ValueError("图像 XY 校验标记与连接模式不一致")
+        if (xy_enabled and hypot(x-start_xy[0], y-start_xy[1]) > recipe.xy_tolerance_m
                 or not low <= z <= high or abs(z-actual_z) > recipe.z_tolerance_m):
             raise ValueError("图像记录的 XYZ 与已确认拍摄位置不符")
         if first is not None and not frame.matches_geometry(first):
             raise ValueError("上下图像的尺寸、ROI、像素类型或像素标定不同，未保存下图")
         first = frame
         stage(f"{title} · 保存 TIFF")
-        records.save(key, frame, {"xy_m": start_xy, "af_z_m": focused_z,
+        records.save(key, frame, {"xy_m": start_xy, "af_z_m": focused_z if recipe.use_autofocus else None,
                                  "readback_z_m": after_z, "experiment": layer.experiment,
                                  "af_settings": actual_settings})
         checkpoint()

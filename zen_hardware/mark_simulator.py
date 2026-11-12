@@ -7,8 +7,10 @@ from zen_images import RawFrame
 
 
 class SimulatedMarkDevice(SimulatedDevice):
-    def __init__(self, *, fault=None):
+    def __init__(self, *, fault=None, xy_enabled=True):
         super().__init__(delay_seconds=0)
+        self.xy_enabled = xy_enabled
+        self.capture_kinds = []
         self.mark_fault = fault
         self.z = 100e-6
         self.z_moves = []
@@ -16,6 +18,21 @@ class SimulatedMarkDevice(SimulatedDevice):
         self.prepared = []
         self.optics = (1, 1)
         self.bounds = (90e-6, 110e-6)
+
+    def read_xy(self):
+        if not self.xy_enabled:
+            raise AssertionError("无 XY 设备不应收到 XY 读取")
+        return super().read_xy()
+
+    def motion_state(self):
+        if not self.xy_enabled:
+            raise AssertionError("无 XY 设备不应收到 XY 状态查询")
+        return super().motion_state()
+
+    def move_xy(self, x, y):
+        if not self.xy_enabled:
+            raise AssertionError("无 XY 设备不应收到 XY 移动")
+        return super().move_xy(x, y)
 
     def read_z(self):
         self._require_connection()
@@ -30,7 +47,7 @@ class SimulatedMarkDevice(SimulatedDevice):
         self.z_moves.append(z)
         self.z = z
 
-    def prepare_mark_experiment(self, name, low, high):
+    def prepare_mark_experiment(self, name, low, high, *, use_autofocus=True):
         self.load_experiment(name)
         self.bounds = low, high
         self.prepared.append((name, low, high))
@@ -47,10 +64,11 @@ class SimulatedMarkDevice(SimulatedDevice):
             self.z = self.bounds[1] + 50e-6
         return self.z
 
-    def capture_frame(self, timeout_s, stop, output_name):
+    def capture_frame(self, timeout_s, stop, output_name, *, kind="camera_snap"):
         import numpy as np
         if stop.is_set():
             raise InterruptedError("已请求停止拍摄")
+        self.capture_kinds.append(kind)
         self.capture_count += 1
         if self.mark_fault == 'lower_capture' and self.capture_count == 2:
             raise TimeoutError("模拟下层拍摄超时")
@@ -60,7 +78,9 @@ class SimulatedMarkDevice(SimulatedDevice):
         offset = 2 if self.capture_count == 2 else 0
         image = np.where((abs(x - 64-offset) < 3) | (abs(y-48) < 3), 50000, 1000).astype('<u2')
         frame = RawFrame(128, 96, 2, image.tobytes(), .2e-6, .2e-6,
-                         (*self.xy, self.z), f"demo-{self.capture_count}", self.capture_count)
+                         (*(self.xy if self.xy_enabled else (None, None)), self.z),
+                         f"demo-{self.capture_count}", self.capture_count,
+                         xy_verified=self.xy_enabled, capture_kind=kind)
         if self.mark_fault == 'scale' and self.capture_count == 2:
             frame = replace(frame, scale_x_m=.4e-6)
         return frame

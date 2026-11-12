@@ -110,3 +110,21 @@ class MarkGuiTest(unittest.TestCase):
         self.dialog.close()
         self.assertFalse(self.dialog.winfo_exists())
         self.assertNotIn(refresh_job, self.root.tk.call('after', 'info'))
+
+    def test_no_xy_mode_disables_angle_and_saves_confocal_tiff(self):
+        self.app.xy_mode.set('no_xy');self.app.change_device_mode()
+        self.demo()
+        self.assertFalse(self.app.workflow.xy_enabled)
+        self.assertFalse(self.app.field_ready())
+        self.assertEqual(str(self.app.field_af.cget('state')), 'disabled')
+        self.assertEqual(self.app.connect_button.cget('text'), 'Gateway 只读 Z')
+        self.dialog.use_af.set(False)
+        self.dialog.approved.set(True)
+        self.dialog.capture(('upper',))
+        self.wait(lambda:not self.app.workflow.busy and self.app.workflow.mark_output_path
+                  and (self.app.workflow.mark_output_path/'upper.tif').exists())
+        document=json.loads((self.app.workflow.mark_output_path/'capture.json').read_text(encoding='utf-8'))
+        self.assertFalse(document['xy_verified'])
+        self.assertIsNone(document['start_xy_m'])
+        self.assertEqual(document['recipe']['capture_kind'], 'confocal')
+        self.assertEqual(self.app.workflow.device.af_attempts, 0)

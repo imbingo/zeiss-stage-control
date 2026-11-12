@@ -39,6 +39,10 @@ class Workflow:
         self.mark_output_path = None
 
     @property
+    def xy_enabled(self):
+        return getattr(self.device, "xy_enabled", True)
+
+    @property
     def busy(self):
         return self._gate.locked()
 
@@ -70,19 +74,26 @@ class Workflow:
             self._state("连接检查")
             try:
                 self.device.connect()
-                xy = self.device.read_xy()
-                if not all(map(isfinite, xy)):
-                    raise ValueError("无效 XY")
-                self.events.put(("xy", xy))
-                motion = self.device.motion_state()
+                if self.xy_enabled:
+                    xy = self.device.read_xy()
+                    if not all(map(isfinite, xy)):
+                        raise ValueError("无效 XY")
+                    self.events.put(("xy", xy))
+                    motion = self.device.motion_state()
+                else:
+                    z = self.device.read_z()
+                    if not isfinite(z):
+                        raise ValueError("无效 Z")
+                    self.events.put(("z_only", z))
+                    motion = None
                 recovery = pending_recovery(self.root, simulated=self.simulated)
             except Exception as exc:
-                detail = "模拟连接检查失败" if self.simulated else connection_hint(exc)
+                detail = "模拟连接检查失败" if self.simulated else (connection_hint(exc) if self.xy_enabled else self._mark_hint(exc))
                 self._state("未连接", detail=detail)
             else:
                 if recovery:
                     self._state("设备状态待确认")
-                elif motion is not Motion.IDLE:
+                elif self.xy_enabled and motion is not Motion.IDLE:
                     self._state("设备状态待确认", detail="XY 未空闲，请在设备端检查后重新连接")
                 else:
                     self._state("就绪")
@@ -90,6 +101,8 @@ class Workflow:
         self._launch(action)
 
     def start(self, recipe, *, path_confirmed, single_point=False, confirmed_start=None):
+        if not self.xy_enabled:
+            raise RuntimeError("无 XY 模式仅支持单点采图，不支持角度扫描或角度单点 AF")
         if not path_confirmed:
             raise ValueError("请确认运动顺序及物镜间隙")
         if not self.simulated and not single_point and confirmed_start is None:
@@ -182,6 +195,8 @@ class Workflow:
             self.events.put(("stop", "已请求停止后续采集"))
 
     def teach_xy(self):
+        if not self.xy_enabled:
+            raise RuntimeError("无 XY 模式不能示教 XY")
         if self.state not in {"就绪", "完成", "已中止"}:
             raise RuntimeError("当前状态禁止示教")
 
@@ -217,8 +232,8 @@ class Workflow:
                 if pending_recovery(self.root, simulated=self.simulated):
                     raise RuntimeError("设备状态待确认")
                 z = self.device.read_z()
-                xy = self.device.read_xy()
-                if not isfinite(z) or not all(map(isfinite, xy)):
+                xy = self.device.read_xy() if self.xy_enabled else None
+                if not isfinite(z) or (xy is not None and not all(map(isfinite, xy))):
                     raise ValueError("无效的 XYZ 回读")
                 self.events.put(("mark_z", layer, z, xy))
             except Exception as error:
@@ -237,7 +252,7 @@ class Workflow:
         try:
             import grpc
             if isinstance(error, grpc.RpcError) and error.code() == grpc.StatusCode.UNIMPLEMENTED:
-                return "现场缺少采图所需的 Focus v2、物镜／中间倍率状态或图像流接口"
+                return "现场未提供所需的 Z／实验采集／图像流接口；不会自动改用相机拍照，请核对 ZEN 版本及实验"
         except ImportError:
             pass
         return "采图接口调用失败，请检查设备和 ZEN 实验；详细位置见运行阶段"
@@ -248,6 +263,8 @@ class Workflow:
         if not confirmed:
             raise ValueError("请先确认两层 Z 路径、搜索范围、物镜间隙和拍摄参数")
         recipe.validate(layers)
+        if (recipe.xy_mode == "motorized") != self.xy_enabled:
+            raise ValueError("采图配置的 XY 模式与当前连接不同，请重新选择模式并连接")
         if self.state not in {"就绪", "完成", "已中止"}:
             raise RuntimeError("请先连接并确认设备就绪")
         if pending_recovery(self.root, simulated=self.simulated):

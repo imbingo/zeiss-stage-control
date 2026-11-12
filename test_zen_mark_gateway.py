@@ -25,6 +25,10 @@ except ImportError:
 @unittest.skipIf(FrameData is None, 'Generate official Gateway stubs before running wire tests')
 class MarkGatewayTest(unittest.TestCase):
     def setUp(self):
+        self.calls = []
+        self.xy_missing = self.optics_missing = self.omit_xy = self.omit_z = False
+        self.reject_confocal = False
+        self.images_count = 1
         self.z = 100e-6
         self.xy = (0., 0.)
         self.z_moves, self.params, self.set_ids = [], {}, []
@@ -69,6 +73,7 @@ class MarkGatewayTest(unittest.TestCase):
                 self.server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler(service.full_name, handlers),))
         port = self.server.add_insecure_port('127.0.0.1:0')
         self.server.start()
+        self.address = f"127.0.0.1:{port}"
         # Test server only: production always uses secure_channel with TLS/token.
         self.device = GatewayDevice(lambda:grpc.insecure_channel(f'127.0.0.1:{port}'), rpc_timeout=.5)
         self.device.connect()
@@ -76,6 +81,9 @@ class MarkGatewayTest(unittest.TestCase):
         self.addCleanup(self.device.close)
 
     def handle(self, service, method, response, req, ctx):
+        self.calls.append((service, method))
+        if self.xy_missing and service.endswith((".SimpleStageService", ".StageService")):
+            ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "No XY installed")
         if service.endswith('.SimpleStageService') and method == 'GetPosition':
             return response(x=self.xy[0], y=self.xy[1])
         if method == 'GetStageMotionState':return response(state=3)
@@ -84,6 +92,7 @@ class MarkGatewayTest(unittest.TestCase):
             if method == 'GetPosition':return response(value=self.z)
             if method == 'MoveTo':self.z=req.value; self.z_moves.append(self.z);return response(position_changed=True)
         if service.endswith(('.ObjectiveChangerService', '.OptovarService')) and method == 'GetPosition':
+            if self.optics_missing:ctx.abort(grpc.StatusCode.UNIMPLEMENTED, 'Fixed optics')
             return response(value=1)
         if method == 'Load':
             identity = 'original:'+req.experiment_name
@@ -109,7 +118,10 @@ class MarkGatewayTest(unittest.TestCase):
             params = self.params[req.experiment_id]
             self.z=(params['lower_limit']+params['upper_limit'])/2
             return response(focus_position=self.z)
-        if method == 'RunSnap':
+        if method == 'GetStatus':
+            return response(status={'images_count':self.images_count, 'channels_count':1, 'zstack_slices_count':1})
+        if method in ('RunSnap', 'RunExperiment'):
+            if method == 'RunExperiment' and self.reject_confocal:ctx.abort(grpc.StatusCode.UNIMPLEMENTED, 'No acquisition service')
             self.snaps += 1
             self.snap_entered.set()
             ready = self.subscribed.setdefault(req.experiment_id, Event())
@@ -128,6 +140,9 @@ class MarkGatewayTest(unittest.TestCase):
         frame.frame_stage_position.x.value = self.xy[0]
         frame.frame_stage_position.y.value = self.xy[1]
         frame.frame_stage_position.z.value = self.z
+        if self.omit_xy:
+            frame.frame_stage_position.ClearField("x");frame.frame_stage_position.ClearField("y")
+        if self.omit_z:frame.frame_stage_position.ClearField("z")
         frame.pixel_data.size.width, frame.pixel_data.size.height = 4, 3
         if self.partial:frame.pixel_data.size.height = 1
         frame.pixel_data.pixel_type = 2
@@ -198,4 +213,34 @@ class MarkGatewayTest(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertTrue(errors)
         self.assertIsInstance(errors[0], InterruptedError)
+        self.assertEqual(self.stops, 1)
+
+    def test_no_xy_connect_and_confocal_never_call_stage_or_snap(self):
+        self.device.close();self.calls.clear()
+        self.xy_missing=self.optics_missing=self.omit_xy=self.omit_z=True
+        self.device=GatewayDevice(lambda:grpc.insecure_channel(self.address), rpc_timeout=.5, xy_enabled=False)
+        self.addCleanup(self.device.close)
+        self.assertEqual(self.device.connect(), 100e-6)
+        self.assertEqual(self.device.read_optics(), (None, None))
+        self.device.prepare_mark_experiment('confocal-upper', 95e-6, 105e-6, use_autofocus=False)
+        frame=self.device.capture_frame(2, Event(), 'confocal', kind='confocal')
+        self.assertEqual(frame.xyz_m, (None, None, 100e-6))
+        self.assertFalse(frame.xy_verified)
+        self.assertEqual(frame.z_source, 'focus_readback_after_capture')
+        self.assertEqual(frame.capture_kind, 'confocal')
+        self.assertFalse(any(service.endswith(('.SimpleStageService', '.StageService')) for service, method in self.calls))
+        self.assertNotIn('RunSnap', [method for service, method in self.calls])
+        self.assertIn('RunExperiment', [method for service, method in self.calls])
+        self.assertNotIn('SetAutofocusParameters', [method for service, method in self.calls])
+
+    def test_confocal_unavailable_never_falls_back_to_camera(self):
+        self.prepare();self.calls.clear();self.reject_confocal=True
+        with self.assertRaises(grpc.RpcError):self.device.capture_frame(2, Event(), 'confocal', kind='confocal')
+        methods=[method for service,method in self.calls]
+        self.assertIn('RunExperiment', methods)
+        self.assertNotIn('RunSnap', methods)
+
+    def test_multiplane_confocal_experiment_is_rejected(self):
+        self.prepare();self.images_count=2
+        with self.assertRaises(ValueError):self.device.capture_frame(2, Event(), 'stack', kind='confocal')
         self.assertEqual(self.stops, 1)

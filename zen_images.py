@@ -21,6 +21,9 @@ class RawFrame:
     frame_number: int = 0
     origin: tuple = (0, 0)
     channel: int = 0
+    xy_verified: bool = True
+    z_source: str = "frame"
+    capture_kind: str = "camera_snap"
 
     def array(self):
         import numpy as np
@@ -37,8 +40,13 @@ class RawFrame:
             raise ValueError("图像字节数与尺寸不符，或图像超过 256 MiB")
         if not all(isfinite(v) and v > 0 for v in (self.scale_x_m, self.scale_y_m)):
             raise ValueError("图像缺少有效的像素标定")
-        if len(self.xyz_m) != 3 or not all(map(isfinite, self.xyz_m)):
-            raise ValueError("图像缺少有效的 XYZ 拍摄位置")
+        if len(self.xyz_m) != 3 or not isinstance(self.xyz_m[2], (float, int)) or not isfinite(self.xyz_m[2]):
+            raise ValueError("图像缺少有效 Z 位置")
+        if self.xy_verified:
+            if not all(isinstance(value, (float, int)) and isfinite(value) for value in self.xyz_m[:2]):
+                raise ValueError("图像缺少有效 XY 位置")
+        elif self.xyz_m[:2] != (None, None):
+            raise ValueError("未校验的 XY 必须记录为 null，不能伪造零坐标")
         shape = (self.height, self.width) if channels == 1 else (self.height, self.width, channels)
         result = np.frombuffer(self.data, dtype=dtype).reshape(shape)
         # TIFF uses RGB, while the ZEN stream uses BGR. Only channel order changes.
@@ -56,7 +64,8 @@ class RawFrame:
             "scale_x_m_per_pixel": self.scale_x_m, "scale_y_m_per_pixel": self.scale_y_m,
             "frame_xyz_m": self.xyz_m, "experiment_id": self.experiment_id,
             "frame_number": self.frame_number, "roi_origin_pixels": self.origin,
-            "channel_index": self.channel,
+            "channel_index": self.channel, "xy_verified": self.xy_verified,
+            "z_source": self.z_source, "capture_kind": self.capture_kind,
         }
 
 

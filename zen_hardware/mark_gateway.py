@@ -27,7 +27,7 @@ class GatewayMarkMixin:
             value = stub.GetPosition(FocusServiceGetPositionRequest(), timeout=self._timeout).value
         except grpc.RpcError as error:
             if error.code() == grpc.StatusCode.UNIMPLEMENTED:
-                raise MarkCapabilityError("现场未提供 Focus v2；角度扫描仍可使用，采图需要该接口") from None
+                raise MarkCapabilityError("现场未提供 Focus v2，无法自动读取/移动 Z；不会回退到单位不同的 Focus v1") from None
             raise
         if not isfinite(value):
             raise ValueError("Focus v2 返回无效 Z")
@@ -36,10 +36,21 @@ class GatewayMarkMixin:
     def read_optics(self):
         from zen_api.lm.hardware.v2.objective_changer_service_pb2 import ObjectiveChangerServiceGetPositionRequest
         from zen_api.lm.hardware.v2.optovar_service_pb2 import OptovarServiceGetPositionRequest
-        objective = self._mark_stub('zen_api.lm.hardware.v2.objective_changer_service_pb2_grpc', 'ObjectiveChangerServiceStub')
-        optovar = self._mark_stub('zen_api.lm.hardware.v2.optovar_service_pb2_grpc', 'OptovarServiceStub')
-        return (objective.GetPosition(ObjectiveChangerServiceGetPositionRequest(), timeout=self._timeout).value,
-                optovar.GetPosition(OptovarServiceGetPositionRequest(), timeout=self._timeout).value)
+        import grpc
+        values = []
+        for module, service, request in (
+            ('objective_changer_service', 'ObjectiveChangerServiceStub', ObjectiveChangerServiceGetPositionRequest),
+            ('optovar_service', 'OptovarServiceStub', OptovarServiceGetPositionRequest),
+        ):
+            stub = self._mark_stub('zen_api.lm.hardware.v2.'+module+'_pb2_grpc', service)
+            try:
+                values.append(stub.GetPosition(request(), timeout=self._timeout).value)
+            except grpc.RpcError as error:
+                if not self.xy_enabled and error.code() == grpc.StatusCode.UNIMPLEMENTED:
+                    values.append(None)  # Fixed/manual optics: explicitly unverified.
+                else:
+                    raise
+        return tuple(values)
 
     def move_z(self, z_m):
         from zen_api.lm.hardware.v2.focus_service_pb2 import FocusServiceMoveToRequest
@@ -48,7 +59,7 @@ class GatewayMarkMixin:
         self._mark_stub('zen_api.lm.hardware.v2.focus_service_pb2_grpc', 'FocusServiceStub').MoveTo(
             FocusServiceMoveToRequest(value=z_m), timeout=self._timeout)
 
-    def prepare_mark_experiment(self, name, low_m, high_m):
+    def prepare_mark_experiment(self, name, low_m, high_m, *, use_autofocus=True):
         from google.protobuf.wrappers_pb2 import BoolValue, DoubleValue
         from zen_api.acquisition.v1beta.experiment_service_pb2 import ExperimentServiceCloneRequest
         from zen_api.lm.acquisition.v1.experiment_sw_autofocus_service_pb2 import (
@@ -62,6 +73,8 @@ class GatewayMarkMixin:
         if not clone.experiment_id or clone.experiment_id == self._experiment_id:
             raise ValueError("未能取得独立的临时实验，拒绝修改原实验")
         self._experiment_id = clone.experiment_id
+        if not use_autofocus:
+            return {"experiment_id": self._experiment_id, "autofocus": False}
         params = self._af.GetAutofocusParameters(Get(experiment_id=self._experiment_id), timeout=self._timeout)
         if params.auto_focus_mode not in (1, 2, 3):
             raise ValueError("采图实验需使用软件对比度／强度 AF，不支持反射式 AF")
@@ -83,14 +96,17 @@ class GatewayMarkMixin:
                 "upper_m": actual.upper_limit, "mode": actual.auto_focus_mode,
                 "search_strategy": actual.search_strategy}
 
-    def capture_frame(self, timeout_s, stop, output_name):
+    def capture_frame(self, timeout_s, stop, output_name, *, kind="camera_snap"):
         import grpc
         from google.protobuf.wrappers_pb2 import Int32Value
         from zen_api.acquisition.v1beta.experiment_service_pb2 import (
-            ExperimentServiceRunSnapRequest, ExperimentServiceStopRequest, ExperimentServiceCloneRequest,
+            ExperimentServiceRunSnapRequest, ExperimentServiceRunExperimentRequest,
+            ExperimentServiceGetStatusRequest, ExperimentServiceStopRequest, ExperimentServiceCloneRequest,
         )
         from zen_api.acquisition.v1beta.experiment_streaming_service_pb2 import ExperimentStreamingServiceMonitorExperimentRequest
 
+        if kind not in ("camera_snap", "confocal"):
+            raise ValueError("未知的采集方式")
         if not self._experiment_id:
             raise RuntimeError("请先准备临时拍摄实验")
         # Use another clone exclusively for the exposure: the AF experiment's
@@ -123,9 +139,11 @@ class GatewayMarkMixin:
         try:
             if stop.is_set():
                 raise InterruptedError("已请求停止拍摄")
-            snap = self._experiments.RunSnap.future(ExperimentServiceRunSnapRequest(
-                experiment_id=experiment_id, output_name=output_name,
-            ), timeout=timeout_s)
+            # Confocal must execute the saved acquisition experiment. Never fall
+            # back to the camera/localisation Snap endpoint on an error.
+            method = self._experiments.RunExperiment if kind == 'confocal' else self._experiments.RunSnap
+            request = ExperimentServiceRunExperimentRequest if kind == 'confocal' else ExperimentServiceRunSnapRequest
+            snap = method.future(request(experiment_id=experiment_id, output_name=output_name), timeout=timeout_s)
             while True:
                 if stop.is_set():
                     raise InterruptedError("已请求停止拍摄")
@@ -148,18 +166,37 @@ class GatewayMarkMixin:
                     snap.result()  # Preserve the actual acquisition error.
                     if frame is not None:
                         break
+            if kind == 'confocal':
+                while True:
+                    if stop.is_set():
+                        raise InterruptedError("已请求停止共聚焦采集")
+                    remaining = deadline - monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("共聚焦实验结束状态未确认，未保存图像")
+                    status = self._experiments.GetStatus(ExperimentServiceGetStatusRequest(
+                        experiment_id=experiment_id), timeout=min(self._timeout, remaining)).status
+                    counts = (status.images_count, status.channels_count, status.zstack_slices_count,
+                              status.time_points_count, status.scenes_count, status.cumulated_tiles_count, status.tiles_count)
+                    if any(value > 1 for value in counts):
+                        raise ValueError("共聚焦实验必须是单通道、单 Z 层、单时间点、无拼图的一张图像")
+                    if not status.is_experiment_running and not status.is_acquisition_running and status.images_count == 1:
+                        break
+                    stop.wait(.05)
             p, f = frame.pixel_data, frame.frame_position
             if (p.start_position.x or p.start_position.y
                     or (p.size.width, p.size.height) != (frame.frame_size.width, frame.frame_size.height)
                     or f.c != 0 or any((f.z, f.t, f.s, f.m, f.h))):
                 raise ValueError("需要单通道单帧的完整图像；收到部分帧或多维采集")
             position = frame.frame_stage_position
-            if not all(position.HasField(key) for key in ('x', 'y', 'z')):
+            if self.xy_enabled and not all(position.HasField(key) for key in ('x', 'y', 'z')):
                 raise ValueError("原始图像未提供完整的 XYZ 位置")
+            z_source = 'frame' if position.HasField('z') else 'focus_readback_after_capture'
+            z = position.z.value if position.HasField('z') else self.read_z()
+            xy = (position.x.value, position.y.value) if self.xy_enabled else (None, None)
             result = RawFrame(frame.frame_size.width, frame.frame_size.height, p.pixel_type,
-                              p.raw_data, frame.scaling.x, frame.scaling.y,
-                              (position.x.value, position.y.value, position.z.value),
-                              experiment_id, frame.frame_number, (f.x, f.y), f.c)
+                              p.raw_data, frame.scaling.x, frame.scaling.y, (*xy, z),
+                              experiment_id, frame.frame_number, (f.x, f.y), f.c,
+                              self.xy_enabled, z_source, kind)
             result.array()
             return result
         except BaseException as error:

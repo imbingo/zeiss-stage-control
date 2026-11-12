@@ -54,7 +54,8 @@ def secure_channel(address, certificate, token):
 
 
 class GatewayDevice(GatewayMarkMixin):
-    def __init__(self, channel_factory, *, rpc_timeout=5.0):
+    def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True):
+        self.xy_enabled = xy_enabled
         self._channel_factory = channel_factory
         self._timeout = rpc_timeout
         self._channel = None
@@ -74,15 +75,16 @@ class GatewayDevice(GatewayMarkMixin):
 
         self.close()
         self._channel = self._channel_factory()
-        self._xy = simple_stage_service_pb2_grpc.SimpleStageServiceStub(self._channel)
-        self._stage = stage_service_pb2_grpc.StageServiceStub(self._channel)
+        if self.xy_enabled:
+            self._xy = simple_stage_service_pb2_grpc.SimpleStageServiceStub(self._channel)
+            self._stage = stage_service_pb2_grpc.StageServiceStub(self._channel)
         self._experiments = experiment_service_pb2_grpc.ExperimentServiceStub(self._channel)
         self._af = experiment_sw_autofocus_service_pb2_grpc.ExperimentSwAutofocusServiceStub(
             self._channel
         )
         try:
             grpc.channel_ready_future(self._channel).result(timeout=self._timeout)
-            return self.read_xy()
+            return self.read_xy() if self.xy_enabled else self.read_z()
         except grpc.FutureTimeoutError:
             self.close()
             raise DeviceDisconnected("Gateway TLS 连接超时") from None
@@ -91,12 +93,16 @@ class GatewayDevice(GatewayMarkMixin):
             raise
 
     def read_xy(self):
+        if not self.xy_enabled:
+            raise RuntimeError("无 XY 单点采图模式不提供 XY 操作")
         from zen_api.hardware.v1.simple_stage_service_pb2 import SimpleStageServiceGetPositionRequest
 
         reply = self._xy.GetPosition(SimpleStageServiceGetPositionRequest(), timeout=self._timeout)
         return reply.x, reply.y
 
     def motion_state(self):
+        if not self.xy_enabled:
+            raise RuntimeError("无 XY 单点采图模式不提供 XY 操作")
         from zen_api.hardware.v1.stage_service_pb2 import StageServiceGetStageMotionStateRequest
         from zen_api.hardware.v1 import stage_motion_state_pb2 as states
 
@@ -110,6 +116,8 @@ class GatewayDevice(GatewayMarkMixin):
         }.get(reply.state, Motion.UNKNOWN)
 
     def move_xy(self, x, y):
+        if not self.xy_enabled:
+            raise RuntimeError("无 XY 单点采图模式不提供 XY 操作")
         from google.protobuf.wrappers_pb2 import DoubleValue
         from zen_api.hardware.v1.simple_stage_service_pb2 import SimpleStageServiceMoveToRequest
 
