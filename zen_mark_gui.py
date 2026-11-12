@@ -114,7 +114,7 @@ class MarkCaptureDialog(tk.Toplevel):
             variable.trace_add("write", lambda *args: self.approved.set(False))
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.grab_set()
-        self.after(100, self.refresh)
+        self._refresh_job = self.after(100, self.refresh)
 
     def idle(self):
         return not (self.app.workflow and self.app.workflow.busy)
@@ -266,12 +266,22 @@ class MarkCaptureDialog(tk.Toplevel):
         if workflow and workflow.mark_run_path and self.app.status.get() != self.last_app_status:
             self.last_app_status = self.app.status.get()
             self.message.set(self.last_app_status)
-        self.after(100, self.refresh)
+        self._refresh_job = self.after(100, self.refresh)
 
     def close(self):
         if not self.idle():
             self.app.stop()
             self.message.set("已请求停止；请等待设备调用返回和记录保存后再关闭。")
             return
-        self.closed = True
         self.destroy()
+
+    def destroy(self):
+        # Cancel on the widget that owns the Tcl callback. Cancelling a child's
+        # timer through the root would leave a stale command in the child and
+        # cause errors on close/reopen or when shutting down the application.
+        self.closed = True
+        job = getattr(self, "_refresh_job", None)
+        if job:
+            self.after_cancel(job)
+            self._refresh_job = None
+        super().destroy()

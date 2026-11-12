@@ -31,6 +31,8 @@ class MarkGuiTest(unittest.TestCase):
             self.app.stop()
             deadline=time.monotonic()+3
             while self.app.workflow.busy and time.monotonic()<deadline:time.sleep(.01)
+        if self.dialog.winfo_exists():
+            self.dialog.destroy()
         for task in self.root.tk.call('after', 'info'):
             self.root.after_cancel(task)
         self.root.destroy()
@@ -103,3 +105,8 @@ class MarkGuiTest(unittest.TestCase):
         self.dialog.capture(('upper', 'lower'))
         self.assertIn('演示配置不能', self.dialog.message.get())
         self.assertEqual(self.app.workflow.device.z_moves, [])
+
+        refresh_job = self.dialog._refresh_job
+        self.dialog.close()
+        self.assertFalse(self.dialog.winfo_exists())
+        self.assertNotIn(refresh_job, self.root.tk.call('after', 'info'))
