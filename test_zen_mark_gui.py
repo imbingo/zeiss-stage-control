@@ -157,6 +157,7 @@ class MarkGuiTest(unittest.TestCase):
         self.dialog.use_af.set(False)
         self.dialog.approved.set(True)
         self.dialog.loading_approved.set(True)
+        old_dialog = self.dialog
         self.dialog.close()
         from zen_preferences import Preferences
         self.app.preferences=Preferences(self.app.preferences.path)
@@ -169,3 +170,8 @@ class MarkGuiTest(unittest.TestCase):
         self.assertFalse(self.dialog.loading_approved.get())
         self.assertIsNone(self.app.workflow)
         self.assertIn('历史值', self.dialog.message.get())
+
+        self.dialog.fields['upper']['z_m'].set('2000')
+        self.app.xy_mode.set('motorized');self.app.change_device_mode()
+        self.wait(lambda:self.app.preferences.data['mark_capture']['upper']['z_m']=='2000')
+        self.assertIsNone(old_dialog._save_job)

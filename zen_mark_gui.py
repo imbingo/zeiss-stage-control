@@ -27,6 +27,7 @@ class MarkCaptureDialog(tk.Toplevel):
         self.last_app_status = None
         self._save_job = None
         self._rpc_report = None
+        self._parameter_traces = []
         self.approved = tk.BooleanVar(value=False)
         self.loading_approved = tk.BooleanVar(value=False)
         self.reported_zen_version = tk.StringVar(value="3.12")
@@ -160,7 +161,7 @@ class MarkCaptureDialog(tk.Toplevel):
         self.restore_preferences()
         for variable in [self.output, self.capture_kind, self.use_af, self.app.xy_mode, self.reported_zen_version,
                          *self.common.values(), *(v for group in self.fields.values() for v in group.values())]:
-            variable.trace_add("write", self.parameters_changed)
+            self._parameter_traces.append((variable, variable.trace_add("write", self.parameters_changed)))
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.grab_set()
         self._refresh_job = self.after(100, self.refresh)
@@ -418,6 +419,9 @@ class MarkCaptureDialog(tk.Toplevel):
             self.after_cancel(save_job)
             self._save_job = None
         self.persist_preferences()
+        for variable, trace in self._parameter_traces:
+            variable.trace_remove("write", trace)
+        self._parameter_traces.clear()
         job = getattr(self, "_refresh_job", None)
         if job:
             self.after_cancel(job)
