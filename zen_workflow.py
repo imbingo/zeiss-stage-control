@@ -349,3 +349,20 @@ class Workflow:
             self.mark_diagnostic_report = report
             self.events.put(("mark_diagnostic", report))
         self._launch(action)
+
+    def run_hardware_test(self, session, operation, parameters, *, confirmed=False, timeout_s=60):
+        """Use the same device task gate as both production measurement flows."""
+        if session.library is None or session.library.device is not self.device:
+            raise ValueError("测试会话与当前设备不一致，请重新绑定")
+        def action():
+            report=session.execute(operation,parameters,confirmed=confirmed,timeout_s=timeout_s,stop=self._stop)
+            if report['recovery_required']:
+                self._state("设备状态待确认",detail="硬件单步已返回或失败；须现场核对动作结束，日志中保留实际结果")
+            elif operation=='disconnect':
+                self._state("未连接",detail="客户端通道已断开，不代表物理动作已停止")
+            elif operation=='connect' and report['status']=='success':
+                self._state("通信就绪（硬件单步）",detail="仅通道已连接；认证/位置/业务就绪须分别验证")
+            elif report['writes']:
+                self._state("通信就绪（硬件单步）",detail="参数已操作；业务采集前请重新连接并校验")
+            self.events.put(("hardware_result",report))
+        self._launch(action)

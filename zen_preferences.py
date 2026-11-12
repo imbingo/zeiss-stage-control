@@ -35,6 +35,10 @@ def sanitize(value):
             if isinstance(source, dict):
                 saved[group] = {key: val for key in keys if (val := text(source.get(key))) is not None}
         result['mark_capture'] = saved
+    hardware = value.get("hardware_test", {})
+    if isinstance(hardware, dict):
+        allowed = ("experiment_name", "camera_id", "z_um", "x_um", "y_um", "low_um", "high_um", "first_um", "last_um", "interval_um", "af_timeout_s", "exposure_value", "output_name", "rpc_timeout_s")
+        result["hardware_test"] = {k: v for k in allowed if (v := text(hardware.get(k))) is not None}
     return result
 
 

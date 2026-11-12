@@ -22,6 +22,8 @@ def main():
         "zen_api/lm/hardware/v2/objective_changer_service.proto",
         "zen_api/lm/hardware/v2/optovar_service.proto",
         "zen_api/acquisition/v1beta/experiment_streaming_service.proto",
+        "zen_api/lm/acquisition/v1/zstack_service.proto",
+        "zen_api/lm/hardware/v2/camera_service.proto",
     ]
     sources = set()
     while pending:

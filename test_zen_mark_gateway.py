@@ -303,3 +303,22 @@ class MarkGatewayTest(unittest.TestCase):
             self.assertNotIn('synthetic-private-detail', json.dumps(report))
             self.assertEqual(self.z_moves, [])
             self.assertEqual(self.snaps, 0)
+
+    def test_hardware_transport_connect_without_xy_or_z(self):
+        self.xy_missing=self.no_focus=True
+        self.calls.clear();self.device.connect_transport()
+        self.assertEqual(self.calls,[])
+        self.device.xy_enabled=False
+        with self.assertRaises(MarkCapabilityError):self.device.call_hardware_operation('read_z',{})
+
+    def test_hardware_z_move_is_only_move(self):
+        self.calls.clear()
+        self.device.call_hardware_operation('move_z',{'z_um':120})
+        self.assertEqual([m for _,m in self.calls],['MoveTo'])
+        self.assertAlmostEqual(self.z,120e-6)
+
+    def test_hardware_af_does_not_clone_or_load(self):
+        self.device.load_experiment('Upper')
+        self.calls.clear()
+        self.device.call_hardware_operation('af',{'experiment_id':'original:Upper','af_timeout_s':1})
+        self.assertEqual([m for _,m in self.calls],['FindAutoFocus'])

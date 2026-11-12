@@ -69,7 +69,7 @@ class Workbench:
         self.verified_xy = None
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
-        root.title("ZEN AF 表面测角 2.3.0")
+        root.title("ZEN AF 表面测角 2.4.0")
         root.geometry("1568x953")
         root.minsize(960, 680)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")
@@ -180,6 +180,7 @@ class Workbench:
         ttk.Label(actions, textvariable=self.xy).pack(side="left")
         self.field_recover = ttk.Button(actions, text="确认现场恢复", command=self.recover_field)
         self.field_recover.pack(side="right")
+        ttk.Button(connection, text="硬件库 · 通信与单步测试", command=self.open_hardware_tests).pack(fill="x", pady=4)
         self.preflight_button = ttk.Button(connection, text="开机检查", command=self.open_preflight)
         self.preflight_button.pack(fill="x", pady=(4, 0))
         ttk.Separator(inspector).pack(fill="x", pady=5)
@@ -294,6 +295,11 @@ class Workbench:
         self.heading.set("设备：未连接 · 无 XY 单点采图" if self.xy_mode.get() == "no_xy" else "设备：未连接")
         self.status.set("模式已切换，请重新连接。无 XY 模式不能角度扫描，也不能校验水平漂移。")
         self.refresh_controls()
+
+    def open_hardware_tests(self):
+        if self.workflow and self.workflow.busy:return
+        from zen_hardware_gui import HardwareTestWindow
+        self.hardware_dialog = HardwareTestWindow(self)
 
     def open_mark_capture(self):
         if self.workflow and self.workflow.busy:
@@ -892,6 +898,9 @@ class Workbench:
                         message += " · 请在设备端分别确认 XY 与 AF/Z，记录恢复后重新连接"
                         message += " · 本轮无有效结果，请独立确认 XY 与 AF/Z"
                     self.status.set(message)
+                elif kind == "hardware_result":
+                    dialog = getattr(self, "hardware_dialog", None)
+                    if dialog and dialog.winfo_exists():dialog.show_result(data[0])
                 elif kind == "mark_diagnostic":
                     dialog = getattr(self, "mark_dialog", None)
                     if dialog and dialog.winfo_exists():

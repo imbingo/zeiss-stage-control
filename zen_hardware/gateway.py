@@ -7,6 +7,7 @@ secure, authenticated channel with retries disabled for device commands.
 from . import AutofocusTimeout, DeviceDisconnected, Motion
 from .mark_gateway import GatewayMarkMixin
 from .rpc_diagnostics import RpcDiagnosticsMixin
+from .controls import GatewayControlsMixin
 
 
 def connection_hint(error):
@@ -54,7 +55,7 @@ def secure_channel(address, certificate, token):
     return grpc.secure_channel(address, credentials, options=(("grpc.enable_retries", 0), ("grpc.max_receive_message_length", 256 * 1024 * 1024)))
 
 
-class GatewayDevice(GatewayMarkMixin, RpcDiagnosticsMixin):
+class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin):
     def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True):
         self.clear_rpc_trace()
         self.xy_enabled = xy_enabled
@@ -70,6 +71,15 @@ class GatewayDevice(GatewayMarkMixin, RpcDiagnosticsMixin):
             channel.close()
 
     def connect(self):
+        self.connect_transport()
+        try:
+            return self.read_xy() if self.xy_enabled else self.read_z()
+        except Exception:
+            self.close()
+            raise
+
+    def connect_transport(self):
+        """TLS/channel only: no experiment, position, motion or acquisition RPC."""
         import grpc
         from zen_api.acquisition.v1beta import experiment_service_pb2_grpc
         from zen_api.hardware.v1 import simple_stage_service_pb2_grpc, stage_service_pb2_grpc
@@ -86,7 +96,6 @@ class GatewayDevice(GatewayMarkMixin, RpcDiagnosticsMixin):
         )
         try:
             grpc.channel_ready_future(self._channel).result(timeout=self._timeout)
-            return self.read_xy() if self.xy_enabled else self.read_z()
         except grpc.FutureTimeoutError:
             self.close()
             raise DeviceDisconnected("Gateway TLS 连接超时") from None
