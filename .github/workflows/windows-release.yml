@@ -39,6 +39,8 @@ jobs:
           & $python -B generate_gateway_stubs.py official-oad/ZEN-API/protofiles/proto_2026.11.1 --output "$payload/runtime/Lib/site-packages"
           if ($LASTEXITCODE) { throw 'Stub generation failed' }
           & $python -m pip freeze | Out-File -Encoding utf8 "$payload/dependencies.txt"
+          & $python -B trim_runtime.py "$payload/runtime"
+          if ($LASTEXITCODE) { throw 'Runtime trimming failed' }
           'ZEISS proto source: zeiss-microscopy/OAD @ 781ce14954946366524b96347e7767cefb11a2c8' | Out-File -Encoding utf8 "$payload/proto-source.txt"
           Copy-Item -Recurse official-oad/ZEN-API/protofiles/proto_2026.11.1 "$payload/api-definitions"
           "PAYLOAD=$payload" >> $env:GITHUB_ENV
@@ -53,6 +55,10 @@ jobs:
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
           & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_path_editor', 'test_zen_mark_gui', 'test_zen_hardware_gui']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 15 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Regression tests failed' }
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 3 or bool(result.skipped))"
+          if ($LASTEXITCODE) { throw 'Qt offscreen smoke tests failed' }
+          Remove-Item Env:QT_QPA_PLATFORM
           @'
           import sys, tempfile, time, tkinter as tk
           from pathlib import Path
@@ -89,13 +95,13 @@ jobs:
           & $iscc "/DPayload=$env:PAYLOAD" "/O$pwd/release" ZEN_Surface_Tilt.iss
           if ($LASTEXITCODE) { throw 'Installer compilation failed' }
           $install = Join-Path $env:RUNNER_TEMP 'zen-installed'
-          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.4.0.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
+          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.5.0.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
           if ($process.ExitCode) { throw "Installer failed: $($process.ExitCode)" }
           Push-Location $install
           cmd /c 'check_windows.bat --no-pause'
           if ($LASTEXITCODE) { throw 'Installed runtime check failed' }
           Pop-Location
-          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.4.0.zip
+          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.5.0.zip
           Get-ChildItem release -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
