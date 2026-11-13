@@ -56,6 +56,9 @@ class GatewayControlsMixin:
             reply=self._control_rpc(experiment,'ExperimentService','Export','ExperimentServiceExportRequest',experiment_id=p['experiment_id'])
             return {'xml_characters':len(reply.xml), 'xml_sha256':hashlib.sha256(reply.xml.encode('utf-8')).hexdigest(),
                     'note':'XML 内容不进入共享日志；此测试仅验证读取接口'}
+        if operation == 'list_services':
+            from .reflection import list_services
+            return {'services':list_services(self._channel, timeout=self._timeout)}
         if operation in ('snap','run_experiment','stop_experiment','experiment_status','image_output_path'):
             method,request={'snap':('RunSnap','ExperimentServiceRunSnapRequest'),
                             'run_experiment':('RunExperiment','ExperimentServiceRunExperimentRequest'),
@@ -64,7 +67,12 @@ class GatewayControlsMixin:
                             'image_output_path':('GetImageOutputPath','ExperimentServiceGetImageOutputPathRequest')}[operation]
             values={} if operation=='image_output_path' else {'experiment_id':p['experiment_id']}
             if operation in ('snap','run_experiment'):values['output_name']=p['output_name']
-            return as_dict(self._control_rpc(experiment,'ExperimentService',method,request,**values))
+            # RunSnap/RunExperiment block until acquisition finishes; a 41-slice
+            # stack already takes ~60s, so these calls get a generous floor while
+            # still honouring a larger user-configured timeout.
+            minimum={'snap':300.0,'run_experiment':1800.0}.get(operation)
+            timeout_s=None if minimum is None else max(float(self._timeout),minimum)
+            return as_dict(self._control_rpc(experiment,'ExperimentService',method,request,timeout_s=timeout_s,**values))
         if operation in ('get_af','set_af_range','af'):
             package='lm.acquisition.v1.experiment_sw_autofocus_service'
             module = __import__('importlib').import_module('zen_api.'+package+'_pb2')
@@ -77,15 +85,26 @@ class GatewayControlsMixin:
                     experiment_id=p['experiment_id']), self._timeout)
             if operation=='get_af':return as_dict(reply)
             if reply.auto_focus_mode not in (1,2,3):raise ValueError('只支持软件 AF 的范围设置，不修改反射式 AF')
-            return as_dict(self._af_rpc('SetAutofocusParameters',
-                getattr(module,'ExperimentSwAutofocusServiceSetAutofocusParametersRequest')(
-                    experiment_id=p['experiment_id'],
+            # Echo every parameter the server just reported — unwrapped fields
+            # have no "leave unmodified" sentinel and an empty channel name or
+            # reset ROI/offset gets rejected or silently changes the config.
+            # `template=reply` additionally seeds the dynamic request for
+            # versioned variants (e.g. v1beta) with schema-native values.
+            scalar=lambda name:getattr(getattr(reply,name,None),'value',getattr(reply,name,None))
+            values=dict(experiment_id=p['experiment_id'],
                     autofocus_mode=reply.auto_focus_mode, contrast_measure=reply.contrast_measure,
-                    autofocus_sampling=reply.autofocus_sampling, search_strategy='Full',
+                    autofocus_sampling=reply.autofocus_sampling,
+                    search_strategy=getattr(reply,'search_strategy','') or 'Full',
                     relative_range_is_automatic=BoolValue(value=False),
                     relative_search_range=DoubleValue(value=(p['high_um']-p['low_um'])*1e-6),
-                    lower_limit=DoubleValue(value=p['low_um']*1e-6),upper_limit=DoubleValue(value=p['high_um']*1e-6)),
-                self._timeout))
+                    lower_limit=DoubleValue(value=p['low_um']*1e-6),upper_limit=DoubleValue(value=p['high_um']*1e-6))
+            for name,wrapper in (('offset',DoubleValue),('use_acquisition_roi',BoolValue)):
+                value=scalar(name)
+                if value is not None:values[name]=wrapper(value=value)
+            if scalar('reference_channel_name'):values['reference_channel_name']=scalar('reference_channel_name')
+            return as_dict(self._af_rpc('SetAutofocusParameters',
+                getattr(module,'ExperimentSwAutofocusServiceSetAutofocusParametersRequest')(**values),
+                self._timeout, template=reply))
         if operation in ('get_zstack','is_zstack','set_zstack'):
             method,request={'get_zstack':('GetZStackInfo','ZStackServiceGetZStackInfoRequest'),
                             'is_zstack':('IsZStackExperiment','ZStackServiceIsZStackExperimentRequest'),

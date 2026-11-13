@@ -42,6 +42,7 @@ CAM = Field('camera_id','相机 ID')
 OPERATIONS = {op.key:op for op in (
     Operation('connect','连接通信（不读位置）','连接',help='仅建立 TLS/通道，不加载实验、不读 XY/Z；认证是否接受须通过后续只读请求验证。'),
     Operation('disconnect','断开通信','连接',help='只关闭客户端通道，不等于设备停止。'),
+    Operation('list_services','列出已注册 gRPC 服务','连接',help='只读 reflection 服务清单，用于核对本机 ZEN 注册的服务命名空间（v1/v1beta 等）。'),
     Operation('read_z','读取 Z','位置',help='Focus v2 GetPosition，返回单位 m。'),
     Operation('move_z','Z MoveTo','位置',(Field('z_um','目标绝对 Z (µm)',True),),True,True,help='只发送一次 Z MoveTo。不会自动 AF、拍照或回读；RPC 返回不证明轴已静止。'),
     Operation('stop_z','请求 Z Stop','位置',writes=True,may_move=True,is_stop=True,help='只请求 Focus.Stop，不代表 AF 或采集已结束；不能当硬件急停。'),

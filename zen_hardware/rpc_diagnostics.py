@@ -6,7 +6,7 @@ from zen_records import utc_now
 
 
 class GatewayCallError(RuntimeError, grpc.RpcError):
-    def __init__(self, method, status):
+    def __init__(self, method, status, detail=None):
         self.method = method
         self.status = status
         hint = {
@@ -17,8 +17,15 @@ class GatewayCallError(RuntimeError, grpc.RpcError):
             grpc.StatusCode.UNAUTHENTICATED: "认证失败，请核对当前 Gateway 控制令牌",
             grpc.StatusCode.PERMISSION_DENIED: "控制类调用被拒绝。请启用 Unsupervised API Mode（ZEN：Tools → Options → ZEN API；ZEN core：主页 API Mode 或 Maintenance → General Options → ZEN API），并确认 ZEN API toolkit 已激活",
             grpc.StatusCode.UNAVAILABLE: "服务不可用，请核对 ZEN 注册状态与 Gateway 转发",
-            grpc.StatusCode.DEADLINE_EXCEEDED: "调用超时；若已涉及设备动作，须现场确认动作结束",
+            grpc.StatusCode.DEADLINE_EXCEEDED: "调用超时；若已涉及设备动作，须现场确认动作结束（可用 experiment_status 查询实验是否仍在运行）",
+            grpc.StatusCode.INTERNAL: "设备内部错误；可能是目标位置与当前位置相同、超出行程或硬件未就绪——请现场确认状态后换值重试",
+            grpc.StatusCode.ABORTED: "服务端中止了该操作；AF 请先确认搜索范围已写入，采图请确认实验配置有效",
         }.get(status, "接口调用失败，请保留诊断记录")
+        # Server-side detail text is exposed only for parameter-validation
+        # failures, where it typically names the offending field; transport or
+        # internal details stay out of the shared log.
+        if detail and status == grpc.StatusCode.INVALID_ARGUMENT:
+            hint = f"{hint}。服务端说明：{str(detail)[:300]}"
         super().__init__(f"{method} → {status.name}：{hint}")
 
     def code(self):
@@ -66,7 +73,8 @@ class RpcDiagnosticsMixin:
             return error
         status = error.code() or grpc.StatusCode.UNKNOWN
         self._rpc_record(method, status.name)
-        return GatewayCallError(method, status)
+        detail = error.details() if status == grpc.StatusCode.INVALID_ARGUMENT else None
+        return GatewayCallError(method, status, detail)
 
     def _rpc_record(self, method, code):
         if not hasattr(self, '_rpc_trace'):

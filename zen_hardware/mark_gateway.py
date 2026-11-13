@@ -68,43 +68,77 @@ class GatewayMarkMixin:
         except Exception:
             return None
 
+    # Get-style responses name the mode field `auto_focus_mode` while the
+    # matching Set request calls it `autofocus_mode`; the template echo maps it.
+    _FIELD_ALIASES = {'auto_focus_mode': 'autofocus_mode'}
+
     @staticmethod
-    def _copy_fields(source, target):
+    def _copy_fields(source, target, strict=True):
         """Copy set fields of `source` into `target` by name, recursively.
 
         Field-NAME copying tolerates wire field-number drift between schema
-        versions; a field absent from the target schema fails the whole copy
-        so a partial request is never sent. Map fields and repeated message
-        fields whose names differ abort the fallback safely (returns False).
+        versions. In strict mode (the authoritative request overlay), a field
+        absent from the target schema fails the whole copy so a partial
+        request is never sent. In lenient mode (template seeding from a
+        prior response), unknown or type-mismatched fields are simply
+        skipped: they are best-effort echoes, never the intended change.
         """
+        aliases = GatewayMarkMixin._FIELD_ALIASES
         for field, value in source.ListFields():
-            target_desc = target.DESCRIPTOR.fields_by_name.get(field.name)
+            name = field.name
+            target_desc = target.DESCRIPTOR.fields_by_name.get(name) or \
+                target.DESCRIPTOR.fields_by_name.get(aliases.get(name, ''))
             if target_desc is None:
-                return False
-            if field.is_repeated:
-                if field.message_type is not None:
-                    return False  # repeated messages/maps: bail out safely
-                getattr(target, field.name).extend(value)
+                if strict:
+                    return False
                 continue
-            target_field = getattr(target, field.name)
-            if field.message_type is not None:
-                if hasattr(target_field, 'ListFields'):
-                    if not GatewayMarkMixin._copy_fields(value, target_field):
+            name = target_desc.name
+            try:
+                if field.is_repeated:
+                    if field.message_type is not None:
+                        if strict:
+                            return False  # repeated messages/maps: bail out
+                        continue
+                    getattr(target, name).extend(value)
+                    continue
+                target_field = getattr(target, name)
+                if field.message_type is not None:
+                    # A single-'value' message is a scalar wrapper: copy the
+                    # inner value directly. Recursing via ListFields() would
+                    # silently drop default inner values (False/0) and leave a
+                    # template-seeded True in place.
+                    wrapper = len(value.DESCRIPTOR.fields) == 1 and \
+                        value.DESCRIPTOR.fields[0].name == 'value'
+                    if wrapper and target_desc.message_type is None:
+                        setattr(target, name, value.value)  # wrapper -> scalar
+                    elif wrapper and target_field.DESCRIPTOR.fields_by_name.get('value') is not None:
+                        target_field.value = value.value    # wrapper -> wrapper
+                    elif hasattr(target_field, 'ListFields') and not wrapper:
+                        if not GatewayMarkMixin._copy_fields(value, target_field, strict):
+                            if strict:
+                                return False
+                    elif strict:
                         return False
-                elif value.DESCRIPTOR.fields_by_name.get('value') is not None:
-                    setattr(target, field.name, value.value)  # wrapper -> scalar
+                elif target_desc.message_type is not None:
+                    if target_field.DESCRIPTOR.fields_by_name.get('value') is None:
+                        if strict:
+                            return False
+                    else:
+                        target_field.value = value  # scalar -> wrapper
                 else:
-                    return False
-            elif target_desc.message_type is not None:
-                if target_field.DESCRIPTOR.fields_by_name.get('value') is None:
-                    return False
-                target_field.value = value  # scalar -> wrapper
-            else:
-                setattr(target, field.name, value)
+                    setattr(target, name, value)
+            except (TypeError, ValueError):
+                if strict:
+                    raise
         return True
 
-    def _dyn_call(self, service_name, method_name, request, timeout):
-        """Call `service_name.method_name` via reflection-built messages."""
+    def _dyn_call(self, service_name, method_name, request, timeout, template=None):
+        """Call `service_name.method_name` via reflection-built messages.
+
+        `template` is an optional earlier response (e.g. the Get reply whose
+        parameters a Set request should preserve): its fields seed the
+        request leniently before `request` fields are overlaid strictly.
+        """
         pool = self._dyn_pool(service_name)
         if pool is None:
             return None
@@ -115,6 +149,8 @@ class GatewayMarkMixin:
             request_class = message_factory.GetMessageClass(method.input_type)
             response_class = message_factory.GetMessageClass(method.output_type)
             dyn_request = request_class()
+            if template is not None:
+                self._copy_fields(template, dyn_request, strict=False)
             if not self._copy_fields(request, dyn_request):
                 return None
         except Exception:
@@ -145,7 +181,7 @@ class GatewayMarkMixin:
         return [name for name in names
                 if name != service_name and name.endswith('.' + short)]
 
-    def _versioned_rpc(self, service_name, method_name, request, timeout, primary_call):
+    def _versioned_rpc(self, service_name, method_name, request, timeout, primary_call, template=None):
         """Call `service.method`, retrying on registered package variants.
 
         On UNIMPLEMENTED from the primary path, every other registered service
@@ -163,7 +199,7 @@ class GatewayMarkMixin:
             original = error
         for variant in self._service_variants(service_name):
             try:
-                reply = self._dyn_call(variant, method_name, request, timeout)
+                reply = self._dyn_call(variant, method_name, request, timeout, template=template)
             except grpc.RpcError as error:
                 if error.code() != grpc.StatusCode.UNIMPLEMENTED:
                     raise
@@ -173,11 +209,11 @@ class GatewayMarkMixin:
                 return reply
         raise original
 
-    def _af_rpc(self, method_name, request, timeout):
+    def _af_rpc(self, method_name, request, timeout, template=None):
         """AF method call: official v1 path first, then registered variants
         (ZEN 3.12 exposes the same service under the v1beta package)."""
         reply = self._versioned_rpc(self._V1_AF_SERVICE, method_name, request, timeout,
-                                    getattr(self._af, method_name))
+                                    getattr(self._af, method_name), template=template)
         self._last_af_path = self._last_service_path
         return reply
 
@@ -362,15 +398,22 @@ class GatewayMarkMixin:
                     "lower_m": low_m, "upper_m": high_m}
         if params.auto_focus_mode not in (1, 2, 3):
             raise ValueError("采图实验需使用软件对比度／强度 AF，不支持反射式 AF")
-        try:
-            self._af_rpc('SetAutofocusParameters', Set(
-                experiment_id=self._experiment_id, autofocus_mode=params.auto_focus_mode,
+        scalar = lambda name: getattr(getattr(params, name, None), 'value',
+                                      getattr(params, name, None))
+        values = dict(experiment_id=self._experiment_id, autofocus_mode=params.auto_focus_mode,
                 contrast_measure=params.contrast_measure, search_strategy="Full",
                 autofocus_sampling=params.autofocus_sampling,
                 relative_range_is_automatic=BoolValue(value=False),
                 relative_search_range=DoubleValue(value=high_m-low_m),
-                lower_limit=DoubleValue(value=low_m), upper_limit=DoubleValue(value=high_m),
-            ), self._timeout)
+                lower_limit=DoubleValue(value=low_m), upper_limit=DoubleValue(value=high_m))
+        for name, wrapper in (('offset', DoubleValue), ('use_acquisition_roi', BoolValue)):
+            value = scalar(name)
+            if value is not None:
+                values[name] = wrapper(value=value)
+        if scalar('reference_channel_name'):
+            values['reference_channel_name'] = scalar('reference_channel_name')
+        try:
+            self._af_rpc('SetAutofocusParameters', Set(**values), self._timeout, template=params)
         except grpc.RpcError as error:
             if error.code() != grpc.StatusCode.UNIMPLEMENTED:
                 raise
@@ -392,6 +435,72 @@ class GatewayMarkMixin:
                 "upper_m": actual.upper_limit, "mode": actual.auto_focus_mode,
                 "search_strategy": actual.search_strategy}
 
+    def _collapse_zstack(self, experiment_id):
+        """Ensure the capture clone yields exactly one slice at the stage's
+        current Z.
+
+        RunSnap/RunExperiment honour the experiment's enabled dimensions: on
+        a Z-stack experiment they sweep Z through the stored stack (starting
+        at first_slice) and emit one frame per slice — wrong Z and ambiguous
+        multi-frame data. There is no "disable dimension" RPC, so collapse
+        the throwaway clone's stack to a single slice at the current Z
+        (first == last). A ZStackService that is entirely absent cannot
+        verify the dimension either way; the single-frame check downstream
+        stays the last guard in that case.
+        """
+        import grpc
+        from google.protobuf.wrappers_pb2 import DoubleValue
+        try:
+            from zen_api.lm.acquisition.v1.zstack_service_pb2 import (
+                ZStackServiceIsZStackExperimentRequest as IsStack,
+                ZStackServiceGetZStackInfoRequest as StackInfo,
+                ZStackServiceModifyZStackFirstLastRequest as ModifyFirstLast,
+                ZStackServiceModifyZStackCenterRangeRequest as ModifyCenterRange,
+            )
+            stub = self._mark_stub('zen_api.lm.acquisition.v1.zstack_service_pb2_grpc',
+                                   'ZStackServiceStub')
+        except (ImportError, AttributeError):
+            return
+        service = 'zen_api.lm.acquisition.v1.ZStackService'
+        try:
+            enabled = self._versioned_rpc(service, 'IsZStackExperiment',
+                                          IsStack(experiment_id=experiment_id),
+                                          self._timeout, stub.IsZStackExperiment).is_zstack_experiment
+        except grpc.RpcError as error:
+            if error.code() == grpc.StatusCode.UNIMPLEMENTED:
+                return
+            raise
+        if not enabled:
+            return
+        info = self._versioned_rpc(service, 'GetZStackInfo',
+                                   StackInfo(experiment_id=experiment_id),
+                                   self._timeout, stub.GetZStackInfo)
+        z_now = self.read_z()
+        interval = info.interval if info.interval > 0 else 1e-6
+        try:
+            self._versioned_rpc(service, 'ModifyZStackFirstLast', ModifyFirstLast(
+                experiment_id=experiment_id, first=DoubleValue(value=z_now),
+                last=DoubleValue(value=z_now), interval=DoubleValue(value=interval)),
+                self._timeout, stub.ModifyZStackFirstLast)
+        except grpc.RpcError as error:
+            try:
+                self._versioned_rpc(service, 'ModifyZStackCenterRange', ModifyCenterRange(
+                    experiment_id=experiment_id, center=DoubleValue(value=z_now),
+                    range=DoubleValue(value=0.0), interval=DoubleValue(value=interval)),
+                    self._timeout, stub.ModifyZStackCenterRange)
+            except grpc.RpcError:
+                raise MarkCapabilityError(
+                    "拍摄实验启用了 Z-stack 维度：RunSnap 会把 Z 移动到堆栈首层并逐层曝光。"
+                    "已尝试把克隆实验收敛为当前 Z 的单层但被服务端拒绝（"
+                    + str(error) + "）。请在 ZEN 中关闭该实验的 Z 维度，或改用一个单层实验") from error
+        check = self._versioned_rpc(service, 'GetZStackInfo',
+                                    StackInfo(experiment_id=experiment_id),
+                                    self._timeout, stub.GetZStackInfo)
+        if check.num_slices != 1:
+            raise MarkCapabilityError(
+                f"拍摄实验启用了 Z-stack 维度且收敛后仍为 {check.num_slices} 层；"
+                "请在 ZEN 中关闭该实验的 Z 维度，或改用单层实验，已阻止拍摄")
+
     def capture_frame(self, timeout_s, stop, output_name, *, kind="camera_snap"):
         import grpc
         from google.protobuf.wrappers_pb2 import Int32Value
@@ -412,6 +521,7 @@ class GatewayMarkMixin:
         if not capture.experiment_id or capture.experiment_id == af_id:
             raise ValueError("未能创建独立拍摄实验，拒绝接收可能属于 AF 的旧帧")
         experiment_id = self._experiment_id = capture.experiment_id
+        self._collapse_zstack(experiment_id)
         streaming = self._mark_stub('zen_api.acquisition.v1beta.experiment_streaming_service_pb2_grpc', 'ExperimentStreamingServiceStub')
         # Subscribe BEFORE triggering this single exposure. A unique clone ID
         # prevents a live/previous/AF frame from being mistaken for this snap.

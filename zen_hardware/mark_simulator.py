@@ -117,6 +117,7 @@ class SimulatedMarkDevice(SimulatedDevice):
         if operation == 'move_xy':self.move_xy(p['x_um']*1e-6,p['y_um']*1e-6);return {'motion_completion_verified':False}
         if operation == 'read_optics':return {'positions':self.read_optics(),'turret_locked':False}
         if operation == 'list_experiments':return {'experiments':[{'name':'Demo upper'},{'name':'Demo lower'}]}
+        if operation == 'list_services':return {'services':['demo.FocusService','demo.ExperimentService','simulated-only']}
         if operation == 'load_experiment':
             self.load_experiment(p['experiment_name']);self._experiment_id='demo-loaded'
             return {'experiment_id':self._experiment_id}

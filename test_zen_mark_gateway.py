@@ -41,6 +41,8 @@ class MarkGatewayTest(unittest.TestCase):
         self.reject_bounds = self.block_snap = self.no_focus = False
         self.reject_v1_af = self.reject_beta_af = False
         self.zstack_writes = {}
+        self.zstack_enabled = False
+        self.zstack_slices = 6
         self.snap_entered = Event()
         self.server = grpc.server(ThreadPoolExecutor(max_workers=10))
         self._service_names = []
@@ -203,13 +205,17 @@ class MarkGatewayTest(unittest.TestCase):
             self.z=98e-6
             return response(zposition=self.z)
         if method == 'IsZStackExperiment':
-            return response(is_zstack_experiment=True)
+            return response(is_zstack_experiment=self.zstack_enabled)
         if method == 'GetZStackInfo':
             return response(interval=2e-6, first_slice=95e-6, last_slice=105e-6,
-                            range=10e-6, num_slices=6, is_center_mode=False, offset=0)
+                            range=10e-6, num_slices=self.zstack_slices, is_center_mode=False, offset=0)
         if method == 'ModifyZStackFirstLast':
             self.zstack_writes[req.experiment_id] = (
                 req.first.value, req.last.value, req.interval.value)
+            if req.first.value == req.last.value:self.zstack_slices = 1
+            return response()
+        if method == 'ModifyZStackCenterRange':
+            if req.HasField('range') and req.range.value == 0:self.zstack_slices = 1
             return response()
         if method == 'GetStatus':
             return response(status={'images_count':self.images_count, 'channels_count':1, 'zstack_slices_count':1})
@@ -301,6 +307,16 @@ class MarkGatewayTest(unittest.TestCase):
         np.testing.assert_array_equal(frame.array(), np.arange(12, dtype='<u2').reshape(3, 4))
         self.assertEqual(self.snaps, 1)
         self.assertEqual(self.stops, 0)
+        with self.subTest('zstack-enabled clone is collapsed to one slice at current Z'):
+            self.zstack_enabled=True
+            frame=self.device.capture_frame(2, Event(), 'stacked')
+            first, last, interval = self.zstack_writes[frame.experiment_id]
+            self.assertAlmostEqual(first, last)
+            self.assertAlmostEqual(first, self.z)
+            self.assertEqual(self.zstack_slices, 1)
+            self.assertEqual(self.snaps, 2)
+            self.assertEqual(frame.z_source, 'frame')
+            self.zstack_enabled=False
 
     def test_partial_frame_is_rejected_without_retry(self):
         self.prepare();self.partial=True
@@ -466,8 +482,10 @@ class MarkGatewayTest(unittest.TestCase):
         with self.subTest('ZStackService falls back to registered package variant'):
             # The v1 ZStackService is not registered on this mock (as on the
             # real ZEN 3.12); the v1beta twin must answer transparently.
+            self.zstack_enabled=True
             self.assertTrue(self.device.call_hardware_operation(
                 'is_zstack', {'experiment_id':'original:Upper'})['is_zstack_experiment'])
+            self.zstack_enabled=False
             self.device.call_hardware_operation('set_zstack', {
                 'experiment_id':'original:Upper','first_um':95,'last_um':105,'interval_um':2})
             first, last, interval = self.zstack_writes['original:Upper']
