@@ -512,10 +512,10 @@ class MarksPage(QWidget):
             layer, z, xy = data
             self._apply_mark_z(layer, z, xy)
         elif kind == "mark_diagnostic":
-            self._last_inspect = data
-            self._summarize_diagnostic(data)
+            self._last_inspect = data[0]
+            self._summarize_diagnostic(data[0])
         elif kind == "mark_error":
-            self.app.log("error", f"采图失败：{data}")
+            self.app.log("error", f"采图失败：{data[0]}")
             for key in ("upper", "lower"):
                 if self.saved_pills[key].text() == "采集中…":
                     self.saved_pills[key].set_kind("bad", "失败")

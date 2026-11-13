@@ -41,7 +41,18 @@ class TestQtWorkbench(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.window = WorkbenchWindow(Path(self.tmp.name) / "data")
-        self.addCleanup(self.window.close)
+        self.addCleanup(self._close_window)
+
+    def _close_window(self):
+        # Never let closeEvent reach its modal "task still processing" box in
+        # headless runs: stop the workflow first and skip close() if it does
+        # not become idle in time.
+        workflow = self.window.workflow
+        if workflow is not None and workflow.busy:
+            workflow.stop()
+            _wait(lambda: not workflow.busy, timeout=15)
+        if workflow is None or not workflow.busy:
+            self.window.close()
 
     def test_demo_tilt_run(self):
         window = self.window
@@ -59,13 +70,25 @@ class TestQtWorkbench(unittest.TestCase):
         page.check_items["zpath"].check.setChecked(True)
         page.check_items["loading"].check.setChecked(True)
         page.capture(("upper", "lower"))
+        # mark_output_path is set as soon as the run record exists, while the
+        # state still reads 就绪 from connect; wait for the worker to finish so
+        # the asserts below cannot race in-flight writes.
         self.assertTrue(_wait(
-            lambda: window.workflow.state == "就绪"
-            and getattr(window.workflow, "mark_output_path", None) is not None))
+            lambda: getattr(window.workflow, "mark_output_path", None) is not None
+            and not window.workflow.busy))
+        if window.workflow.state != "就绪":
+            print("mark capture ended in", window.workflow.state,
+                  "| diagnostic:", window.workflow.mark_diagnostic_report,
+                  file=sys.stderr, flush=True)
+        self.assertEqual(window.workflow.state, "就绪")
         output = Path(window.workflow.mark_output_path)
         self.assertTrue((output / "upper.tif").exists())
         self.assertTrue((output / "lower.tif").exists())
         self.assertTrue((output / "capture.json").exists())
+        # Exercise the event-queue payload shape (kind, *data) on the
+        # diagnostic handler — regression for a stray list reaching it.
+        report = {"kind": "read_only_experiment_check", "experiments": []}
+        page.on_workflow_event("mark_diagnostic", [report], window.workflow)
 
     def test_recovery_lock_blocks_capture(self):
         window = self.window
