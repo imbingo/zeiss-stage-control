@@ -72,8 +72,24 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Set-Location $env:PAYLOAD
           $env:QT_QPA_PLATFORM = 'offscreen'
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 3 or bool(result.skipped))"
-          if ($LASTEXITCODE) { throw 'Qt offscreen smoke tests failed' }
+          $env:QT_DEBUG_PLUGINS = '1'
+          $env:QT_FORCE_STDERR_LOGGING = '1'
+          @'
+          import sys, unittest
+          sys.path.insert(0, '.')
+          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke'])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(not result.wasSuccessful() or result.testsRun != 3 or bool(result.skipped))
+          '@ | Set-Content -Encoding utf8 qt-smoke-runner.py
+          $proc = Start-Process -FilePath ./runtime/python.exe -ArgumentList '-u','-I','-B','qt-smoke-runner.py' -NoNewWindow -PassThru -RedirectStandardOutput qt-smoke.out.txt -RedirectStandardError qt-smoke.err.txt
+          if (-not $proc.WaitForExit(180000)) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              Get-Content qt-smoke.out.txt, qt-smoke.err.txt -ErrorAction SilentlyContinue
+              throw 'Qt offscreen smoke tests timed out after 180s (platform dialog may be blocking)'
+          }
+          Get-Content qt-smoke.out.txt, qt-smoke.err.txt -ErrorAction SilentlyContinue
+          Remove-Item qt-smoke-runner.py, qt-smoke.out.txt, qt-smoke.err.txt -ErrorAction SilentlyContinue
+          if ($proc.ExitCode) { throw 'Qt offscreen smoke tests failed' }
       - name: Tk GUI smoke test
         shell: pwsh
         run: |
