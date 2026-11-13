@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>ZEN 工作台 UI 原型</title>
+<style>
+:root{--bg:#eef1f5;--card:#fff;--line:#dde3ea;--ink:#18222f;--muted:#6a7584;--accent:#1f5fbf;--soft:#e7f0fc;
+--ok:#1b8756;--oksoft:#e4f5ec;--warn:#a96300;--warnsoft:#fff3d9;--bad:#bf3a2b;--badsoft:#fdecea;--mono:Consolas,"Cascadia Mono",monospace}
+*{box-sizing:border-box}html,body{margin:0;width:1600px;height:1000px;overflow:hidden;background:var(--bg);color:var(--ink);
+font:13px/1.45 "Microsoft YaHei UI","Segoe UI",sans-serif}
+.app{display:grid;grid-template:56px 1fr 168px/196px 1fr;height:1000px}
+/* top bar */
+.top{grid-column:1/3;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 16px;gap:12px}
+.brand{font-weight:700;font-size:15px;display:flex;align-items:center;gap:9px;white-space:nowrap;margin-right:6px}
+.brand i{width:10px;height:10px;background:var(--accent);border-radius:2px}
+.brand small{font-weight:400;color:var(--muted);font-size:11px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:#f7f9fb;white-space:nowrap}
+.chip b{font-weight:600}.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.chip.real{background:var(--soft);border-color:#c5d9f5;color:#12407f;font-weight:600}
+.chip.warn{background:var(--warnsoft);border-color:#f0d49a;color:var(--warn)}
+.chip.bad{background:var(--badsoft);border-color:#f2c1bb;color:var(--bad);font-weight:600}
+.read{display:flex;gap:0;margin-left:6px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.read div{padding:4px 12px;border-right:1px solid var(--line);background:#fbfcfd}.read div:last-child{border:0}
+.read span{display:block;font-size:10px;color:var(--muted);line-height:1.1}.read b{font:600 14px var(--mono)}
+.grow{flex:1}
+.stop{background:var(--bad);color:#fff;border:0;border-radius:8px;padding:9px 20px;font:700 14px "Microsoft YaHei UI";letter-spacing:1px;box-shadow:0 1px 0 #8f2a1f}
+.stop small{font-weight:400;opacity:.8;margin-left:6px;font-size:11px}
+/* nav */
+.nav{background:#fff;border-right:1px solid var(--line);padding:12px 10px;display:flex;flex-direction:column;gap:2px}
+.nav h6{margin:8px 8px 4px;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:1px}
+.nav a{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:8px;color:#354152;font-size:13px}
+.nav a em{font-style:normal;width:20px;height:20px;border-radius:5px;background:#eef2f6;color:#5b6672;font:600 11px/20px "Segoe UI";text-align:center}
+.nav a.on{background:var(--soft);color:#12407f;font-weight:600}.nav a.on em{background:var(--accent);color:#fff}
+.nav a span{margin-left:auto;font-size:11px;color:var(--muted)}
+.nav a span.g{color:var(--ok)}.nav a span.w{color:var(--warn)}
+.sess{margin-top:auto;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:12px;background:#fafbfc}
+.sess dt{color:var(--muted);font-size:11px}.sess dd{margin:0 0 6px;font-weight:600}.sess dd:last-child{margin:0;font:600 11px var(--mono)}
+/* main */
+.main{overflow:hidden;position:relative}
+.screen{display:none;grid-template-columns:1fr 316px;height:100%}
+.work{padding:14px 14px 12px 16px;display:flex;flex-direction:column;gap:11px;min-width:0}
+.side{border-left:1px solid var(--line);background:#f8fafc;padding:14px;display:flex;flex-direction:column;gap:11px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card h3{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px}
+.card h3 small{font-weight:400;color:var(--muted);margin-left:auto;font-size:11px}
+.title{display:flex;align-items:center;gap:14px}
+.title h1{margin:0;font-size:18px}.title p{margin:0;color:var(--muted);font-size:12px}
+.steps{display:flex;gap:0;margin-left:auto;font-size:12px}
+.steps span{padding:5px 12px 5px 10px;background:#fff;border:1px solid var(--line);border-right:0;color:var(--muted)}
+.steps span:first-child{border-radius:8px 0 0 8px}.steps span:last-child{border-right:1px solid var(--line);border-radius:0 8px 8px 0}
+.steps .d{color:var(--ok);background:var(--oksoft)}.steps .c{color:#fff;background:var(--accent);border-color:var(--accent);font-weight:600}
+.row{display:flex;gap:11px;min-height:0}.col{display:flex;flex-direction:column;gap:11px;min-width:0}
+.f1{flex:1}.f2{flex:2}
+.pill{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600}
+.pill.ok{background:var(--oksoft);color:var(--ok)}.pill.wn{background:var(--warnsoft);color:var(--warn)}
+.pill.bd{background:var(--badsoft);color:var(--bad)}.pill.nt{background:#eef2f6;color:#5b6672}.pill.ac{background:var(--soft);color:#12407f}
+.kv{display:grid;grid-template-columns:104px 1fr;gap:7px 8px;align-items:center;font-size:12px}
+.kv label{color:var(--muted)}
+.in{border:1px solid #cfd6de;border-radius:6px;padding:5px 8px;background:#fff;font-size:12px;display:flex;align-items:center;gap:6px;height:29px}
+.in.m{font-family:var(--mono);font-weight:600;font-size:13px}.in u{text-decoration:none;color:var(--muted);margin-left:auto;font:11px "Microsoft YaHei UI"}
+.btn{border:1px solid #cbd3dc;background:#fff;border-radius:7px;padding:6px 12px;font:13px "Microsoft YaHei UI";color:var(--ink);white-space:nowrap}
+.btn.p{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.mv{background:var(--warnsoft);border-color:#e5c27c;color:#7a4700;font-weight:600}
+.btn.s{padding:4px 9px;font-size:12px}.btn.off{opacity:.45}
+.note{font-size:11.5px;border-radius:7px;padding:6px 9px;background:var(--warnsoft);color:#7a4700;border:1px solid #f0d49a}
+.note.i{background:var(--soft);color:#12407f;border-color:#c5d9f5}
+.chk{list-style:none;margin:0;padding:0;font-size:12px}
+.chk li{display:flex;gap:8px;padding:5px 0;border-bottom:1px dashed #e6eaef;align-items:flex-start}.chk li:last-child{border:0}
+.chk i{flex:none;width:16px;height:16px;border-radius:50%;font:700 10px/16px "Segoe UI";text-align:center;font-style:normal;margin-top:1px}
+.chk .y i{background:var(--ok);color:#fff}.chk .w i{background:#e9a530;color:#fff}.chk .n i{background:#fff;border:1.5px solid #9aa5b2}
+.chk .x i{background:var(--bad);color:#fff}
+.chk small{display:block;color:var(--muted);font-size:11px}
+.chk .man{background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:5px}
+.imgc{display:flex;flex-direction:column}.thumb{flex:1;min-height:150px;border-radius:7px;background:radial-gradient(circle at 50% 50%,#3a4350 0,#161b22 70%);position:relative;overflow:hidden}
+.thumb:before,.thumb:after{content:"";position:absolute;background:#c9d3de;opacity:.85}
+.thumb:before{left:50%;top:26%;width:3px;height:48%;transform:translateX(-50%)}
+.thumb:after{top:50%;left:34%;height:3px;width:32%;transform:translateY(-50%)}
+.thumb.b:before,.thumb.b:after{background:#8fd0ff;opacity:.7}
+.thumb.b:before{box-shadow:-34px 0 0 -1px #8fd0ff55,34px 0 0 -1px #8fd0ff55}
+.thumb.e{background:repeating-linear-gradient(45deg,#f1f4f7 0 8px,#e8ecf1 8px 16px)}.thumb.e:before,.thumb.e:after{display:none}
+.thumb span{position:absolute;left:8px;bottom:6px;color:#dfe6ee;font:11px var(--mono)}
+.thumb.e span{color:var(--muted);left:0;right:0;top:45%;text-align:center;font:12px "Microsoft YaHei UI"}
+.meta{font:11px var(--mono);color:#4a5665;margin-top:6px;display:flex;gap:12px;flex-wrap:wrap}
+.bar{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.seg{display:inline-flex;border:1px solid #cbd3dc;border-radius:7px;overflow:hidden;font-size:12px}
+.bar>span,.bar>b{white-space:nowrap}.seg b{white-space:nowrap;padding:5px 10px;font-weight:400;background:#fff}.seg b.on{background:var(--soft);color:#12407f;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;padding:5px 8px;border-bottom:1px solid var(--line);background:#fafbfc}
+td{padding:5px 8px;border-bottom:1px solid #edf0f4;font-family:var(--mono)}td.t{font-family:inherit}
+tr.sel td{background:var(--soft)}tr.fail td{background:var(--badsoft)}
+.kpi{flex:1;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 14px}
+.kpi span{font-size:11px;color:var(--muted);font-weight:600}.kpi b{display:block;font:700 23px var(--mono);color:var(--accent)}
+.kpi b u{text-decoration:none;font:12px "Microsoft YaHei UI";color:var(--muted);margin-left:4px}.kpi.k b{color:var(--ink)}
+.kpi em{font-style:normal;font-size:11px;color:var(--muted)}
+.prog{height:6px;background:#e6ebf0;border-radius:3px;overflow:hidden;width:190px}.prog i{display:block;height:100%;width:33%;background:var(--accent)}
+/* dock */
+.dock{grid-column:1/3;background:#fff;border-top:1px solid var(--line);display:flex;flex-direction:column}
+.tabs{display:flex;align-items:center;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);height:34px;font-size:12px}
+.tabs b{padding:8px 12px;font-weight:400;color:var(--muted)}.tabs b.on{color:var(--accent);font-weight:600;box-shadow:inset 0 -2px 0 var(--accent)}
+.tabs b sup{background:var(--warnsoft);color:var(--warn);border-radius:8px;padding:0 5px;font-size:10px;margin-left:3px}
+.log{flex:1;padding:6px 16px;font:12px/1.62 var(--mono);overflow:hidden;color:#34404e}
+.log p{margin:0;white-space:nowrap}.log time{color:#8a95a3;margin-right:10px}
+.log .lv{display:inline-block;width:52px;font-weight:700}.lv.i{color:#5b6672}.lv.o{color:var(--ok)}.lv.w{color:var(--warn)}.lv.e{color:var(--bad)}.lv.m{color:#7a4700}
+/* lock */
+.lockbar{display:none;position:absolute;left:0;right:0;top:0;background:var(--badsoft);border-bottom:1px solid #f2c1bb;padding:10px 16px;align-items:center;gap:12px;z-index:5}
+.lockbar b{color:var(--bad);font-size:14px}.lockbar p{margin:0;font-size:12px;color:#6d2a22}
+body.lock .lockbar{display:flex}body.lock .work,body.lock .side{padding-top:74px}
+body.lock .mv,body.lock .btn.p{opacity:.38}
+body.mark #s-mark,body.lock #s-mark,body.tilt #s-tilt,body.data #s-data{display:grid}
+</style></head><body>
+<div class="app">
+<header class="top">
+  <div class="brand"><i></i>ZEN 表面测角工作台 <small>v2.5</small></div>
+  <span class="chip"><span class="dot"></span><b>Gateway 已连接</b> 127.0.0.1:5000 · TLS</span>
+  <span class="chip real">真实设备</span>
+  <span class="chip" id="xy">无电动 XY · 单点</span>
+  <span class="chip" id="rec"><span class="dot"></span>无待恢复项</span>
+  <div class="read">
+    <div><span>X µm</span><b id="rx">—</b></div><div><span>Y µm</span><b id="ry">—</b></div>
+    <div><span>Z µm · 0.2 s 前</span><b>1034.62</b></div><div><span>物镜</span><b style="font-family:inherit;font-size:12px">未提供</b></div>
+  </div>
+  <div class="grow"></div>
+  <span class="chip">操作员 bingo</span>
+  <button class="stop">■ 停止<small>Esc</small></button>
+</header>
+
+<nav class="nav">
+  <h6>工作区</h6>
+  <a id="n-dev"><em>1</em>设备与自检<span class="g">就绪</span></a>
+  <a id="n-tilt"><em>2</em>表面测角<span>需电动 XY</span></a>
+  <a id="n-mark"><em>3</em>对位采图<span class="g">可用</span></a>
+  <a id="n-data"><em>4</em>记录与分析<span>37</span></a>
+  <h6>工程</h6>
+  <a><em>⚙</em>硬件单步调试</a>
+  <a><em>▷</em>离线演示</a>
+  <a><em>≡</em>设置</a>
+  <dl class="sess"><dt>样品 / 批次</dt><dd>W-0412 · Lot A7</dd><dt>本次会话目录</dt><dd>runs\2026-11-14\</dd></dl>
+</nav>
+
+<main class="main">
+<div class="lockbar"><b>⚠ 设备状态待确认 · 写入与运动已锁定</b>
+  <p>上次「下 mark 采集」在 RunSnap 后超时，物理动作可能仍在进行。请在 ZEN 现场确认 Z、AF 与采集均已停止。只读查询和「停止」仍可用。</p>
+  <div class="grow"></div><button class="btn">查看该次记录</button><button class="btn" style="border-color:var(--bad);color:var(--bad);font-weight:600">逐项确认并解锁…</button></div>
+
+<!-- ============ 对位采图 ============ -->
+<section class="screen" id="s-mark">
+<div class="work">
+  <div class="title"><div><h1>对位采图</h1><p>当前 XY 不动 · 分别在上、下 mark 焦面各采一张 · 输出 TIFF 供 SOMA 分析</p></div>
+    <div class="steps"><span class="d">✓ 设备就绪</span><span class="d">✓ 示教 Z</span><span class="c">3 检查</span><span>4 采集</span><span>5 结果</span></div></div>
+  <div class="row" style="flex:none">
+    <div class="card f1"><h3>上 mark <span class="pill ok">已示教</span><small>10:42 示教</small></h3>
+      <div class="kv"><label>ZEN 实验</label><div class="in">Mark_Top_20x ▾<u><span class="pill ok">单平面</span></u></div>
+        <label>示教 Z</label><div style="display:flex;gap:6px"><div class="in m f1">1034.62<u>µm</u></div><button class="btn s">读取当前 Z</button></div>
+        <label>局部 AF 范围</label><div style="display:flex;gap:6px;align-items:center"><div class="in m" style="width:74px">± 5.0</div><span style="font:12px var(--mono);color:var(--muted)">1029.62 – 1039.62 µm</span></div></div></div>
+    <div class="card f1"><h3>下 mark <span class="pill ok">已示教</span><small>10:44 示教</small></h3>
+      <div class="kv"><label>ZEN 实验</label><div class="in">Mark_Bot_20x ▾<u><span class="pill wn">含 Z-stack · 21 层</span></u></div>
+        <label>示教 Z</label><div style="display:flex;gap:6px"><div class="in m f1">986.20<u>µm</u></div><button class="btn s">读取当前 Z</button></div>
+        <label>局部 AF 范围</label><div style="display:flex;gap:6px;align-items:center"><div class="in m" style="width:74px">± 5.0</div><span style="font:12px var(--mono);color:var(--muted)">981.20 – 991.20 µm</span></div></div>
+      <div class="note" style="margin-top:8px">该实验启用了 Z-stack（首层 3361.2 µm）。采集时只修改临时克隆：收敛为示教 Z 的单层，原实验不变。</div></div>
+    <div class="card" style="width:232px"><h3>Z 包络 <small>µm</small></h3>
+      <svg width="204" height="178" viewBox="0 0 204 178" font-family="Consolas" font-size="10">
+        <line x1="62" y1="16" x2="62" y2="172" stroke="#c3ccd6" stroke-width="2"/>
+        <g fill="#8a95a3"><text x="56" y="34" text-anchor="end">1050</text><text x="56" y="74" text-anchor="end">1025</text><text x="56" y="114" text-anchor="end">1000</text><text x="56" y="154" text-anchor="end">975</text></g>
+        <g stroke="#c3ccd6"><line x1="58" y1="30" x2="66" y2="30"/><line x1="58" y1="70" x2="66" y2="70"/><line x1="58" y1="110" x2="66" y2="110"/><line x1="58" y1="150" x2="66" y2="150"/></g>
+        <rect x="66" y="46.600" width="46" height="16" fill="#1f5fbf" opacity=".18"/><line x1="66" y1="54.6" x2="112" y2="54.6" stroke="#1f5fbf" stroke-width="2"/>
+        <text x="116" y="52" fill="#12407f" font-family="Microsoft YaHei UI">上 mark</text><text x="116" y="63" fill="#12407f">1034.62</text>
+        <rect x="66" y="124.1" width="46" height="16" fill="#1b8756" opacity=".18"/><line x1="66" y1="132.1" x2="112" y2="132.1" stroke="#1b8756" stroke-width="2"/>
+        <text x="116" y="130" fill="#1b8756" font-family="Microsoft YaHei UI">下 mark</text><text x="116" y="141" fill="#1b8756">986.20</text>
+        <path d="M30 54.6l-12 -6v12z" fill="#18222f"/><text x="2" y="42" fill="#18222f" font-family="Microsoft YaHei UI">当前</text>
+        <path d="M62 16l-5 9h10z" fill="#a96300"/><text x="72" y="13" fill="#a96300" font-family="Microsoft YaHei UI">↑ 原首层 3361.2</text>
+        <text x="72" y="98" fill="#8a95a3" font-family="Microsoft YaHei UI">层间距 48.42</text>
+      </svg></div>
+  </div>
+  <div class="bar">
+    <span style="color:var(--muted)">采集方式</span><div class="seg"><b class="on">共聚焦采集</b><b>相机</b></div>
+    <span style="color:var(--muted);margin-left:8px">定位后局部 AF</span><div class="seg"><b class="on">开</b><b>关</b></div>
+    <span style="color:var(--muted);margin-left:8px">容差 / 超时</span><button class="btn s">Z 0.5 µm · AF 10 s ▾</button>
+    <div class="grow"></div>
+    <button class="btn mv off">仅拍上 mark</button><button class="btn mv off">仅拍下 mark</button><button class="btn p off" style="padding:7px 18px">采集上下两张 ▶</button>
+  </div>
+  <div class="row f1">
+    <div class="card f1 imgc"><h3>上 mark 图像 <span class="pill ok">已保存</span><small>上一轮 · 10:51:07</small></h3>
+      <div class="thumb"><span>2048×2048 · 16 bit</span></div>
+      <div class="meta"><span>Z 1034.71</span><span>AF Δ +0.09</span><span>0.1625 µm/px</span><span>帧校验 ✓</span></div></div>
+    <div class="card f1 imgc"><h3>下 mark 图像 <span class="pill ok">已保存</span><small>上一轮 · 10:51:19</small></h3>
+      <div class="thumb b"><span>2048×2048 · 16 bit</span></div>
+      <div class="meta" id="m-low"><span>Z 986.14</span><span>AF Δ −0.06</span><span>0.1625 µm/px</span><span>帧校验 ✓</span></div></div>
+    <div class="card" style="width:232px" id="res"><h3>本轮结果</h3>
+      <div class="kv" style="grid-template-columns:86px 1fr"><label>几何一致</label><b style="color:var(--ok)">✓ 尺寸/ROI/标定</b><label>层间 ΔZ</label><b style="font-family:var(--mono)">48.57 µm</b><label>拍摄中 Z 漂移</label><b style="font-family:var(--mono)">0.02 µm</b><label>用时</label><b style="font-family:var(--mono)">18.4 s</b></div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><button class="btn s">打开目录</button><button class="btn s">复制路径</button><button class="btn s">在记录中查看</button></div></div>
+  </div>
+</div>
+<aside class="side">
+  <div class="card"><h3>采集前检查 <small>5 / 7</small></h3>
+    <ul class="chk">
+      <li class="y"><i>✓</i><div>Gateway 已认证，Focus 可读<small>自动 · 只读请求已验证</small></div></li>
+      <li class="y" id="c-rec"><i>✓</i><div>无待恢复的设备状态<small>自动</small></div></li>
+      <li class="y"><i>✓</i><div>上下示教 Z 与 AF 范围不重叠<small>自动 · 间隔 38.4 µm</small></div></li>
+      <li class="y"><i>✓</i><div>两个实验均存在于 ZEN<small>自动 · 只读列表，不加载</small></div></li>
+      <li class="w"><i>!</i><div>下 mark 实验含 Z-stack<small>将在克隆上收敛为单层并回读确认；被拒则中止</small></div></li>
+      <li class="n"><i></i><div>样品已固定，XY 不会被手动移动<div class="man">☐ 我已现场确认</div></div></li>
+      <li class="n"><i></i><div>实验加载不会换物镜 / 恢复位置<div class="man">☐ 我已在 ZEN 中核对<small>软件无法锁定转盘</small></div></div></li>
+    </ul></div>
+  <div class="card"><h3>即将执行 <small>预览</small></h3>
+    <div style="font:12px/1.75 var(--mono)">
+      <div>① Z <b>1034.62 → 1034.62</b> <span class="pill nt">不动</span></div>
+      <div>② AF 1029.62–1039.62 · 拍上</div>
+      <div>③ Z <b>→ 986.20</b> <span class="pill wn">运动 48.42</span></div>
+      <div>④ AF 981.20–991.20 · 拍下</div>
+      <div style="color:var(--muted);font-family:'Microsoft YaHei UI'">完成后停在下 mark 焦面，不自动返回</div></div></div>
+  <div class="note i">勾选两项人工确认后「采集」按钮才会启用。</div>
+</aside>
+</section>
+
+<!-- ============ 表面测角 ============ -->
+<section class="screen" id="s-tilt">
+<div class="work">
+  <div class="title"><div><h1>表面测角</h1><p>逐点 AF 取 Z → 平面拟合 → Rx / Ry / RMS / PV</p></div>
+    <div class="steps"><span class="d">✓ 配方</span><span class="d">✓ 点位</span><span class="d">✓ 起点校验</span><span class="c">4 运行中</span><span>5 结果</span></div></div>
+  <div class="row" style="flex:none">
+    <div class="kpi"><span>Rx</span><b>+12.4<u>µrad</u></b><em>已完成 3 点的临时拟合</em></div>
+    <div class="kpi"><span>Ry</span><b>−8.1<u>µrad</u></b><em>上次同样品 −7.6</em></div>
+    <div class="kpi k"><span>RMS</span><b>0.21<u>µm</u></b><em>&nbsp;</em></div>
+    <div class="kpi k"><span>PV</span><b>0.58<u>µm</u></b><em>&nbsp;</em></div>
+  </div>
+  <div class="bar"><span class="pill ac">运行中</span><b>第 4 / 9 点 · AF</b><div class="prog"><i></i></div><span style="color:var(--muted)">已用 00:41 · 预计剩余 01:20</span>
+    <div class="grow"></div><span style="color:var(--muted)">配方</span><b>Wafer_3x3_20x</b><button class="btn s">编辑…</button><button class="btn s off">开始批量测角 ▶</button><button class="btn s" style="color:var(--bad);border-color:#e2a59d">完成当前点后停止</button></div>
+  <div class="row f1">
+    <div class="card f2" style="display:flex;flex-direction:column"><h3>XY 点位与残差 <small>悬停看单点 · 点击定位到表格行</small></h3>
+      <svg viewBox="0 0 600 330" style="flex:1;width:100%" font-family="Consolas" font-size="11">
+        <rect x="50" y="10" width="530" height="290" fill="#fbfcfd" stroke="#dde3ea"/>
+        <g stroke="#edf0f4"><line x1="50" y1="82" x2="580" y2="82"/><line x1="50" y1="155" x2="580" y2="155"/><line x1="50" y1="228" x2="580" y2="228"/><line x1="182" y1="10" x2="182" y2="300"/><line x1="315" y1="10" x2="315" y2="300"/><line x1="448" y1="10" x2="448" y2="300"/></g>
+        <polyline points="140,250 315,250 490,250 490,155 315,155 140,155 140,60 315,60 490,60" fill="none" stroke="#b9c4d0" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <g fill="#1b8756"><circle cx="140" cy="250" r="9"/><circle cx="315" cy="250" r="9"/><circle cx="490" cy="250" r="9"/></g>
+        <circle cx="490" cy="155" r="13" fill="none" stroke="#1f5fbf" stroke-width="2"/><circle cx="490" cy="155" r="8" fill="#1f5fbf"/>
+        <g fill="#fff" stroke="#9aa5b2" stroke-width="1.5"><circle cx="315" cy="155" r="8"/><circle cx="140" cy="155" r="8"/><circle cx="140" cy="60" r="8"/><circle cx="315" cy="60" r="8"/><circle cx="490" cy="60" r="8"/></g>
+        <g fill="#34404e"><text x="154" y="244">1  +0.12</text><text x="329" y="244">2  −0.19</text><text x="504" y="244">3  +0.07</text><text x="508" y="150" fill="#1f5fbf" font-weight="bold">4  AF…</text></g>
+        <g fill="#8a95a3"><text x="140" y="318" text-anchor="middle">−2000</text><text x="315" y="318" text-anchor="middle">0</text><text x="490" y="318" text-anchor="middle">2000</text><text x="44" y="254" text-anchor="end">−2000</text><text x="44" y="159" text-anchor="end">0</text><text x="44" y="64" text-anchor="end">2000</text><text x="572" y="24" text-anchor="end">XY µm · 标注为残差 µm</text></g>
+      </svg>
+      <div style="display:flex;gap:14px;font-size:11px;color:var(--muted)"><span>● <span style="color:var(--ok)">完成</span></span><span>● <span style="color:var(--accent)">当前</span></span><span>○ 待测</span><span>● <span style="color:var(--bad)">失败</span></span><div class="grow"></div><span>视图：<b style="color:var(--ink)">残差</b> · Z 高度 · 路径顺序</span></div></div>
+    <div class="card f2" style="padding:0;overflow:hidden"><h3 style="padding:12px 14px 0">逐点明细 <small style="padding-right:14px">自动追加到 points.csv</small></h3>
+      <table><tr><th>#</th><th>目标 XY µm</th><th>AF 后 XY µm</th><th>AF Z µm</th><th>残差</th><th>状态</th></tr>
+        <tr><td>1</td><td>−2000, −2000</td><td>−2000.1, −1999.8</td><td>1034.412</td><td>+0.12</td><td class="t"><span class="pill ok">完成</span></td></tr>
+        <tr><td>2</td><td>0, −2000</td><td>0.2, −2000.1</td><td>1034.436</td><td>−0.19</td><td class="t"><span class="pill ok">完成</span></td></tr>
+        <tr><td>3</td><td>2000, −2000</td><td>1999.9, −2000.0</td><td>1034.471</td><td>+0.07</td><td class="t"><span class="pill ok">完成</span></td></tr>
+        <tr class="sel"><td>4</td><td>2000, 0</td><td>2000.1, 0.1</td><td>…</td><td>—</td><td class="t"><span class="pill ac">AF 中</span></td></tr>
+        <tr><td>5</td><td>0, 0</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill nt">待测</span></td></tr>
+        <tr><td>6</td><td>−2000, 0</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill nt">待测</span></td></tr>
+        <tr><td>7</td><td>−2000, 2000</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill nt">待测</span></td></tr>
+        <tr><td>8</td><td>0, 2000</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill nt">待测</span></td></tr>
+        <tr><td>9</td><td>2000, 2000</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill nt">待测</span></td></tr></table></div>
+  </div>
+</div>
+<aside class="side">
+  <div class="card"><h3>配方摘要 <small>运行中只读</small></h3>
+    <div class="kv" style="grid-template-columns:86px 1fr"><label>实验</label><b>AF_Surface_20x</b><label>点位</label><b>9 点 · 3×3 蛇形</b><label>XY 容差</label><b style="font-family:var(--mono)">1.0 µm</b><label>AF 超时</label><b style="font-family:var(--mono)">10 s</b><label>符号约定</label><b>+Rx 绕 X 右手</b></div></div>
+  <div class="card"><h3>运行前检查 <small>6 / 6</small></h3>
+    <ul class="chk"><li class="y"><i>✓</i><div>起点 XY 已回读校验<small>偏差 0.2 µm</small></div></li><li class="y"><i>✓</i><div>全部点位在行程软限位内</div></li><li class="y"><i>✓</i><div>AF 范围已写入并回读一致</div></li><li class="y"><i>✓</i><div>无待恢复状态</div></li><li class="y"><i>✓</i><div>样品固定（人工 10:58）</div></li><li class="y"><i>✓</i><div>物镜未变（人工 10:58）</div></li></ul></div>
+  <div class="note i">失败策略：任一点失败即停止后续运动，保留已测点，不给出拟合结果。</div>
+</aside>
+</section>
+
+<!-- ============ 记录与分析 ============ -->
+<section class="screen" id="s-data">
+<div class="work">
+  <div class="title"><div><h1>记录与分析</h1><p>每次运行自动归档 · 可筛选、对比、导出 · 无需连接设备</p></div>
+    <div class="grow"></div><button class="btn">导出所选为 CSV</button><button class="btn">对比所选 (2)</button><button class="btn p">导出诊断包…</button></div>
+  <div class="bar"><div class="seg"><b class="on">全部</b><b>测角</b><b>采图</b><b>硬件单步</b></div>
+    <div class="in" style="width:150px">近 7 天 ▾</div><div class="in" style="width:150px">样品 W-0412 ▾</div><div class="in" style="width:120px">状态：全部 ▾</div><div class="in f1" style="color:var(--muted)">搜索 配方 / 实验 / 备注…</div>
+    <span class="chip real">仅真实设备</span></div>
+  <div class="row f1">
+    <div class="card f2" style="padding:0;overflow:hidden">
+      <table><tr><th></th><th>时间</th><th>类型</th><th>样品</th><th>配方 / 实验</th><th>Rx µrad</th><th>Ry µrad</th><th>RMS µm</th><th>状态</th></tr>
+        <tr class="sel"><td>☑</td><td>11-14 11:02</td><td class="t">测角</td><td class="t">W-0412</td><td class="t">Wafer_3x3_20x</td><td>+12.6</td><td>−8.0</td><td>0.22</td><td class="t"><span class="pill ok">有效</span></td></tr>
+        <tr><td>☐</td><td>11-14 10:51</td><td class="t">采图</td><td class="t">W-0412</td><td class="t">Mark_Top / Mark_Bot</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill ok">2 张</span></td></tr>
+        <tr class="sel"><td>☑</td><td>11-14 09:40</td><td class="t">测角</td><td class="t">W-0412</td><td class="t">Wafer_3x3_20x</td><td>+11.9</td><td>−7.6</td><td>0.19</td><td class="t"><span class="pill ok">有效</span></td></tr>
+        <tr class="fail"><td>☐</td><td>11-13 20:13</td><td class="t">采图</td><td class="t">W-0412</td><td class="t">Mark_Top / Mark_Bot</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill bd">失败 · 多帧</span></td></tr>
+        <tr><td>☐</td><td>11-13 19:58</td><td class="t">硬件单步</td><td class="t">—</td><td class="t">run_experiment</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill wn">超时 · 已恢复</span></td></tr>
+        <tr><td>☐</td><td>11-13 16:20</td><td class="t">测角</td><td class="t">W-0412</td><td class="t">Wafer_3x3_20x</td><td>+12.1</td><td>−7.9</td><td>0.20</td><td class="t"><span class="pill ok">有效</span></td></tr>
+        <tr><td>☐</td><td>11-13 15:02</td><td class="t">测角</td><td class="t">W-0409</td><td class="t">Wafer_3x3_20x</td><td>+3.4</td><td>−15.2</td><td>0.31</td><td class="t"><span class="pill ok">有效</span></td></tr>
+        <tr><td>☐</td><td>11-13 14:31</td><td class="t">测角</td><td class="t">W-0409</td><td class="t">Wafer_3x3_20x</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill wn">中止 · 第 3 点</span></td></tr>
+        <tr><td>☐</td><td>11-12 17:45</td><td class="t">测角</td><td class="t">W-0412</td><td class="t">Wafer_3x3_20x</td><td>+12.3</td><td>−8.3</td><td>0.21</td><td class="t"><span class="pill ok">有效</span></td></tr>
+        <tr><td>☐</td><td>11-12 11:10</td><td class="t">采图</td><td class="t">W-0412</td><td class="t">Mark_Top / Mark_Bot</td><td>—</td><td>—</td><td>—</td><td class="t"><span class="pill ok">2 张</span></td></tr>
+      </table></div>
+    <div class="col f1">
+      <div class="card"><h3>W-0412 重复性 <small>4 次有效测角</small></h3>
+        <svg viewBox="0 0 300 120" width="100%" font-family="Consolas" font-size="10">
+          <g stroke="#edf0f4"><line x1="30" y1="20" x2="295" y2="20"/><line x1="30" y1="60" x2="295" y2="60"/><line x1="30" y1="100" x2="295" y2="100"/></g>
+          <polyline points="50,31 125,34 200,37 275,28" fill="none" stroke="#1f5fbf" stroke-width="2"/><g fill="#1f5fbf"><circle cx="50" cy="31" r="3.5"/><circle cx="125" cy="34" r="3.5"/><circle cx="200" cy="37" r="3.5"/><circle cx="275" cy="28" r="3.5"/></g>
+          <polyline points="50,93 125,89 200,86 275,90" fill="none" stroke="#1b8756" stroke-width="2"/><g fill="#1b8756"><circle cx="50" cy="93" r="3.5"/><circle cx="125" cy="89" r="3.5"/><circle cx="200" cy="86" r="3.5"/><circle cx="275" cy="90" r="3.5"/></g>
+          <g fill="#8a95a3"><text x="26" y="23" text-anchor="end">+15</text><text x="26" y="63" text-anchor="end">0</text><text x="26" y="103" text-anchor="end">−10</text><text x="50" y="116" text-anchor="middle">11-12</text><text x="275" y="116" text-anchor="middle">11-14</text></g>
+          <text x="210" y="20" fill="#1f5fbf">Rx σ 0.29</text><text x="210" y="78" fill="#1b8756">Ry σ 0.29</text></svg></div>
+      <div class="card f1"><h3>所选记录 <small>11-14 11:02</small></h3>
+        <div class="kv" style="grid-template-columns:70px 1fr"><label>结果</label><b style="font-family:var(--mono)">9/9 点 · PV 0.61 µm</b><label>环境</label><span>v2.5 · ZEN 3.12 · AF v1beta</span><label>操作员</label><span>bingo</span><label>备注</label><div class="in" style="color:var(--muted)">点击添加备注…</div></div>
+        <pre style="margin:10px 0 8px;background:#f5f7fa;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font:11px/1.55 var(--mono);color:#34404e">runs\2026-11-14\110212_tilt_W-0412\
+ ├ manifest.json   配方·环境·结论
+ ├ points.csv      逐点 XY/Z/残差
+ ├ events.jsonl    事件与 RPC 追踪
+ └ result.json     Rx Ry RMS PV</pre>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn s">打开目录</button><button class="btn s">复制路径</button><button class="btn s">以此配方重跑</button></div></div>
+    </div>
+  </div>
+</div>
+<aside class="side">
+  <div class="card"><h3>汇总索引 <small>分析入口</small></h3>
+    <p style="margin:0 0 8px;font-size:12px;color:#34404e">所有运行自动汇总成一张宽表，Excel / pandas 直接打开，不必逐个目录翻找。</p>
+    <pre style="margin:0;background:#f5f7fa;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font:11px/1.55 var(--mono)">runs\index.csv
+run_id, started_at, kind, sample,
+lot, operator, recipe, simulated,
+state, result_valid, rx_urad,
+ry_urad, rms_um, pv_um, n_points,
+failure_stage, path</pre>
+    <div style="display:flex;gap:6px;margin-top:9px"><button class="btn s">打开 index.csv</button><button class="btn s">重建索引</button></div></div>
+  <div class="card"><h3>诊断包内容</h3>
+    <ul class="chk"><li class="y"><i>✓</i><div>所选运行的全部文件</div></li><li class="y"><i>✓</i><div>Gateway 已注册服务清单</div></li><li class="y"><i>✓</i><div>软件 / 存根 / 系统版本</div></li><li class="x"><i>×</i><div>不含令牌、请求体、实验 XML<small>可安全发给同事或厂商</small></div></li></ul></div>
+</aside>
+</section>
+</main>
+
+<footer class="dock">
+  <div class="tabs"><b class="on">事件日志</b><b>RPC 追踪<sup>2</sup></b><b>诊断</b><div class="grow"></div><span style="color:var(--muted)">筛选：全部 ▾　·　自动滚动 ✓　·　</span><button class="btn s">复制</button>&nbsp;<button class="btn s">导出诊断包</button></div>
+  <div class="log" id="log"></div>
+</footer>
+</div>
+<script>
+const s=(location.hash||'#mark').slice(1);document.body.className=s;
+const nav={mark:'n-mark',lock:'n-mark',tilt:'n-tilt',data:'n-data'}[s];document.getElementById(nav).classList.add('on');
+const L={
+mark:[['10:42:11','i','信息','上 mark 示教 Z = 1034.62 µm（FocusService.GetPosition）'],
+['10:44:03','i','信息','下 mark 示教 Z = 986.20 µm'],
+['10:44:05','w','注意','下 mark 实验 Mark_Bot_20x 启用了 Z-stack（21 层，首层 3361.2 µm）；采集时将在克隆上收敛为单层'],
+['10:51:19','o','完成','上一轮采集完成：2 张 TIFF → runs\\2026-11-14\\105101_mark_W-0412\\'],
+['10:53:40','i','信息','等待人工确认：样品固定、实验加载不换物镜']],
+lock:[['11:20:02','m','运动','Z MoveTo 986.20 µm → 到位（3 次回读稳定，偏差 0.03 µm）'],
+['11:20:04','i','信息','AF 完成，焦面 986.14 µm，在限定范围内'],
+['11:20:05','i','信息','IsZStackExperiment = true → ModifyZStackFirstLast(986.14, 986.14) → 回读 1 层 ✓'],
+['11:21:05','e','错误','RunSnap → DEADLINE_EXCEEDED（60 s）。已请求 Stop；物理动作是否结束未知'],
+['11:21:05','w','锁定','设备状态待确认：写入与运动已锁定，记录 112001_mark_W-0412 标记为 recovery_required']],
+tilt:[['11:02:12','i','信息','运行开始：Wafer_3x3_20x · 9 点 · runs\\2026-11-14\\110212_tilt_W-0412\\'],
+['11:02:25','o','完成','点 1 AF Z = 1034.412 µm'],['11:02:38','o','完成','点 2 AF Z = 1034.436 µm'],['11:02:51','o','完成','点 3 AF Z = 1034.471 µm'],
+['11:02:53','m','运动','XY MoveTo (2000, 0) µm → 到位，偏差 0.14 µm；开始 AF']],
+data:[['11:31:02','i','信息','索引已更新：37 条记录（真实 29 · 演示 8）'],
+['11:31:40','i','信息','已选 2 条测角记录用于对比'],
+['11:32:05','o','完成','导出 CSV → exports\\W-0412_tilt_2runs.csv']]}[s];
+document.getElementById('log').innerHTML=L.map(r=>`<p><time>${r[0]}</time><span class="lv ${r[1]}">${r[2]}</span>${r[3]}</p>`).join('');
+if(s==='tilt'){document.getElementById('xy').textContent='电动 XY · 已校验';document.getElementById('rx').textContent='2000.1';document.getElementById('ry').textContent='0.1';document.getElementById('n-tilt').lastChild.textContent='运行中';}
+if(s==='lock'){const r=document.getElementById('c-rec');r.className='x';r.innerHTML='<i>×</i><div>存在待恢复的设备状态<small>自动 · 解锁前不可采集</small></div>';document.getElementById('m-low').innerHTML='<span>最后回读 Z 986.14</span><span>帧：未收到</span>';document.getElementById('res').innerHTML='<h3>本轮结果 <span class="pill bd">未知</span></h3><p style="margin:0;font-size:12px;color:#6d2a22">上 mark 已保存；下 mark 超时，未保存。本轮不产生有效结果，记录已保留供排查。</p><div style="margin-top:10px"><button class="btn s">保存诊断报告</button></div>';document.querySelector('.side h3 small').textContent='4 / 7';document.querySelectorAll('.imgc .thumb').forEach((e,i)=>{if(i){e.className='thumb e';e.innerHTML='<span>结果未知 · 未保存图像</span>';}});const c=document.getElementById('rec');c.className='chip bad';c.innerHTML='⚠ 待恢复 1 项 · 已锁定';
+document.querySelector('.steps').innerHTML='<span class="d">✓ 设备就绪</span><span class="d">✓ 示教 Z</span><span class="d">✓ 检查</span><span style="background:var(--badsoft);color:var(--bad);font-weight:600">4 采集 · 结果未知</span><span>5 结果</span>';}
+</script></body></html>

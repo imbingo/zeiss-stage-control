@@ -11,3 +11,4 @@ config.ini
 *.zip
 gateway_stubs/
 runtime/
+dist_v*/

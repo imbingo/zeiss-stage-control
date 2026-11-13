@@ -3,3 +3,5 @@ grpcio-reflection==1.85.1
 matplotlib==3.10.9
 numpy==2.3.5
 tifffile==2025.10.16
+
+PySide6==6.11.1
