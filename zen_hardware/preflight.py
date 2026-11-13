@@ -31,9 +31,20 @@ def _report_services(channel, report, xy_enabled):
                f"已注册 {len(names)} 个服务，缺少必需服务：{'、'.join(missing)}。"
                "请核对 ZEN 版本与本软件 API（2026.11.1）是否匹配、toolkit 是否激活。")
     elif optional_missing:
-        report("services", "— 待确认",
-               f"已注册 {len(names)} 个服务；缺少可选服务：{'、'.join(optional_missing)}，"
-               "上下 mark 采图/AF 可能不可用，角度扫描不受影响。")
+        is_af = lambda s: "AutofocusService" in s or "DefiniteFocusService" in s
+        af_missing = [s for s in optional_missing if is_af(s)]
+        af_present = [s for s in OPTIONAL_SERVICES if is_af(short_name(s)) and s in names]
+        optics_missing = [s for s in optional_missing if s not in af_missing]
+        detail = f"已注册 {len(names)} 个服务；缺少可选服务：{'、'.join(optional_missing)}。"
+        if af_missing and not af_present:
+            detail += (" 全部自动对焦路径（软件 AF 与 Definite Focus）均未注册：mark 采图与角度扫描的"
+                       "自动对焦步骤将失败。请在 ZEN 端核对 API toolkit 授权与 ZEN 版本，"
+                       "或改用无 AF 手动示教。")
+        elif af_missing:
+            detail += " 部分 AF 服务未注册，已自动降级到可用路径，不影响对焦。"
+        if optics_missing:
+            detail += " 物镜/Optovar 读回不可用，仅影响光学参数核对，不影响运动。"
+        report("services", "— 待确认", detail)
     else:
         report("services", "✓ 通过", f"Gateway 已注册 {len(names)} 个服务，所需接口齐全。")
 
