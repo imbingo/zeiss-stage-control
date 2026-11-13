@@ -45,7 +45,9 @@ class GatewayMarkMixin:
             added = set(builtins)
             for raw in builtins.values():
                 pool.AddSerializedFile(raw)
-            pending = {proto.name: proto for proto in protos}
+            # The response embeds transitive deps incl. well-known types that
+            # are already in the pool; adding them again raises TypeError.
+            pending = {proto.name: proto for proto in protos if proto.name not in added}
             while pending:
                 progress = False
                 for name, proto in list(pending.items()):
