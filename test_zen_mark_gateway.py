@@ -172,7 +172,8 @@ class MarkGatewayTest(unittest.TestCase):
         with self.assertRaises(MarkCapabilityError):self.device.read_z()
         with self.subTest('explicit v1 opt-in converts micrometres'):
             self.device.allow_focus_v1=True
-            self.assertAlmostEqual(self.device.read_z(), 100e-6)
+            # v1 reports micrometres: the stage is at 200e-6 m from the move above.
+            self.assertAlmostEqual(self.device.read_z(), 200e-6)
             self.device.move_z(250e-6)
             self.assertAlmostEqual(self.z, 250e-6)
 
