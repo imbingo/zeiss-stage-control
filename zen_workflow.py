@@ -359,7 +359,7 @@ class Workflow:
                 report=session.execute(operation,parameters,confirmed=confirmed,timeout_s=timeout_s,stop=self._stop)
             except Exception as error:
                 from zen_hardware.rpc_diagnostics import diagnostic_from_error
-                from zen_records import safe
+                from zen_hardware.library import safe
                 report={'operation':operation,'parameters':safe(parameters),'status':'failed','writes':True,
                         'recovery_required':True,'result':None,
                         'note':'单步调用未按预期返回；须现场确认设备动作已结束',
