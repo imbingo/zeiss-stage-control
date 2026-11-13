@@ -1,0 +1,16 @@
+{
+  "asset": "ZEN_Surface_Tilt_Portable_V2.5.0.zip",
+  "image_plugins": [
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qgif.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qicns.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qico.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qjpeg.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qpdf.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qsvg.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qtga.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qtiff.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qwbmp.dll",
+    "runtime/Lib/site-packages/PySide6/plugins/imageformats/qwebp.dll"
+  ],
+  "has_tiff_plugin": true
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "refresh experiment list reaches existing adapter",
+    "passed": false,
+    "detail": "[]"
+  },
+  {
+    "name": "sample editor is visible in session card",
+    "passed": false,
+    "detail": "(0, 0, 640, 480)"
+  },
+  {
+    "name": "sample session persists",
+    "passed": false,
+    "detail": "None"
+  }
+]

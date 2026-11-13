@@ -1,0 +1,39 @@
+test_demo_mark_capture (test_zen_qt_smoke.TestQtWorkbench.test_demo_mark_capture) ... QLayout: Attempting to add QLayout "" to Card "card", which already has a layout
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 21152 (\N{CJK UNIFIED IDEOGRAPH-52A0}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 36733 (\N{CJK UNIFIED IDEOGRAPH-8F7D}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 37197 (\N{CJK UNIFIED IDEOGRAPH-914D}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 26041 (\N{CJK UNIFIED IDEOGRAPH-65B9}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 25110 (\N{CJK UNIFIED IDEOGRAPH-6216}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 32534 (\N{CJK UNIFIED IDEOGRAPH-7F16}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 36753 (\N{CJK UNIFIED IDEOGRAPH-8F91}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 28857 (\N{CJK UNIFIED IDEOGRAPH-70B9}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 20301 (\N{CJK UNIFIED IDEOGRAPH-4F4D}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 21518 (\N{CJK UNIFIED IDEOGRAPH-540E}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 26174 (\N{CJK UNIFIED IDEOGRAPH-663E}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 31034 (\N{CJK UNIFIED IDEOGRAPH-793A}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 36335 (\N{CJK UNIFIED IDEOGRAPH-8DEF}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+/tmp/zeiss-review-2.5/test_zen_qt_smoke.py:28: UserWarning: Glyph 24452 (\N{CJK UNIFIED IDEOGRAPH-5F84}) missing from font(s) DejaVu Sans.
+  app.processEvents()
+ok
+test_demo_tilt_run (test_zen_qt_smoke.TestQtWorkbench.test_demo_tilt_run) ... QLayout: Attempting to add QLayout "" to Card "card", which already has a layout
+ok
+test_recovery_lock_blocks_capture (test_zen_qt_smoke.TestQtWorkbench.test_recovery_lock_blocks_capture) ... QLayout: Attempting to add QLayout "" to Card "card", which already has a layout
+ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 4.400s
+
+OK

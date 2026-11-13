@@ -1,0 +1,37 @@
+[
+  {
+    "name": "no-XY no-AF paired capture completes",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "no-XY metadata remains unverified/null",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "no-XY pair complete",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "no-XY tilt batch disabled",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "AF timeout demo enters recovery state",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "fault leaves no valid result",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "fault retains central recovery lock",
+    "passed": true,
+    "detail": ""
+  }
+]

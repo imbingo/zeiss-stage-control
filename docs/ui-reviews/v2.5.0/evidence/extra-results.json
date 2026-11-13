@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Gateway dialog has XY mode selector",
+    "passed": false,
+    "detail": "[]"
+  },
+  {
+    "name": "path add preserves edited values",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "path reorder works",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "path delete works",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "path apply works",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "recipe change invalidates approvals",
+    "passed": false,
+    "detail": ""
+  },
+  {
+    "name": "demo-to-field clears demo Z and approvals",
+    "passed": false,
+    "detail": "{'z_um': 150.0, 'approvals': [True, True]}"
+  },
+  {
+    "name": "Qt mark prefs retain Z/range/output/timeout",
+    "passed": false,
+    "detail": "{\"capture_kind\": \"camera_snap\", \"use_autofocus\": true, \"upper\": {\"experiment\": \"Changed experiment\"}, \"lower\": {\"experiment\": \"Demo lower\"}, \"common\": {}}"
+  },
+  {
+    "name": "archive image count equals capture metadata",
+    "passed": false,
+    "detail": "{'archive': 0, 'actual': 2}"
+  },
+  {
+    "name": "Qt runtime exposes TIFF reader",
+    "passed": false,
+    "detail": "['bmp', 'cur', 'gif', 'icns', 'ico', 'jfif', 'jpeg', 'jpg', 'pbm', 'pgm', 'png', 'ppm', 'svg', 'svgz', 'tga', 'wbmp', 'webp', 'xbm', 'xpm']"
+  },
+  {
+    "name": "legacy configuration can launch Qt",
+    "passed": false,
+    "detail": "TypeError: unsupported operand type(s) for /: 'str' and 'float'"
+  },
+  {
+    "name": "unverified AF is blocked without opt-in",
+    "passed": false,
+    "detail": "{'experiment_id': 'clone', 'af_range': 'written_unverified_readback', 'lower_m': 9.5e-05, 'upper_m': 0.000105}"
+  }
+]

@@ -1,0 +1,118 @@
+{
+  "source_sha": "54b4395a629f1fb1b5017f5da7eec0b408cdd2ba",
+  "capture": "actual Qt widget grab, Linux offscreen, simulated devices",
+  "screenshots": [
+    {
+      "file": "screenshots/01-device-disconnected.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 138171,
+      "sha256": "63cad84f253a7af381e5ed3e21f2c2e313c539eb67785e2951a6f4df4a58ff4b"
+    },
+    {
+      "file": "screenshots/02-tilt-demo-complete.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 194316,
+      "sha256": "f41503ae8d3f7936643e63213cfaaed3acb95053d97d6b68b82d409002952257"
+    },
+    {
+      "file": "screenshots/03-path-editor.png",
+      "width": 560,
+      "height": 420,
+      "bytes": 22738,
+      "sha256": "ee19b88f442955abc5d14227987314c7c702502538663ce90acb01f4f03974d2"
+    },
+    {
+      "file": "screenshots/04-marks-before-capture.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 219249,
+      "sha256": "6ba3e205e921e225633a743a95850cec0fbb9759158000006677f03f1a1fc718"
+    },
+    {
+      "file": "screenshots/05-marks-demo-complete.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 243279,
+      "sha256": "fbc06920898b55226ad99ba4e4eb3d99a8ad071a5f309e04c5b9f2042d9dc851"
+    },
+    {
+      "file": "screenshots/06-records.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 194957,
+      "sha256": "328d8ff3fb75ad5e1f38dc8b1deed9b0df2851f5dd781fe2836ffe661219b7ed"
+    },
+    {
+      "file": "screenshots/07-hardware-load-result.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 281394,
+      "sha256": "1761211cb7795aa5dac026c0005f76c79ad3b2f50bc6281b42cdeba266d6f427"
+    },
+    {
+      "file": "screenshots/08-hardware-export-empty-id.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 277466,
+      "sha256": "b4539b4fd8ba53dd567a1a79b5ecba721407894a9cc631729c5994243a2e885e"
+    },
+    {
+      "file": "screenshots/09-marks-stale-confirmation.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 269211,
+      "sha256": "415baf55c4a73a07208cda3231d15a4aeaa9f9ffaa30cbdab8cc9e4d7f58cf55"
+    },
+    {
+      "file": "screenshots/10-recovery-lock-banner.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 235020,
+      "sha256": "ed5127d559c12ac4f3bcc7fc3614340592823e02c9d1c0f55b58c08bfa8fd87c"
+    },
+    {
+      "file": "screenshots/12-settings.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 178180,
+      "sha256": "731da18d10b6c3e328ee3e51adf0a1652d476f598a0160769131682e2357359f"
+    },
+    {
+      "file": "screenshots/13-marks-laptop-size.png",
+      "width": 1366,
+      "height": 780,
+      "bytes": 243871,
+      "sha256": "e3ba1a994be7ad6389c12466b2007a8212c491949a747f655ec96456a9cbe333"
+    },
+    {
+      "file": "screenshots/14-gateway-dialog-no-xy-selector.png",
+      "width": 560,
+      "height": 344,
+      "bytes": 52631,
+      "sha256": "47895f1a74e57ed6cfe6f318efd1e2ea635bdd44caa47c5e857c0d990f721385"
+    },
+    {
+      "file": "screenshots/15-noxy-no-af-mark-complete.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 246030,
+      "sha256": "8de0ef2fb40ccc2c69b3885add5940e005f81246eb688b6915f5a938369302d2"
+    },
+    {
+      "file": "screenshots/16-mark-record-detail.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 180621,
+      "sha256": "41836d6b7dac9a02245c9781383c181e11156be7f0072cd461c9525f4509b292"
+    },
+    {
+      "file": "screenshots/17-tilt-timeout-recovery.png",
+      "width": 1600,
+      "height": 980,
+      "bytes": 217662,
+      "sha256": "44d791d8e07d60259e0d9c75e1bdbb953e8b5be6f5631aa64757ef2948e496fa"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+test_arrival_timeout_retains_last_readback (test_zen_workflow.WorkflowTest.test_arrival_timeout_retains_last_readback) ... ok
+test_external_motion_between_points_prevents_next_move (test_zen_workflow.WorkflowTest.test_external_motion_between_points_prevents_next_move) ... ok
+test_faults_preserve_rows_and_block_restart (test_zen_workflow.WorkflowTest.test_faults_preserve_rows_and_block_restart) ... ok
+test_field_batch_rejects_changed_confirmed_start (test_zen_workflow.WorkflowTest.test_field_batch_rejects_changed_confirmed_start) ... ok
+test_fit_and_invalidation (test_zen_workflow.WorkflowTest.test_fit_and_invalidation) ... ok
+test_single_point_uses_current_xy_without_move_or_fit (test_zen_workflow.WorkflowTest.test_single_point_uses_current_xy_without_move_or_fit) ... ok
+test_stop_during_af_and_duplicate_start (test_zen_workflow.WorkflowTest.test_stop_during_af_and_duplicate_start) ... ok
+test_exact_atan_conversion_and_signs (test_zen_fit.MicroradianTest.test_exact_atan_conversion_and_signs) ... ok
+test_known_legacy_recipe_convention_is_migrated (test_zen_fit.MicroradianTest.test_known_legacy_recipe_convention_is_migrated) ... ok
+test_zero_plane (test_zen_fit.MicroradianTest.test_zero_plane) ... ok
+test_failures_keep_partial_images_and_lock_both_workflows (test_zen_marks.MarkCaptureTest.test_failures_keep_partial_images_and_lock_both_workflows) ... ok
+test_invalid_configuration_never_starts_device_actions (test_zen_marks.MarkCaptureTest.test_invalid_configuration_never_starts_device_actions) ... ok
+test_loading_requires_separate_operator_confirmation (test_zen_marks.MarkCaptureTest.test_loading_requires_separate_operator_confirmation) ... ok
+test_missing_optional_service_preserves_angle_capability (test_zen_marks.MarkCaptureTest.test_missing_optional_service_preserves_angle_capability) ... ok
+test_output_setup_failure_leaves_central_recovery_record (test_zen_marks.MarkCaptureTest.test_output_setup_failure_leaves_central_recovery_record) ... ok
+test_pair_is_lossless_calibrated_and_xy_never_moves (test_zen_marks.MarkCaptureTest.test_pair_is_lossless_calibrated_and_xy_never_moves) ... ok
+test_single_layer_and_config_roundtrip (test_zen_marks.MarkCaptureTest.test_single_layer_and_config_roundtrip) ... ok
+test_stop_and_exclusive_task_ownership (test_zen_marks.MarkCaptureTest.test_stop_and_exclusive_task_ownership) ... ok
+test_tiff_write_failure_prevents_lower_layer_and_persists_lock (test_zen_marks.MarkCaptureTest.test_tiff_write_failure_prevents_lower_layer_and_persists_lock) ... ok
+test_all_pixel_types_preserve_values_and_channel_order (test_zen_marks.TiffTest.test_all_pixel_types_preserve_values_and_channel_order) ... ok
+test_bad_frames_rejected_without_publishing_tiff (test_zen_marks.TiffTest.test_bad_frames_rejected_without_publishing_tiff) ... ok
+test_af_failure_still_locks_no_xy_mode_after_reconnect (test_zen_no_xy.NoXYTest.test_af_failure_still_locks_no_xy_mode_after_reconnect) ... ok
+test_angle_and_mismatched_connection_modes_are_rejected (test_zen_no_xy.NoXYTest.test_angle_and_mismatched_connection_modes_are_rejected) ... ok
+test_legacy_configs_and_raw_frame_validation (test_zen_no_xy.NoXYTest.test_legacy_configs_and_raw_frame_validation) ... ok
+test_no_xy_pair_stores_null_positions_and_no_af_is_optional (test_zen_no_xy.NoXYTest.test_no_xy_pair_stores_null_positions_and_no_af_is_optional) ... ok
+test_preflight_reports_z_and_xy_not_applicable (test_zen_no_xy.NoXYTest.test_preflight_reports_z_and_xy_not_applicable) ... E1113 17:09:10.141224  139337 ssl_transport_security.cc:1517] Could not load any root certificate.
+E1113 17:09:10.141265  139337 ssl_transport_security.cc:3432] Cannot load server root certificates.
+E1113 17:09:10.141277  139337 ssl_utils.cc:490] Handshaker factory creation failed with TSI_INVALID_ARGUMENT
+E1113 17:09:10.141291  139337 tls_security_connector.cc:487] Update handshaker factory failed.
+E1113 17:09:10.141413  139337 ssl_transport_security.cc:1517] Could not load any root certificate.
+E1113 17:09:10.141416  139337 ssl_transport_security.cc:3432] Cannot load server root certificates.
+E1113 17:09:10.141418  139337 ssl_utils.cc:490] Handshaker factory creation failed with TSI_INVALID_ARGUMENT
+E1113 17:09:10.141427  139337 tls_security_connector.cc:487] Update handshaker factory failed.
+ok
+test_af_limits_apply_only_to_clone_and_are_read_back (test_zen_mark_gateway.MarkGatewayTest.test_af_limits_apply_only_to_clone_and_are_read_back) ... ok
+test_capture_failure_persists_rpc_method_and_status (test_zen_mark_gateway.MarkGatewayTest.test_capture_failure_persists_rpc_method_and_status) ... ok
+test_confocal_unavailable_never_falls_back_to_camera (test_zen_mark_gateway.MarkGatewayTest.test_confocal_unavailable_never_falls_back_to_camera) ... ok
+test_focus_v2_uses_metres_and_does_not_use_v1 (test_zen_mark_gateway.MarkGatewayTest.test_focus_v2_uses_metres_and_does_not_use_v1) ... ok
+test_hardware_af_does_not_clone_or_load (test_zen_mark_gateway.MarkGatewayTest.test_hardware_af_does_not_clone_or_load) ... ok
+test_hardware_transport_connect_without_xy_or_z (test_zen_mark_gateway.MarkGatewayTest.test_hardware_transport_connect_without_xy_or_z) ... ok
+test_hardware_z_move_is_only_move (test_zen_mark_gateway.MarkGatewayTest.test_hardware_z_move_is_only_move) ... ok
+test_missing_or_old_frame_times_out_without_reexposure (test_zen_mark_gateway.MarkGatewayTest.test_missing_or_old_frame_times_out_without_reexposure) ... ok
+test_multiplane_confocal_experiment_is_rejected (test_zen_mark_gateway.MarkGatewayTest.test_multiplane_confocal_experiment_is_rejected) ... ok
+test_no_xy_connect_and_confocal_never_call_stage_or_snap (test_zen_mark_gateway.MarkGatewayTest.test_no_xy_connect_and_confocal_never_call_stage_or_snap) ... ok
+test_partial_frame_is_rejected_without_retry (test_zen_mark_gateway.MarkGatewayTest.test_partial_frame_is_rejected_without_retry) ... ok
+test_preparation_failure_identifies_exact_method_without_private_details (test_zen_mark_gateway.MarkGatewayTest.test_preparation_failure_identifies_exact_method_without_private_details) ... ok
+test_read_only_inspection_does_not_load_clone_or_move (test_zen_mark_gateway.MarkGatewayTest.test_read_only_inspection_does_not_load_clone_or_move) ... ok
+test_single_snap_receives_matching_full_raw_frame (test_zen_mark_gateway.MarkGatewayTest.test_single_snap_receives_matching_full_raw_frame) ... ok
+test_stop_cancels_snap_and_requests_experiment_stop (test_zen_mark_gateway.MarkGatewayTest.test_stop_cancels_snap_and_requests_experiment_stop) ... ok
+test_unsupported_read_only_listing_is_unknown_not_missing (test_zen_mark_gateway.MarkGatewayTest.test_unsupported_read_only_listing_is_unknown_not_missing) ... ok
+test_corrupt_preferences_are_preserved_without_automatic_overwrite (test_zen_preferences.PreferencesTest.test_corrupt_preferences_are_preserved_without_automatic_overwrite) ... ok
+test_entries_survive_new_instance_but_credentials_and_approvals_do_not (test_zen_preferences.PreferencesTest.test_entries_survive_new_instance_but_credentials_and_approvals_do_not) ... ok
+test_incomplete_entry_is_retained_without_becoming_a_capture_recipe (test_zen_preferences.PreferencesTest.test_incomplete_entry_is_retained_without_becoming_a_capture_recipe) ... ok
+test_connect_does_not_read_or_load (test_zen_hardware_library.HardwareLibraryTests.test_connect_does_not_read_or_load) ... ok
+test_logs_include_failed_validation_and_omit_unknown_secrets (test_zen_hardware_library.HardwareLibraryTests.test_logs_include_failed_validation_and_omit_unknown_secrets) ... ok
+test_move_confirmation_and_recovery (test_zen_hardware_library.HardwareLibraryTests.test_move_confirmation_and_recovery) ... ok
+test_no_xy_never_calls_device (test_zen_hardware_library.HardwareLibraryTests.test_no_xy_never_calls_device) ... ok
+test_nonfinite_input_rejected (test_zen_hardware_library.HardwareLibraryTests.test_nonfinite_input_rejected) ... ok
+test_parameter_operation_no_acquisition (test_zen_hardware_library.HardwareLibraryTests.test_parameter_operation_no_acquisition) ... ok
+test_snap_has_no_hidden_actions (test_zen_hardware_library.HardwareLibraryTests.test_snap_has_no_hidden_actions) ... ok
+test_exposure_preserves_camera_roi_binning (test_zen_hardware_controls.ControlsTests.test_exposure_preserves_camera_roi_binning) ... ok
+test_exposure_rejects_missing_roi (test_zen_hardware_controls.ControlsTests.test_exposure_rejects_missing_roi) ... ok
+test_zstack_metres_no_acquisition (test_zen_hardware_controls.ControlsTests.test_zstack_metres_no_acquisition) ... ok
+
+----------------------------------------------------------------------
+Ran 55 tests in 7.871s
+
+OK

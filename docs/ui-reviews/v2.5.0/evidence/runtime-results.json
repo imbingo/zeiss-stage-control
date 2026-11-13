@@ -1,0 +1,119 @@
+{
+  "source_sha": "54b4395a629f1fb1b5017f5da7eec0b408cdd2ba",
+  "platform": "Linux Qt offscreen; simulated device only",
+  "data_root": "/tmp/zen-qt-audit-69dtgc6d",
+  "screenshots": [
+    {
+      "file": "01-device-disconnected.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "02-tilt-demo-complete.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "03-path-editor.png",
+      "width": 560,
+      "height": 420
+    },
+    {
+      "file": "04-marks-before-capture.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "05-marks-demo-complete.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "06-records.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "07-hardware-load-result.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "08-hardware-export-empty-id.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "09-marks-stale-confirmation.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "10-recovery-lock-banner.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "12-settings.png",
+      "width": 1600,
+      "height": 980
+    },
+    {
+      "file": "13-marks-laptop-size.png",
+      "width": 1366,
+      "height": 780
+    }
+  ],
+  "checks": [
+    {
+      "name": "four-point tilt completes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "mark simulator ready",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "paired mark capture completes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "both TIFF and capture JSON exist",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "pair metadata complete",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "hardware Load returns",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "experiment ID retained across operations",
+      "passed": false,
+      "detail": "actual=''"
+    },
+    {
+      "name": "changing recipe clears approvals",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "name": "recovery dialog opens",
+      "passed": false,
+      "detail": "AttributeError: 'PySide6.QtWidgets.QCheckBox' object has no attribute 'setWordWrap'"
+    },
+    {
+      "name": "fits requested 1366x768 window",
+      "passed": false,
+      "detail": "actual=(1366, 780)"
+    }
+  ]
+}
