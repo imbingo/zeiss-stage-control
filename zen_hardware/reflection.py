@@ -27,6 +27,7 @@ REQUIRED_SERVICES = {
 # block the angle-scan path; reported as a warning.
 OPTIONAL_SERVICES = (
     "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+    "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
     "zen_api.lm.acquisition.v1.DefiniteFocusService",
     "zen_api.lm.hardware.v2.ObjectiveChangerService",
     "zen_api.lm.hardware.v2.OptovarService",
@@ -52,6 +53,37 @@ def list_services(channel, timeout=5.0):
         if response.HasField("error_response"):
             raise RuntimeError(
                 f"reflection 查询被拒：{response.error_response.error_message}"
+            )
+    return ()
+
+
+def file_descriptor_protos(channel, symbol, timeout=5.0):
+    """Return FileDescriptorProto objects for the file containing `symbol`.
+
+    gRPC reflection serves the exact schema the Gateway registered, which is
+    the only trustworthy source when the local proto version does not match
+    the installed ZEN (e.g. a v1beta service on ZEN 3.12). Raises RuntimeError
+    when the Gateway refuses the request.
+    """
+    from google.protobuf import descriptor_pb2
+    from grpc_reflection.v1alpha import reflection_pb2, reflection_pb2_grpc
+
+    stub = reflection_pb2_grpc.ServerReflectionStub(channel)
+    responses = stub.ServerReflectionInfo(
+        iter((reflection_pb2.ServerReflectionRequest(file_containing_symbol=symbol),)),
+        timeout=timeout,
+    )
+    for response in responses:
+        if response.HasField("file_descriptor_response"):
+            protos = []
+            for raw in response.file_descriptor_response.file_descriptor_proto:
+                proto = descriptor_pb2.FileDescriptorProto()
+                proto.ParseFromString(raw)
+                protos.append(proto)
+            return protos
+        if response.HasField("error_response"):
+            raise RuntimeError(
+                f"reflection 描述符查询被拒：{response.error_response.error_message}"
             )
     return ()
 

@@ -201,8 +201,7 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
             experiment_id=self._experiment_id, timeout=DoubleValue(value=timeout_seconds)
         )
         try:
-            reply = self._rpc("zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.FindAutoFocus",
-                              self._af.FindAutoFocus, request, timeout=timeout_seconds + self._timeout)
+            reply = self._af_rpc('FindAutoFocus', request, timeout_seconds + self._timeout)
         except grpc.RpcError as exc:
             if exc.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
                 raise AutofocusTimeout("AF 调用超时，设备状态待确认") from exc

@@ -19,6 +19,100 @@ class GatewayMarkMixin:
             raise RuntimeError("请先连接 Gateway")
         return getattr(import_module(module), service)(self._channel)
 
+    _BETA_AF_SERVICE = 'zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService'
+    _V1_AF_SERVICE = 'zen_api.lm.acquisition.v1.ExperimentSwAutofocusService'
+
+    def _beta_af_pool(self):
+        """Descriptor pool for the v1beta AF service, built from reflection.
+
+        The Gateway serves the exact FileDescriptor it registered (verified on
+        ZEN 3.12 where the sw-AF service lives under the v1beta package).
+        Returns None when the schema cannot be fetched or parsed.
+        """
+        cached = getattr(self, '_beta_pool', False)
+        if cached is not False:
+            return cached
+        self._beta_pool = None
+        try:
+            from .reflection import file_descriptor_protos
+            from google.protobuf import descriptor_pool
+            from google.protobuf import wrappers_pb2, empty_pb2, struct_pb2, timestamp_pb2, duration_pb2
+            builtins = {}
+            for module in (wrappers_pb2, empty_pb2, struct_pb2, timestamp_pb2, duration_pb2):
+                builtins[module.DESCRIPTOR.name] = module.DESCRIPTOR.serialized_pb
+            protos = file_descriptor_protos(self._channel, self._BETA_AF_SERVICE, self._timeout)
+            pool = descriptor_pool.DescriptorPool()
+            added = set(builtins)
+            for raw in builtins.values():
+                pool.AddSerializedFile(raw)
+            pending = {proto.name: proto for proto in protos}
+            while pending:
+                progress = False
+                for name, proto in list(pending.items()):
+                    if set(proto.dependency) - added:
+                        continue
+                    pool.Add(proto)
+                    added.add(name)
+                    del pending[name]
+                    progress = True
+                if not progress:
+                    return None  # unresolved dependency chain
+            self._beta_pool = pool
+        except Exception:
+            self._beta_pool = None
+        return self._beta_pool
+
+    def _beta_af_call(self, method_name, request, timeout):
+        """Call the v1beta twin of an AF method via dynamic messages.
+
+        Fields are copied from the v1 request by NAME, so wire field-number
+        changes between v1beta and v1 are handled safely; a schema that lacks
+        a required field makes the call return None instead of guessing.
+        """
+        pool = self._beta_af_pool()
+        if pool is None:
+            return None
+        from google.protobuf import message_factory
+        base = self._BETA_AF_SERVICE + method_name
+        try:
+            request_class = message_factory.GetMessageClass(pool.FindMessageTypeByName(base + 'Request'))
+            response_class = message_factory.GetMessageClass(pool.FindMessageTypeByName(base + 'Response'))
+            beta_request = request_class()
+            for field, _ in request.ListFields():
+                if field.message_type is not None:
+                    getattr(beta_request, field.name).value = getattr(request, field.name).value
+                else:
+                    setattr(beta_request, field.name, getattr(request, field.name))
+        except Exception:
+            return None
+        call = self._channel.unary_unary(
+            '/' + self._BETA_AF_SERVICE + '.' + method_name,
+            request_serializer=lambda message: message.SerializeToString(),
+            response_deserializer=response_class.FromString,
+        )
+        return self._rpc(self._BETA_AF_SERVICE + '.' + method_name, call, beta_request, timeout=timeout)
+
+    def _af_rpc(self, method_name, request, timeout):
+        """AF method call: official v1 path first, then the v1beta twin.
+
+        ZEN 3.12 registers the service only under the v1beta package while
+        newer ZEN registers v1. The recorded method name in the capability
+        matrix and rpc trace always reflects the path actually used.
+        """
+        import grpc
+        self._last_af_path = 'v1'
+        try:
+            return self._rpc(self._V1_AF_SERVICE + '.' + method_name,
+                             getattr(self._af, method_name), request, timeout=timeout)
+        except grpc.RpcError as error:
+            if error.code() != grpc.StatusCode.UNIMPLEMENTED:
+                raise
+            beta = self._beta_af_call(method_name, request, timeout)
+            if beta is not None:
+                self._last_af_path = 'v1beta'
+                return beta
+            raise
+
     def _focus_v1(self):
         """Focus v1 stub pair, or None when the generated stubs lack it.
 
@@ -159,12 +253,10 @@ class GatewayMarkMixin:
         self._experiment_id = clone.experiment_id
         if not use_autofocus:
             return {"experiment_id": self._experiment_id, "autofocus": False}
-        get_method = "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.GetAutofocusParameters"
-        set_method = "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.SetAutofocusParameters"
         import grpc
         try:
-            params = self._rpc(get_method, self._af.GetAutofocusParameters,
-                               Get(experiment_id=self._experiment_id), timeout=self._timeout)
+            params = self._af_rpc('GetAutofocusParameters',
+                                  Get(experiment_id=self._experiment_id), self._timeout)
         except grpc.RpcError as error:
             if error.code() != grpc.StatusCode.UNIMPLEMENTED:
                 raise
@@ -174,7 +266,7 @@ class GatewayMarkMixin:
             # with a write-only Set. Unset wrapped/enumerated fields stay
             # unmodified on the experiment; mode/contrast are left untouched.
             try:
-                self._rpc(set_method, self._af.SetAutofocusParameters, Set(
+                self._af_rpc('SetAutofocusParameters', Set(
                     experiment_id=self._experiment_id,
                     relative_range_is_automatic=BoolValue(value=False),
                     relative_search_range=DoubleValue(value=high_m-low_m),
@@ -203,14 +295,14 @@ class GatewayMarkMixin:
         if params.auto_focus_mode not in (1, 2, 3):
             raise ValueError("采图实验需使用软件对比度／强度 AF，不支持反射式 AF")
         try:
-            self._rpc(set_method, self._af.SetAutofocusParameters, Set(
+            self._af_rpc('SetAutofocusParameters', Set(
                 experiment_id=self._experiment_id, autofocus_mode=params.auto_focus_mode,
                 contrast_measure=params.contrast_measure, search_strategy="Full",
                 autofocus_sampling=params.autofocus_sampling,
                 relative_range_is_automatic=BoolValue(value=False),
                 relative_search_range=DoubleValue(value=high_m-low_m),
                 lower_limit=DoubleValue(value=low_m), upper_limit=DoubleValue(value=high_m),
-            ), timeout=self._timeout)
+            ), self._timeout)
         except grpc.RpcError as error:
             if error.code() != grpc.StatusCode.UNIMPLEMENTED:
                 raise
@@ -221,8 +313,8 @@ class GatewayMarkMixin:
                     "请在 ZEN 中确认实验 AF 范围安全后在连接设置启用“允许实验内置 AF 范围”，"
                     "或关闭自动对焦改用无 AF 手动示教") from error
             return {"experiment_id": self._experiment_id, "af_range": "experiment_stored_unverified"}
-        actual = self._rpc("zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.GetAutofocusParameters",
-                           self._af.GetAutofocusParameters, Get(experiment_id=self._experiment_id), timeout=self._timeout)
+        actual = self._af_rpc('GetAutofocusParameters',
+                              Get(experiment_id=self._experiment_id), self._timeout)
         if (actual.relative_range_is_automatic or actual.search_strategy.casefold() != 'full'
                 or not isclose(actual.lower_limit, low_m, rel_tol=0, abs_tol=1e-12)
                 or not isclose(actual.upper_limit, high_m, rel_tol=0, abs_tol=1e-12)

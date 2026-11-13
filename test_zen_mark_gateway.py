@@ -39,8 +39,10 @@ class MarkGatewayTest(unittest.TestCase):
         self.snaps = self.stops = 0
         self.partial = self.stale = self.missing_frame = False
         self.reject_bounds = self.block_snap = self.no_focus = False
+        self.reject_v1_af = self.reject_beta_af = False
         self.snap_entered = Event()
         self.server = grpc.server(ThreadPoolExecutor(max_workers=10))
+        self._service_names = []
         modules = ('hardware.v1.simple_stage_service', 'hardware.v1.stage_service',
                    'lm.hardware.v1.focus_service', 'lm.hardware.v2.focus_service',
                    'lm.hardware.v2.objective_changer_service',
@@ -51,6 +53,7 @@ class MarkGatewayTest(unittest.TestCase):
         for name in modules:
             module = importlib.import_module('zen_api.'+name+'_pb2')
             for service in module.DESCRIPTOR.services_by_name.values():
+                self._service_names.append(service.full_name)
                 handlers = {}
                 for method in service.methods:
                     request = GetMessageClass(method.input_type)
@@ -76,6 +79,52 @@ class MarkGatewayTest(unittest.TestCase):
                             handler, request_deserializer=request.FromString,
                             response_serializer=lambda x:x.SerializeToString())
                 self.server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler(service.full_name, handlers),))
+        # v1beta twin of the sw-AF service: identical wire schema under the
+        # package name ZEN 3.12 actually registers (colleague's working path).
+        from google.protobuf import descriptor_pb2
+        from grpc_reflection.v1alpha import reflection_pb2
+        af_module = importlib.import_module('zen_api.lm.acquisition.v1.experiment_sw_autofocus_service_pb2')
+        beta_service = 'zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService'
+        beta_handlers = {}
+        for method in af_module.DESCRIPTOR.services_by_name['ExperimentSwAutofocusService'].methods:
+            request = GetMessageClass(method.input_type)
+            response = GetMessageClass(method.output_type)
+            def handler(req, ctx, method=method, response=response):
+                return self.handle(beta_service, method.name, response, req, ctx)
+            beta_handlers[method.name] = grpc.unary_unary_rpc_method_handler(
+                handler, request_deserializer=request.FromString,
+                response_serializer=lambda x:x.SerializeToString())
+        self.server.add_generic_rpc_handlers((
+            grpc.method_handlers_generic_handler(beta_service, beta_handlers),))
+        self._service_names.append(beta_service)
+        # Reflection endpoint serving the beta FileDescriptorProto: the v1
+        # schema re-labelled v1beta, plus its real dependencies.
+        beta_file = descriptor_pb2.FileDescriptorProto()
+        beta_file.ParseFromString(af_module.DESCRIPTOR.serialized_pb)
+        beta_file.package = 'zen_api.lm.acquisition.v1beta'
+        self._beta_fds = [beta_file.SerializeToString()]
+        for dep in af_module.DESCRIPTOR.dependencies:
+            dep_file = descriptor_pb2.FileDescriptorProto()
+            dep_file.ParseFromString(dep.serialized_pb)
+            self._beta_fds.append(dep_file.SerializeToString())
+        def reflection_info(requests, ctx):
+            for req in requests:
+                resp = reflection_pb2.ServerReflectionResponse(valid_host=req.host)
+                resp.original_request.CopyFrom(req)
+                if req.HasField('list_services'):
+                    for service_name in self._service_names:
+                        resp.list_services_response.service.add(name=service_name)
+                elif req.HasField('file_containing_symbol') and \
+                        req.file_containing_symbol == beta_service:
+                    resp.file_descriptor_response.file_descriptor_proto.extend(self._beta_fds)
+                yield resp
+        self.server.add_generic_rpc_handlers((
+            grpc.method_handlers_generic_handler(
+                'grpc.reflection.v1alpha.ServerReflection',
+                {'ServerReflectionInfo': grpc.stream_stream_rpc_method_handler(
+                    reflection_info,
+                    request_deserializer=reflection_pb2.ServerReflectionRequest.FromString,
+                    response_serializer=reflection_pb2.ServerReflectionResponse.SerializeToString)}),))
         port = self.server.add_insecure_port('127.0.0.1:0')
         self.server.start()
         self.address = f"127.0.0.1:{port}"
@@ -89,6 +138,10 @@ class MarkGatewayTest(unittest.TestCase):
         self.calls.append((service, method))
         if method == self.reject_method:
             ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "synthetic-private-detail-not-for-export")
+        if self.reject_v1_af and service == 'zen_api.lm.acquisition.v1.ExperimentSwAutofocusService':
+            ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "v1 af absent")
+        if self.reject_beta_af and service == 'zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService':
+            ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "beta af absent")
         if self.xy_missing and service.endswith((".SimpleStageService", ".StageService")):
             ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "No XY installed")
         if service.endswith('.SimpleStageService') and method == 'GetPosition':
@@ -194,8 +247,17 @@ class MarkGatewayTest(unittest.TestCase):
         self.reject_bounds=True
         with self.assertRaises(ValueError):self.prepare()
         self.assertEqual(self.z_moves, [])
-        with self.subTest('definite focus fallback when software AF absent'):
+        with self.subTest('v1beta service path when v1 unregistered'):
             from zen_hardware.capability import CapabilityMatrix
+            self.device.capabilities=CapabilityMatrix()
+            self.reject_v1_af=True
+            result=self.prepare()
+            self.assertEqual(result['lower_m'], 95e-6)
+            self.assertTrue(any(service=='zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService'
+                                for service,_ in self.calls))
+            self.assertAlmostEqual(self.device.autofocus(1), 100e-6)
+            self.reject_v1_af=False
+        with self.subTest('definite focus fallback when software AF absent'):
             self.device.capabilities=CapabilityMatrix()
             self.reject_bounds=False
             self.reject_method='FindAutoFocus'
@@ -307,6 +369,7 @@ class MarkGatewayTest(unittest.TestCase):
                 self.assertEqual(self.snaps, 0)
         with self.subTest('definite focus when software AF service unregistered'):
             self.reject_method=None
+            self.reject_beta_af=True
             self.device.capabilities=CapabilityMatrix()
             self.device.capabilities.note_services((), ('zen_api.lm.acquisition.v1.ExperimentSwAutofocusService',))
             self.device.allow_definite_focus=True
@@ -314,6 +377,7 @@ class MarkGatewayTest(unittest.TestCase):
             self.assertEqual(result['af_engine'], 'definite_focus')
             self.assertFalse(any(method=='FindSurface' for _,method in self.calls))
             self.device.allow_definite_focus=False
+            self.reject_beta_af=False
 
     def test_read_only_inspection_does_not_load_clone_or_move(self):
         self.calls.clear()

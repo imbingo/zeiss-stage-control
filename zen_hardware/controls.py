@@ -61,21 +61,25 @@ class GatewayControlsMixin:
             return as_dict(self._control_rpc(experiment,'ExperimentService',method,request,**values))
         if operation in ('get_af','set_af_range','af'):
             package='lm.acquisition.v1.experiment_sw_autofocus_service'
+            module = __import__('importlib').import_module('zen_api.'+package+'_pb2')
             if operation=='af':
-                return as_dict(self._control_rpc(package,'ExperimentSwAutofocusService','FindAutoFocus',
-                    'ExperimentSwAutofocusServiceFindAutoFocusRequest', timeout_s=p['af_timeout_s']+self._timeout,
-                    experiment_id=p['experiment_id'], timeout=DoubleValue(value=p['af_timeout_s'])))
-            reply=self._control_rpc(package,'ExperimentSwAutofocusService','GetAutofocusParameters',
-                                    'ExperimentSwAutofocusServiceGetAutofocusParametersRequest',experiment_id=p['experiment_id'])
+                request=getattr(module,'ExperimentSwAutofocusServiceFindAutoFocusRequest')(
+                    experiment_id=p['experiment_id'], timeout=DoubleValue(value=p['af_timeout_s']))
+                return as_dict(self._af_rpc('FindAutoFocus', request, p['af_timeout_s']+self._timeout))
+            reply=self._af_rpc('GetAutofocusParameters',
+                getattr(module,'ExperimentSwAutofocusServiceGetAutofocusParametersRequest')(
+                    experiment_id=p['experiment_id']), self._timeout)
             if operation=='get_af':return as_dict(reply)
             if reply.auto_focus_mode not in (1,2,3):raise ValueError('只支持软件 AF 的范围设置，不修改反射式 AF')
-            return as_dict(self._control_rpc(package,'ExperimentSwAutofocusService','SetAutofocusParameters',
-                'ExperimentSwAutofocusServiceSetAutofocusParametersRequest',experiment_id=p['experiment_id'],
-                autofocus_mode=reply.auto_focus_mode, contrast_measure=reply.contrast_measure,
-                autofocus_sampling=reply.autofocus_sampling, search_strategy='Full',
-                relative_range_is_automatic=BoolValue(value=False),
-                relative_search_range=DoubleValue(value=(p['high_um']-p['low_um'])*1e-6),
-                lower_limit=DoubleValue(value=p['low_um']*1e-6),upper_limit=DoubleValue(value=p['high_um']*1e-6)))
+            return as_dict(self._af_rpc('SetAutofocusParameters',
+                getattr(module,'ExperimentSwAutofocusServiceSetAutofocusParametersRequest')(
+                    experiment_id=p['experiment_id'],
+                    autofocus_mode=reply.auto_focus_mode, contrast_measure=reply.contrast_measure,
+                    autofocus_sampling=reply.autofocus_sampling, search_strategy='Full',
+                    relative_range_is_automatic=BoolValue(value=False),
+                    relative_search_range=DoubleValue(value=(p['high_um']-p['low_um'])*1e-6),
+                    lower_limit=DoubleValue(value=p['low_um']*1e-6),upper_limit=DoubleValue(value=p['high_um']*1e-6)),
+                self._timeout))
         if operation in ('get_zstack','is_zstack','set_zstack'):
             method,request={'get_zstack':('GetZStackInfo','ZStackServiceGetZStackInfoRequest'),
                             'is_zstack':('IsZStackExperiment','ZStackServiceIsZStackExperimentRequest'),
