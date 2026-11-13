@@ -463,15 +463,15 @@ class MarkGatewayTest(unittest.TestCase):
         self.device.call_hardware_operation('af',{'experiment_id':'original:Upper','af_timeout_s':1})
         self.assertEqual([m for _,m in self.calls],['FindAutoFocus'])
 
-    def test_zstack_controls_fall_back_to_registered_package_variant(self):
-        # The v1 ZStackService is not registered on this mock (as on the real
-        # ZEN 3.12); the v1beta twin must answer transparently.
-        self.assertTrue(self.device.call_hardware_operation(
-            'is_zstack', {'experiment_id':'original:Upper'})['is_zstack_experiment'])
-        self.device.call_hardware_operation('set_zstack', {
-            'experiment_id':'original:Upper','first_um':95,'last_um':105,'interval_um':2})
-        first, last, interval = self.zstack_writes['original:Upper']
-        for actual, expected in zip((first, last, interval), (95e-6, 105e-6, 2e-6)):
-            self.assertAlmostEqual(actual, expected)
-        self.assertTrue(any(service=='zen_api.lm.acquisition.v1beta.ZStackService'
-                            for service,_ in self.calls))
+        with self.subTest('ZStackService falls back to registered package variant'):
+            # The v1 ZStackService is not registered on this mock (as on the
+            # real ZEN 3.12); the v1beta twin must answer transparently.
+            self.assertTrue(self.device.call_hardware_operation(
+                'is_zstack', {'experiment_id':'original:Upper'})['is_zstack_experiment'])
+            self.device.call_hardware_operation('set_zstack', {
+                'experiment_id':'original:Upper','first_um':95,'last_um':105,'interval_um':2})
+            first, last, interval = self.zstack_writes['original:Upper']
+            for actual, expected in zip((first, last, interval), (95e-6, 105e-6, 2e-6)):
+                self.assertAlmostEqual(actual, expected)
+            self.assertTrue(any(service=='zen_api.lm.acquisition.v1beta.ZStackService'
+                                for service,_ in self.calls))
