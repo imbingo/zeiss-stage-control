@@ -75,10 +75,11 @@ class GatewayMarkMixin:
         if pool is None:
             return None
         from google.protobuf import message_factory
-        base = self._BETA_AF_SERVICE + method_name
         try:
-            request_class = message_factory.GetMessageClass(pool.FindMessageTypeByName(base + 'Request'))
-            response_class = message_factory.GetMessageClass(pool.FindMessageTypeByName(base + 'Response'))
+            service = pool.FindServiceByName(self._BETA_AF_SERVICE)
+            method = service.methods_by_name[method_name]
+            request_class = message_factory.GetMessageClass(method.input_type)
+            response_class = message_factory.GetMessageClass(method.output_type)
             beta_request = request_class()
             for field, _ in request.ListFields():
                 if field.message_type is not None:
@@ -88,7 +89,7 @@ class GatewayMarkMixin:
         except Exception:
             return None
         call = self._channel.unary_unary(
-            '/' + self._BETA_AF_SERVICE + '.' + method_name,
+            '/' + self._BETA_AF_SERVICE + '/' + method_name,
             request_serializer=lambda message: message.SerializeToString(),
             response_deserializer=response_class.FromString,
         )

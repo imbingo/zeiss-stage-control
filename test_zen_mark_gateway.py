@@ -102,6 +102,12 @@ class MarkGatewayTest(unittest.TestCase):
         beta_file = descriptor_pb2.FileDescriptorProto()
         beta_file.ParseFromString(af_module.DESCRIPTOR.serialized_pb)
         beta_file.package = 'zen_api.lm.acquisition.v1beta'
+        for service in beta_file.service:
+            for method in service.method:
+                method.input_type = method.input_type.replace(
+                    'zen_api.lm.acquisition.v1.', 'zen_api.lm.acquisition.v1beta.')
+                method.output_type = method.output_type.replace(
+                    'zen_api.lm.acquisition.v1.', 'zen_api.lm.acquisition.v1beta.')
         self._beta_fds = [beta_file.SerializeToString()]
         for dep in af_module.DESCRIPTOR.dependencies:
             dep_file = descriptor_pb2.FileDescriptorProto()
@@ -250,6 +256,7 @@ class MarkGatewayTest(unittest.TestCase):
         with self.subTest('v1beta service path when v1 unregistered'):
             from zen_hardware.capability import CapabilityMatrix
             self.device.capabilities=CapabilityMatrix()
+            self.reject_bounds=False
             self.reject_v1_af=True
             result=self.prepare()
             self.assertEqual(result['lower_m'], 95e-6)
