@@ -14,9 +14,15 @@ class GatewayControlsMixin:
         module = import_module('zen_api.'+package+'_pb2')
         stub = self._mark_stub('zen_api.'+package+'_pb2_grpc', service+'Stub')
         request_type = getattr(module, request)
-        return self._rpc('zen_api.'+package.rsplit('.', 1)[0]+'.'+service+'.'+method,
-                         getattr(stub, method), request_type(**values),
-                         timeout=self._timeout if timeout_s is None else timeout_s)
+        service_full = 'zen_api.'+package.rsplit('.', 1)[0]+'.'+service
+        request_obj = request_type(**values)
+        timeout = self._timeout if timeout_s is None else timeout_s
+        versioned = getattr(self, '_versioned_rpc', None)
+        if versioned is not None:
+            return versioned(service_full, method, request_obj, timeout,
+                             getattr(stub, method))
+        return self._rpc(service_full+'.'+method, getattr(stub, method),
+                         request_obj, timeout=timeout)
 
     def call_hardware_operation(self, operation, p):
         """Arguments already validated by HardwareLibrary; each branch is explicit."""

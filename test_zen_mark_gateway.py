@@ -40,6 +40,7 @@ class MarkGatewayTest(unittest.TestCase):
         self.partial = self.stale = self.missing_frame = False
         self.reject_bounds = self.block_snap = self.no_focus = False
         self.reject_v1_af = self.reject_beta_af = False
+        self.zstack_writes = {}
         self.snap_entered = Event()
         self.server = grpc.server(ThreadPoolExecutor(max_workers=10))
         self._service_names = []
@@ -79,40 +80,47 @@ class MarkGatewayTest(unittest.TestCase):
                             handler, request_deserializer=request.FromString,
                             response_serializer=lambda x:x.SerializeToString())
                 self.server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler(service.full_name, handlers),))
-        # v1beta twin of the sw-AF service: identical wire schema under the
-        # package name ZEN 3.12 actually registers (colleague's working path).
+        # Renamed-package service twins: identical wire schemas re-registered
+        # under the package names ZEN 3.12 actually serves (colleague's path).
         from google.protobuf import descriptor_pb2
         from grpc_reflection.v1alpha import reflection_pb2
-        af_module = importlib.import_module('zen_api.lm.acquisition.v1.experiment_sw_autofocus_service_pb2')
-        beta_service = 'zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService'
-        beta_handlers = {}
-        for method in af_module.DESCRIPTOR.services_by_name['ExperimentSwAutofocusService'].methods:
-            request = GetMessageClass(method.input_type)
-            response = GetMessageClass(method.output_type)
-            def handler(req, ctx, method=method, response=response):
-                return self.handle(beta_service, method.name, response, req, ctx)
-            beta_handlers[method.name] = grpc.unary_unary_rpc_method_handler(
-                handler, request_deserializer=request.FromString,
-                response_serializer=lambda x:x.SerializeToString())
-        self.server.add_generic_rpc_handlers((
-            grpc.method_handlers_generic_handler(beta_service, beta_handlers),))
-        self._service_names.append(beta_service)
-        # Reflection endpoint serving the beta FileDescriptorProto: the v1
-        # schema re-labelled v1beta, plus its real dependencies.
-        beta_file = descriptor_pb2.FileDescriptorProto()
-        beta_file.ParseFromString(af_module.DESCRIPTOR.serialized_pb)
-        beta_file.package = 'zen_api.lm.acquisition.v1beta'
-        for service in beta_file.service:
-            for method in service.method:
-                method.input_type = method.input_type.replace(
-                    'zen_api.lm.acquisition.v1.', 'zen_api.lm.acquisition.v1beta.')
-                method.output_type = method.output_type.replace(
-                    'zen_api.lm.acquisition.v1.', 'zen_api.lm.acquisition.v1beta.')
-        self._beta_fds = [beta_file.SerializeToString()]
-        for dep in af_module.DESCRIPTOR.dependencies:
-            dep_file = descriptor_pb2.FileDescriptorProto()
-            dep_file.ParseFromString(dep.serialized_pb)
-            self._beta_fds.append(dep_file.SerializeToString())
+        self._variant_fds = {}
+        def register_twin(module_name, new_package):
+            module = importlib.import_module('zen_api.'+module_name+'_pb2')
+            old_package = module.DESCRIPTOR.package
+            for service in module.DESCRIPTOR.services_by_name.values():
+                twin = service.full_name.replace(old_package, new_package)
+                handlers = {}
+                for method in service.methods:
+                    request = GetMessageClass(method.input_type)
+                    response = GetMessageClass(method.output_type)
+                    def handler(req, ctx, method=method, response=response, twin=twin):
+                        return self.handle(twin, method.name, response, req, ctx)
+                    handlers[method.name] = grpc.unary_unary_rpc_method_handler(
+                        handler, request_deserializer=request.FromString,
+                        response_serializer=lambda x:x.SerializeToString())
+                self.server.add_generic_rpc_handlers((
+                    grpc.method_handlers_generic_handler(twin, handlers),))
+                self._service_names.append(twin)
+            twin_file = descriptor_pb2.FileDescriptorProto()
+            twin_file.ParseFromString(module.DESCRIPTOR.serialized_pb)
+            twin_file.package = new_package
+            for service in twin_file.service:
+                for method in service.method:
+                    method.input_type = method.input_type.replace(old_package+'.', new_package+'.')
+                    method.output_type = method.output_type.replace(old_package+'.', new_package+'.')
+            fds = [twin_file.SerializeToString()]
+            for dep in module.DESCRIPTOR.dependencies:
+                dep_file = descriptor_pb2.FileDescriptorProto()
+                dep_file.ParseFromString(dep.serialized_pb)
+                fds.append(dep_file.SerializeToString())
+            for service in module.DESCRIPTOR.services_by_name.values():
+                twin = service.full_name.replace(old_package, new_package)
+                self._variant_fds[twin] = fds
+        register_twin('lm.acquisition.v1.experiment_sw_autofocus_service',
+                      'zen_api.lm.acquisition.v1beta')
+        register_twin('lm.acquisition.v1.zstack_service',
+                      'zen_api.lm.acquisition.v1beta')
         def reflection_info(requests, ctx):
             for req in requests:
                 resp = reflection_pb2.ServerReflectionResponse(valid_host=req.host)
@@ -121,8 +129,9 @@ class MarkGatewayTest(unittest.TestCase):
                     for service_name in self._service_names:
                         resp.list_services_response.service.add(name=service_name)
                 elif req.HasField('file_containing_symbol') and \
-                        req.file_containing_symbol == beta_service:
-                    resp.file_descriptor_response.file_descriptor_proto.extend(self._beta_fds)
+                        req.file_containing_symbol in self._variant_fds:
+                    resp.file_descriptor_response.file_descriptor_proto.extend(
+                        self._variant_fds[req.file_containing_symbol])
                 yield resp
         self.server.add_generic_rpc_handlers((
             grpc.method_handlers_generic_handler(
@@ -193,6 +202,15 @@ class MarkGatewayTest(unittest.TestCase):
             # Definite Focus: hardware surface detect, Z in metres.
             self.z=98e-6
             return response(zposition=self.z)
+        if method == 'IsZStackExperiment':
+            return response(is_zstack_experiment=True)
+        if method == 'GetZStackInfo':
+            return response(interval=2e-6, first_slice=95e-6, last_slice=105e-6,
+                            range=10e-6, num_slices=6, is_center_mode=False, offset=0)
+        if method == 'ModifyZStackFirstLast':
+            self.zstack_writes[req.experiment_id] = (
+                req.first.value, req.last.value, req.interval.value)
+            return response()
         if method == 'GetStatus':
             return response(status={'images_count':self.images_count, 'channels_count':1, 'zstack_slices_count':1})
         if method in ('RunSnap', 'RunExperiment'):
@@ -444,3 +462,16 @@ class MarkGatewayTest(unittest.TestCase):
         self.calls.clear()
         self.device.call_hardware_operation('af',{'experiment_id':'original:Upper','af_timeout_s':1})
         self.assertEqual([m for _,m in self.calls],['FindAutoFocus'])
+
+    def test_zstack_controls_fall_back_to_registered_package_variant(self):
+        # The v1 ZStackService is not registered on this mock (as on the real
+        # ZEN 3.12); the v1beta twin must answer transparently.
+        self.assertTrue(self.device.call_hardware_operation(
+            'is_zstack', {'experiment_id':'original:Upper'})['is_zstack_experiment'])
+        self.device.call_hardware_operation('set_zstack', {
+            'experiment_id':'original:Upper','first_um':95,'last_um':105,'interval_um':2})
+        first, last, interval = self.zstack_writes['original:Upper']
+        for actual, expected in zip((first, last, interval), (95e-6, 105e-6, 2e-6)):
+            self.assertAlmostEqual(actual, expected)
+        self.assertTrue(any(service=='zen_api.lm.acquisition.v1beta.ZStackService'
+                            for service,_ in self.calls))

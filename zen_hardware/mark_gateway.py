@@ -19,20 +19,25 @@ class GatewayMarkMixin:
             raise RuntimeError("请先连接 Gateway")
         return getattr(import_module(module), service)(self._channel)
 
-    _BETA_AF_SERVICE = 'zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService'
     _V1_AF_SERVICE = 'zen_api.lm.acquisition.v1.ExperimentSwAutofocusService'
 
-    def _beta_af_pool(self):
-        """Descriptor pool for the v1beta AF service, built from reflection.
+    def _dyn_pool(self, service_name):
+        """Descriptor pool for `service_name`, built from reflection.
 
-        The Gateway serves the exact FileDescriptor it registered (verified on
-        ZEN 3.12 where the sw-AF service lives under the v1beta package).
-        Returns None when the schema cannot be fetched or parsed.
+        The Gateway serves the exact FileDescriptor it registered, which is
+        the only trustworthy schema when the installed ZEN registers the
+        service under a different package than our generated stubs (e.g. the
+        v1beta variants on ZEN 3.12). Returns None when the schema cannot be
+        fetched or parsed; the result (pool or None) is cached per service.
         """
-        cached = getattr(self, '_beta_pool', False)
-        if cached is not False:
-            return cached
-        self._beta_pool = None
+        pools = getattr(self, '_dyn_pools', None)
+        if pools is None:
+            pools = self._dyn_pools = {}
+        if service_name not in pools:
+            pools[service_name] = self._build_dyn_pool(service_name)
+        return pools[service_name]
+
+    def _build_dyn_pool(self, service_name):
         try:
             from .reflection import file_descriptor_protos
             from google.protobuf import descriptor_pool
@@ -40,7 +45,7 @@ class GatewayMarkMixin:
             builtins = {}
             for module in (wrappers_pb2, empty_pb2, struct_pb2, timestamp_pb2, duration_pb2):
                 builtins[module.DESCRIPTOR.name] = module.DESCRIPTOR.serialized_pb
-            protos = file_descriptor_protos(self._channel, self._BETA_AF_SERVICE, self._timeout)
+            protos = file_descriptor_protos(self._channel, service_name, self._timeout)
             pool = descriptor_pool.DescriptorPool()
             added = set(builtins)
             for raw in builtins.values():
@@ -59,62 +64,122 @@ class GatewayMarkMixin:
                     progress = True
                 if not progress:
                     return None  # unresolved dependency chain
-            self._beta_pool = pool
+            return pool
         except Exception:
-            self._beta_pool = None
-        return self._beta_pool
+            return None
 
-    def _beta_af_call(self, method_name, request, timeout):
-        """Call the v1beta twin of an AF method via dynamic messages.
+    @staticmethod
+    def _copy_fields(source, target):
+        """Copy set fields of `source` into `target` by name, recursively.
 
-        Fields are copied from the v1 request by NAME, so wire field-number
-        changes between v1beta and v1 are handled safely; a schema that lacks
-        a required field makes the call return None instead of guessing.
+        Field-NAME copying tolerates wire field-number drift between schema
+        versions; a field absent from the target schema fails the whole copy
+        so a partial request is never sent. Map fields and repeated message
+        fields whose names differ abort the fallback safely (returns False).
         """
-        pool = self._beta_af_pool()
+        for field, value in source.ListFields():
+            target_desc = target.DESCRIPTOR.fields_by_name.get(field.name)
+            if target_desc is None:
+                return False
+            if field.is_repeated:
+                if field.message_type is not None:
+                    return False  # repeated messages/maps: bail out safely
+                getattr(target, field.name).extend(value)
+                continue
+            target_field = getattr(target, field.name)
+            if field.message_type is not None:
+                if hasattr(target_field, 'ListFields'):
+                    if not GatewayMarkMixin._copy_fields(value, target_field):
+                        return False
+                elif value.DESCRIPTOR.fields_by_name.get('value') is not None:
+                    setattr(target, field.name, value.value)  # wrapper -> scalar
+                else:
+                    return False
+            elif target_desc.message_type is not None:
+                if target_field.DESCRIPTOR.fields_by_name.get('value') is None:
+                    return False
+                target_field.value = value  # scalar -> wrapper
+            else:
+                setattr(target, field.name, value)
+        return True
+
+    def _dyn_call(self, service_name, method_name, request, timeout):
+        """Call `service_name.method_name` via reflection-built messages."""
+        pool = self._dyn_pool(service_name)
         if pool is None:
             return None
         from google.protobuf import message_factory
         try:
-            service = pool.FindServiceByName(self._BETA_AF_SERVICE)
+            service = pool.FindServiceByName(service_name)
             method = service.methods_by_name[method_name]
             request_class = message_factory.GetMessageClass(method.input_type)
             response_class = message_factory.GetMessageClass(method.output_type)
-            beta_request = request_class()
-            for field, _ in request.ListFields():
-                if field.message_type is not None:
-                    getattr(beta_request, field.name).value = getattr(request, field.name).value
-                else:
-                    setattr(beta_request, field.name, getattr(request, field.name))
+            dyn_request = request_class()
+            if not self._copy_fields(request, dyn_request):
+                return None
         except Exception:
             return None
         call = self._channel.unary_unary(
-            '/' + self._BETA_AF_SERVICE + '/' + method_name,
+            '/' + service_name + '/' + method_name,
             request_serializer=lambda message: message.SerializeToString(),
             response_deserializer=response_class.FromString,
         )
-        return self._rpc(self._BETA_AF_SERVICE + '.' + method_name, call, beta_request, timeout=timeout)
+        return self._rpc(service_name + '.' + method_name, call, dyn_request, timeout=timeout)
 
-    def _af_rpc(self, method_name, request, timeout):
-        """AF method call: official v1 path first, then the v1beta twin.
+    def _service_variants(self, service_name):
+        """Registered Gateway services sharing the short name of `service_name`.
 
-        ZEN 3.12 registers the service only under the v1beta package while
-        newer ZEN registers v1. The recorded method name in the capability
-        matrix and rpc trace always reflects the path actually used.
+        ZEN 3.12 registers several lm.* services under v1beta packages while
+        newer ZEN uses the names in our generated stubs. The reflection
+        listing (cached in the capability matrix by probe_services) tells us
+        exactly which variants exist on this machine.
+        """
+        short = service_name.rpartition('.')[2]
+        names = getattr(self.capabilities, 'services', None)
+        if not names:
+            try:
+                from .reflection import list_services
+                names = list_services(self._channel, timeout=self._timeout)
+            except Exception:
+                names = ()
+        return [name for name in names
+                if name != service_name and name.endswith('.' + short)]
+
+    def _versioned_rpc(self, service_name, method_name, request, timeout, primary_call):
+        """Call `service.method`, retrying on registered package variants.
+
+        On UNIMPLEMENTED from the primary path, every other registered service
+        with the same short name is tried via reflection-built dynamic
+        messages. The rpc trace always records the path actually used.
         """
         import grpc
-        self._last_af_path = 'v1'
+        self._last_service_path = service_name
         try:
-            return self._rpc(self._V1_AF_SERVICE + '.' + method_name,
-                             getattr(self._af, method_name), request, timeout=timeout)
+            return self._rpc(service_name + '.' + method_name, primary_call,
+                             request, timeout=timeout)
         except grpc.RpcError as error:
             if error.code() != grpc.StatusCode.UNIMPLEMENTED:
                 raise
-            beta = self._beta_af_call(method_name, request, timeout)
-            if beta is not None:
-                self._last_af_path = 'v1beta'
-                return beta
-            raise
+            original = error
+        for variant in self._service_variants(service_name):
+            try:
+                reply = self._dyn_call(variant, method_name, request, timeout)
+            except grpc.RpcError as error:
+                if error.code() != grpc.StatusCode.UNIMPLEMENTED:
+                    raise
+                continue
+            if reply is not None:
+                self._last_service_path = variant
+                return reply
+        raise original
+
+    def _af_rpc(self, method_name, request, timeout):
+        """AF method call: official v1 path first, then registered variants
+        (ZEN 3.12 exposes the same service under the v1beta package)."""
+        reply = self._versioned_rpc(self._V1_AF_SERVICE, method_name, request, timeout,
+                                    getattr(self._af, method_name))
+        self._last_af_path = self._last_service_path
+        return reply
 
     def _focus_v1(self):
         """Focus v1 stub pair, or None when the generated stubs lack it.

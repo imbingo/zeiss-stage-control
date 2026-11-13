@@ -86,6 +86,7 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
     def close(self):
         channel, self._channel = self._channel, None
         self._experiment_id = None
+        self._dyn_pools = {}  # reflection schemas belong to the closed Gateway
         if channel is not None:
             channel.close()
 
