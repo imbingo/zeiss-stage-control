@@ -167,46 +167,46 @@ class WorkflowTest(unittest.TestCase):
                     restarted.start(RECIPE, path_confirmed=True)
                 self.assertEqual(restarted_device.moves, [])
 
-    def test_stop_after_last_point_keeps_result(self):
-        class StopAtLastPoint(SimulatedDevice):
-            owner = None
-
-            def autofocus(self, timeout_seconds):
-                z = super().autofocus(timeout_seconds)
-                if self.af_attempts == len(RECIPE.targets) and self.owner is not None:
-                    self.owner.stop()
-                return z
-
-        device = StopAtLastPoint(delay_seconds=0)
-        workflow = self.connected(device)
-        device.owner = workflow
-        workflow.start(RECIPE, path_confirmed=True)
-        self.wait(workflow)
-        self.assertEqual(workflow.state, "完成")
-        self.assertIsNotNone(workflow.result)
-        run, = (run for run in self.root.rglob("status.json"))
-        status = json.loads(run.read_text(encoding="utf-8"))
-        self.assertEqual(status["state"], "complete")
-        self.assertTrue(status["result_valid"])
-        self.assertFalse(status["recovery_required"])
-
     def test_stop_during_af_and_duplicate_start(self):
-        device = BlockingAutofocus()
-        workflow = self.connected(device)
-        workflow.start(RECIPE, path_confirmed=True)
-        try:
-            self.assertTrue(device.entered.wait(2))
-            with self.assertRaises(RuntimeError):
-                workflow.start(RECIPE, path_confirmed=True)
-            with self.assertRaises(RuntimeError):
-                workflow.invalidate()
-            workflow.stop()
-        finally:
-            device.release.set()
+        with self.subTest(scenario="stop_during_af"):
+            device = BlockingAutofocus()
+            workflow = self.connected(device)
+            workflow.start(RECIPE, path_confirmed=True)
+            try:
+                self.assertTrue(device.entered.wait(2))
+                with self.assertRaises(RuntimeError):
+                    workflow.start(RECIPE, path_confirmed=True)
+                with self.assertRaises(RuntimeError):
+                    workflow.invalidate()
+                workflow.stop()
+            finally:
+                device.release.set()
+                self.wait(workflow)
+            self.assertEqual(len(device.moves), 1)
+            self.assertEqual(workflow.state, "已中止")
+            self.assertIsNone(workflow.result)
+        with self.subTest(scenario="stop_after_last_point_keeps_result"):
+            class StopAtLastPoint(SimulatedDevice):
+                owner = None
+
+                def autofocus(self, timeout_seconds):
+                    z = super().autofocus(timeout_seconds)
+                    if self.af_attempts == len(RECIPE.targets) and self.owner is not None:
+                        self.owner.stop()
+                    return z
+
+            device = StopAtLastPoint(delay_seconds=0)
+            workflow = self.connected(device, self.root / "last")
+            device.owner = workflow
+            workflow.start(RECIPE, path_confirmed=True)
             self.wait(workflow)
-        self.assertEqual(len(device.moves), 1)
-        self.assertEqual(workflow.state, "已中止")
-        self.assertIsNone(workflow.result)
+            self.assertEqual(workflow.state, "完成")
+            self.assertIsNotNone(workflow.result)
+            run, = (run for run in (self.root / "last").rglob("status.json"))
+            status = json.loads(run.read_text(encoding="utf-8"))
+            self.assertEqual(status["state"], "complete")
+            self.assertTrue(status["result_valid"])
+            self.assertFalse(status["recovery_required"])
 
     def test_single_point_uses_current_xy_without_move_or_fit(self):
         device = SimulatedDevice(delay_seconds=0)
