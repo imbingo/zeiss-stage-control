@@ -82,7 +82,8 @@ class HardwareTestWindow(tk.Toplevel):
                 env={**os.environ,**self.app.gateway_overrides}
                 address,pem,token=gateway_settings(env)
                 allow_v1=env.get("ZEN_ALLOW_FOCUS_V1","").strip().lower() in ("1","true","yes")
-                device=GatewayDevice(lambda:secure_channel(address,pem.read_bytes(),token),xy_enabled=self.app.xy_mode.get()!='no_xy',allow_focus_v1=allow_v1)
+                allow_unverified_af=env.get("ZEN_ALLOW_UNVERIFIED_AF","").strip().lower() in ("1","true","yes")
+                device=GatewayDevice(lambda:secure_channel(address,pem.read_bytes(),token),xy_enabled=self.app.xy_mode.get()!='no_xy',allow_focus_v1=allow_v1,allow_unverified_af=allow_unverified_af)
             self.app._replace_workflow(device,simulated=simulated,validate=validate_recipe,fit=fit_field)
             self.values.pop('experiment_id',None)
             self.attach(self.app.workflow)

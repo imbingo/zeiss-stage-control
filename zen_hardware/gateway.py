@@ -56,12 +56,17 @@ def secure_channel(address, certificate, token):
 
 
 class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin):
-    def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True, allow_focus_v1=False):
+    def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True,
+                 allow_focus_v1=False, allow_unverified_af=False):
         self.clear_rpc_trace()
         self.xy_enabled = xy_enabled
         # Explicit opt-in only: Focus v1 reports micrometres where v2 reports
         # metres. Never enabled silently; see read_z/move_z.
         self.allow_focus_v1 = allow_focus_v1
+        # Explicit opt-in only: when neither AF parameter read nor write exists,
+        # FindAutoFocus would run the experiment's stored search range which we
+        # cannot verify. Never enabled silently.
+        self.allow_unverified_af = allow_unverified_af
         from .capability import CapabilityMatrix
         self.capabilities = CapabilityMatrix()
         self._channel_factory = channel_factory

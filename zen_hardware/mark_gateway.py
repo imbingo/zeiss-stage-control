@@ -120,18 +120,61 @@ class GatewayMarkMixin:
         self._experiment_id = clone.experiment_id
         if not use_autofocus:
             return {"experiment_id": self._experiment_id, "autofocus": False}
-        params = self._rpc("zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.GetAutofocusParameters",
-                           self._af.GetAutofocusParameters, Get(experiment_id=self._experiment_id), timeout=self._timeout)
+        get_method = "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.GetAutofocusParameters"
+        set_method = "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.SetAutofocusParameters"
+        import grpc
+        try:
+            params = self._rpc(get_method, self._af.GetAutofocusParameters,
+                               Get(experiment_id=self._experiment_id), timeout=self._timeout)
+        except grpc.RpcError as error:
+            if error.code() != grpc.StatusCode.UNIMPLEMENTED:
+                raise
+            params = None
+        if params is None:
+            # Get unavailable (seen on ZEN 3.12): constrain the search range
+            # with a write-only Set. Unset wrapped/enumerated fields stay
+            # unmodified on the experiment; mode/contrast are left untouched.
+            try:
+                self._rpc(set_method, self._af.SetAutofocusParameters, Set(
+                    experiment_id=self._experiment_id,
+                    relative_range_is_automatic=BoolValue(value=False),
+                    relative_search_range=DoubleValue(value=high_m-low_m),
+                    lower_limit=DoubleValue(value=low_m), upper_limit=DoubleValue(value=high_m),
+                ), timeout=self._timeout)
+            except grpc.RpcError as error:
+                if error.code() != grpc.StatusCode.UNIMPLEMENTED:
+                    raise
+                # Neither read nor write interface: FindAutoFocus would run the
+                # experiment's stored range, which we cannot verify. Opt-in only.
+                if not getattr(self, 'allow_unverified_af', False):
+                    raise MarkCapabilityError(
+                        str(error) + "；AF 参数读写接口均不可用，无法限定搜索范围。"
+                        "请在 ZEN 中确认实验 AF 范围安全后在连接设置启用“允许实验内置 AF 范围”，"
+                        "或关闭自动对焦改用无 AF 手动示教") from error
+                return {"experiment_id": self._experiment_id, "af_range": "experiment_stored_unverified"}
+            return {"experiment_id": self._experiment_id, "af_range": "written_unverified_readback",
+                    "lower_m": low_m, "upper_m": high_m}
         if params.auto_focus_mode not in (1, 2, 3):
             raise ValueError("采图实验需使用软件对比度／强度 AF，不支持反射式 AF")
-        self._rpc("zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.SetAutofocusParameters", self._af.SetAutofocusParameters, Set(
-            experiment_id=self._experiment_id, autofocus_mode=params.auto_focus_mode,
-            contrast_measure=params.contrast_measure, search_strategy="Full",
-            autofocus_sampling=params.autofocus_sampling,
-            relative_range_is_automatic=BoolValue(value=False),
-            relative_search_range=DoubleValue(value=high_m-low_m),
-            lower_limit=DoubleValue(value=low_m), upper_limit=DoubleValue(value=high_m),
-        ), timeout=self._timeout)
+        try:
+            self._rpc(set_method, self._af.SetAutofocusParameters, Set(
+                experiment_id=self._experiment_id, autofocus_mode=params.auto_focus_mode,
+                contrast_measure=params.contrast_measure, search_strategy="Full",
+                autofocus_sampling=params.autofocus_sampling,
+                relative_range_is_automatic=BoolValue(value=False),
+                relative_search_range=DoubleValue(value=high_m-low_m),
+                lower_limit=DoubleValue(value=low_m), upper_limit=DoubleValue(value=high_m),
+            ), timeout=self._timeout)
+        except grpc.RpcError as error:
+            if error.code() != grpc.StatusCode.UNIMPLEMENTED:
+                raise
+            # Read works but write is missing: stored range is unverified too.
+            if not getattr(self, 'allow_unverified_af', False):
+                raise MarkCapabilityError(
+                    str(error) + "；AF 参数写入接口不可用，无法限定搜索范围。"
+                    "请在 ZEN 中确认实验 AF 范围安全后在连接设置启用“允许实验内置 AF 范围”，"
+                    "或关闭自动对焦改用无 AF 手动示教") from error
+            return {"experiment_id": self._experiment_id, "af_range": "experiment_stored_unverified"}
         actual = self._rpc("zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.GetAutofocusParameters",
                            self._af.GetAutofocusParameters, Get(experiment_id=self._experiment_id), timeout=self._timeout)
         if (actual.relative_range_is_automatic or actual.search_strategy.casefold() != 'full'

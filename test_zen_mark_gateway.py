@@ -270,6 +270,19 @@ class MarkGatewayTest(unittest.TestCase):
                 # so each subTest actually reaches its own target method.
                 self.device.capabilities=CapabilityMatrix()
                 self.reject_method=method
+                if method == 'GetAutofocusParameters':
+                    # Read rejected -> write-only Set fallback succeeds instead.
+                    result=self.prepare()
+                    self.assertEqual(result['af_range'], 'written_unverified_readback')
+                    self.assertEqual(self.z_moves, [])
+                    self.assertEqual(self.snaps, 0)
+                    continue
+                if method == 'SetAutofocusParameters':
+                    with self.assertRaises(MarkCapabilityError) as caught:self.prepare()
+                    self.assertIn('AF 参数写入接口不可用', str(caught.exception))
+                    self.assertEqual(self.z_moves, [])
+                    self.assertEqual(self.snaps, 0)
+                    continue
                 with self.assertRaises(GatewayCallError) as caught:self.prepare()
                 error=caught.exception
                 self.assertTrue(error.method.endswith('.'+method))
