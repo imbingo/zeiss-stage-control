@@ -18,7 +18,7 @@ def sanitize(value):
         result['xy_mode'] = value['xy_mode']
     connection = value.get('connection', {})
     if isinstance(connection, dict):
-        result['connection'] = {key: val for key in ('ZEN_GATEWAY_ADDRESS', 'ZEN_GATEWAY_CA', 'ZEN_ALLOW_FOCUS_V1', 'ZEN_ALLOW_UNVERIFIED_AF')
+        result['connection'] = {key: val for key in ('ZEN_GATEWAY_ADDRESS', 'ZEN_GATEWAY_CA', 'ZEN_ALLOW_FOCUS_V1', 'ZEN_ALLOW_UNVERIFIED_AF', 'ZEN_ALLOW_DEFINITE_FOCUS')
                                 if (val := text(connection.get(key))) is not None}
     capture = value.get('mark_capture', {})
     if "mark_capture" in value and isinstance(capture, dict):

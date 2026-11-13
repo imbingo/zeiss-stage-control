@@ -18,6 +18,7 @@ def main():
         "zen_api/hardware/v1/simple_stage_service.proto",
         "zen_api/acquisition/v1beta/experiment_service.proto",
         "zen_api/lm/acquisition/v1/experiment_sw_autofocus_service.proto",
+        "zen_api/lm/acquisition/v1/definite_focus_service.proto",
         "zen_api/lm/hardware/v1/focus_service.proto",
         "zen_api/lm/hardware/v2/focus_service.proto",
         "zen_api/lm/hardware/v2/objective_changer_service.proto",

@@ -57,7 +57,8 @@ def secure_channel(address, certificate, token):
 
 class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin):
     def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True,
-                 allow_focus_v1=False, allow_unverified_af=False):
+                 allow_focus_v1=False, allow_unverified_af=False,
+                 allow_definite_focus=False):
         self.clear_rpc_trace()
         self.xy_enabled = xy_enabled
         # Explicit opt-in only: Focus v1 reports micrometres where v2 reports
@@ -67,6 +68,10 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
         # FindAutoFocus would run the experiment's stored search range which we
         # cannot verify. Never enabled silently.
         self.allow_unverified_af = allow_unverified_af
+        # Explicit opt-in only: DefiniteFocusService is a different engine
+        # (infrared-reflection surface detection, ZEN-bounded range). It is the
+        # fallback when the software AF service is absent; never silent.
+        self.allow_definite_focus = allow_definite_focus
         from .capability import CapabilityMatrix
         self.capabilities = CapabilityMatrix()
         self._channel_factory = channel_factory
@@ -203,5 +208,9 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
                 raise AutofocusTimeout("AF 调用超时，设备状态待确认") from exc
             if exc.code() == grpc.StatusCode.UNAVAILABLE:
                 raise DeviceDisconnected("AF 期间 Gateway 不可用，设备状态待确认") from exc
+            if exc.code() == grpc.StatusCode.UNIMPLEMENTED and self.allow_definite_focus:
+                # Software AF service absent (ZEN 3.12): hardware Definite
+                # Focus finds the surface within its ZEN-configured range.
+                return self.definite_focus_surface(timeout_seconds)
             raise
         return reply.focus_position

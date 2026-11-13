@@ -46,6 +46,7 @@ class MarkGatewayTest(unittest.TestCase):
                    'lm.hardware.v2.objective_changer_service',
                    'lm.hardware.v2.optovar_service', 'acquisition.v1beta.experiment_service',
                    'lm.acquisition.v1.experiment_sw_autofocus_service',
+                   'lm.acquisition.v1.definite_focus_service',
                    'acquisition.v1beta.experiment_streaming_service')
         for name in modules:
             module = importlib.import_module('zen_api.'+name+'_pb2')
@@ -129,6 +130,10 @@ class MarkGatewayTest(unittest.TestCase):
             params = self.params[req.experiment_id]
             self.z=(params['lower_limit']+params['upper_limit'])/2
             return response(focus_position=self.z)
+        if method == 'FindSurface':
+            # Definite Focus: hardware surface detect, Z in metres.
+            self.z=98e-6
+            return response(zposition=self.z)
         if method == 'GetStatus':
             return response(status={'images_count':self.images_count, 'channels_count':1, 'zstack_slices_count':1})
         if method in ('RunSnap', 'RunExperiment'):
@@ -189,6 +194,16 @@ class MarkGatewayTest(unittest.TestCase):
         self.reject_bounds=True
         with self.assertRaises(ValueError):self.prepare()
         self.assertEqual(self.z_moves, [])
+        with self.subTest('definite focus fallback when software AF absent'):
+            from zen_hardware.capability import CapabilityMatrix
+            self.device.capabilities=CapabilityMatrix()
+            self.reject_bounds=False
+            self.reject_method='FindAutoFocus'
+            self.device.allow_definite_focus=True
+            self.assertAlmostEqual(self.device.autofocus(1), 98e-6)
+            self.assertIn(('zen_api.lm.acquisition.v1.DefiniteFocusService','FindSurface'),self.calls)
+            self.reject_method=None
+            self.device.allow_definite_focus=False
 
     def test_single_snap_receives_matching_full_raw_frame(self):
         af_id=self.prepare()["experiment_id"]
@@ -290,6 +305,15 @@ class MarkGatewayTest(unittest.TestCase):
                 self.assertNotIn('synthetic-private-detail', json.dumps(error.to_dict()))
                 self.assertEqual(self.z_moves, [])
                 self.assertEqual(self.snaps, 0)
+        with self.subTest('definite focus when software AF service unregistered'):
+            self.reject_method=None
+            self.device.capabilities=CapabilityMatrix()
+            self.device.capabilities.note_services((), ('zen_api.lm.acquisition.v1.ExperimentSwAutofocusService',))
+            self.device.allow_definite_focus=True
+            result=self.prepare()
+            self.assertEqual(result['af_engine'], 'definite_focus')
+            self.assertFalse(any(method=='FindSurface' for _,method in self.calls))
+            self.device.allow_definite_focus=False
 
     def test_read_only_inspection_does_not_load_clone_or_move(self):
         self.calls.clear()

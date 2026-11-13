@@ -27,6 +27,7 @@ REQUIRED_SERVICES = {
 # block the angle-scan path; reported as a warning.
 OPTIONAL_SERVICES = (
     "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+    "zen_api.lm.acquisition.v1.DefiniteFocusService",
     "zen_api.lm.hardware.v2.ObjectiveChangerService",
     "zen_api.lm.hardware.v2.OptovarService",
 )

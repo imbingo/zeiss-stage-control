@@ -471,6 +471,12 @@ class Workbench:
             frame, variable=allow_unverified_af,
             text="允许实验内置 AF 范围（AF 参数接口不可用时，按 ZEN 实验已存范围执行）").grid(
             row=5, column=0, columnspan=3, sticky="w")
+        allow_definite = tk.BooleanVar(
+            value=self.gateway_overrides.get("ZEN_ALLOW_DEFINITE_FOCUS", "").lower() in ("1", "true", "yes"))
+        ttk.Checkbutton(
+            frame, variable=allow_definite,
+            text="使用 Definite Focus 硬件对焦（软件 AF 服务缺失时，红外反射式表面检测）").grid(
+            row=6, column=0, columnspan=3, sticky="w")
 
         def apply():
             self.gateway_overrides = {key: value.get().strip() for key, value in fields.items()
@@ -479,14 +485,16 @@ class Workbench:
                 self.gateway_overrides["ZEN_ALLOW_FOCUS_V1"] = "1"
             if allow_unverified_af.get():
                 self.gateway_overrides["ZEN_ALLOW_UNVERIFIED_AF"] = "1"
+            if allow_definite.get():
+                self.gateway_overrides["ZEN_ALLOW_DEFINITE_FOCUS"] = "1"
             self.preferences.update(connection=self.gateway_overrides, xy_mode=self.xy_mode.get())
             dialog.destroy()
             self.connect_field()
 
         ttk.Button(frame, text="选择", command=browse).grid(row=2, column=2)
-        ttk.Button(frame, text="只读测试连接", command=apply).grid(row=6, column=1, pady=8, sticky="e")
+        ttk.Button(frame, text="只读测试连接", command=apply).grid(row=7, column=1, pady=8, sticky="e")
         ttk.Label(frame, text="地址与证书会保存；令牌仅在本次运行有效。").grid(
-            row=7, column=0, columnspan=3, sticky="w")
+            row=8, column=0, columnspan=3, sticky="w")
         dialog.grab_set()
 
     def open_preflight(self):
@@ -605,9 +613,11 @@ class Workbench:
         env = {**os.environ, **self.gateway_overrides}
         allow_v1 = env.get("ZEN_ALLOW_FOCUS_V1", "").strip().lower() in ("1", "true", "yes")
         allow_unverified_af = env.get("ZEN_ALLOW_UNVERIFIED_AF", "").strip().lower() in ("1", "true", "yes")
+        allow_definite = env.get("ZEN_ALLOW_DEFINITE_FOCUS", "").strip().lower() in ("1", "true", "yes")
         self._replace_workflow(GatewayDevice(channel, xy_enabled=self.xy_mode.get() != "no_xy",
                                              allow_focus_v1=allow_v1,
-                                             allow_unverified_af=allow_unverified_af),
+                                             allow_unverified_af=allow_unverified_af,
+                                             allow_definite_focus=allow_definite),
                                simulated=False, validate=validate_recipe, fit=fit_field)
         self.show_field_heading()
         self.workflow.connect()

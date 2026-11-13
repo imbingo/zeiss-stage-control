@@ -33,6 +33,45 @@ class GatewayMarkMixin:
         except ImportError:
             return None
 
+    def _definite_focus(self):
+        """Lazy DefiniteFocusService stub pair, or None when stubs are absent."""
+        from importlib import import_module
+        try:
+            pb2 = import_module('zen_api.lm.acquisition.v1.definite_focus_service_pb2')
+            pb2_grpc = import_module('zen_api.lm.acquisition.v1.definite_focus_service_pb2_grpc')
+            return pb2_grpc.DefiniteFocusServiceStub(self._channel), pb2
+        except ImportError:
+            return None
+
+    def definite_focus_surface(self, timeout_s):
+        """Hardware Definite Focus FindSurface; returns Z in METRES.
+
+        A different engine from software contrast AF: an infrared-reflection
+        surface detector bounded by the ZEN-side Definite Focus configuration.
+        Only reached when allow_definite_focus is enabled and the software AF
+        service is absent.
+        """
+        import grpc
+        from . import AutofocusTimeout, DeviceDisconnected
+        pair = self._definite_focus()
+        if pair is None:
+            raise MarkCapabilityError("当前安装包未包含 DefiniteFocusService 存根，无法走硬件 AF")
+        stub, pb2 = pair
+        try:
+            reply = self._rpc("zen_api.lm.acquisition.v1.DefiniteFocusService.FindSurface",
+                              stub.FindSurface, pb2.DefiniteFocusServiceFindSurfaceRequest(),
+                              timeout=timeout_s+self._timeout)
+        except grpc.RpcError as error:
+            if error.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                raise AutofocusTimeout("Definite Focus 找表面超时，设备状态待确认") from error
+            if error.code() == grpc.StatusCode.UNAVAILABLE:
+                raise DeviceDisconnected("Definite Focus 期间 Gateway 不可用，设备状态待确认") from error
+            raise
+        value = reply.zposition
+        if not isfinite(value):
+            raise ValueError("Definite Focus 返回无效 Z")
+        return value
+
     def read_z(self):
         import grpc
         from zen_api.lm.hardware.v2.focus_service_pb2 import FocusServiceGetPositionRequest
@@ -144,12 +183,19 @@ class GatewayMarkMixin:
             except grpc.RpcError as error:
                 if error.code() != grpc.StatusCode.UNIMPLEMENTED:
                     raise
-                # Neither read nor write interface: FindAutoFocus would run the
-                # experiment's stored range, which we cannot verify. Opt-in only.
+                # Neither read nor write interface exists: the whole software
+                # AF service is absent (ZEN 3.12). Prefer the hardware
+                # Definite Focus engine when explicitly enabled; else the
+                # experiment's stored range behind its own opt-in.
+                df_method = "zen_api.lm.acquisition.v1.DefiniteFocusService.FindSurface"
+                if getattr(self, 'allow_definite_focus', False) and self._definite_focus() is not None \
+                        and not self.capabilities.unsupported(df_method):
+                    return {"experiment_id": self._experiment_id, "af_engine": "definite_focus"}
                 if not getattr(self, 'allow_unverified_af', False):
                     raise MarkCapabilityError(
-                        str(error) + "；AF 参数读写接口均不可用，无法限定搜索范围。"
-                        "请在 ZEN 中确认实验 AF 范围安全后在连接设置启用“允许实验内置 AF 范围”，"
+                        str(error) + "；软件 AF 参数读写接口均不可用，无法限定搜索范围。"
+                        "若本机装有 Definite Focus 硬件，可在连接设置启用“使用 Definite Focus 硬件对焦”；"
+                        "或在 ZEN 中确认实验 AF 范围安全后启用“允许实验内置 AF 范围”，"
                         "或关闭自动对焦改用无 AF 手动示教") from error
                 return {"experiment_id": self._experiment_id, "af_range": "experiment_stored_unverified"}
             return {"experiment_id": self._experiment_id, "af_range": "written_unverified_readback",
