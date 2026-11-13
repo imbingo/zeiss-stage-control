@@ -56,9 +56,14 @@ def secure_channel(address, certificate, token):
 
 
 class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin):
-    def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True):
+    def __init__(self, channel_factory, *, rpc_timeout=5.0, xy_enabled=True, allow_focus_v1=False):
         self.clear_rpc_trace()
         self.xy_enabled = xy_enabled
+        # Explicit opt-in only: Focus v1 reports micrometres where v2 reports
+        # metres. Never enabled silently; see read_z/move_z.
+        self.allow_focus_v1 = allow_focus_v1
+        from .capability import CapabilityMatrix
+        self.capabilities = CapabilityMatrix()
         self._channel_factory = channel_factory
         self._timeout = rpc_timeout
         self._channel = None
@@ -77,6 +82,7 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
     def connect(self):
         self.connect_transport()
         try:
+            self.probe_services()
             return self.read_xy() if self.xy_enabled else self.read_z()
         except Exception:
             self.close()
@@ -106,6 +112,25 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
         except Exception:
             self.close()
             raise
+
+    def probe_services(self, timeout=3.0):
+        """List Gateway-registered services into the capability matrix.
+
+        Read-only and never raises: a Gateway without reflection support
+        simply leaves the matrix service-blind. Candidate services that are
+        absent mark their methods unsupported so they fail fast afterwards.
+        """
+        if self._channel is None:
+            return None
+        from .reflection import OPTIONAL_SERVICES, REQUIRED_SERVICES, list_services
+        try:
+            names = list_services(self._channel, timeout=timeout)
+        except Exception:
+            return None
+        candidates = set(REQUIRED_SERVICES["motorized" if self.xy_enabled else "no_xy"])
+        candidates.update(OPTIONAL_SERVICES)
+        self.capabilities.note_services(names, candidates)
+        return names
 
     def read_xy(self):
         if not self.xy_enabled:

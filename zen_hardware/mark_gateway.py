@@ -19,6 +19,20 @@ class GatewayMarkMixin:
             raise RuntimeError("请先连接 Gateway")
         return getattr(import_module(module), service)(self._channel)
 
+    def _focus_v1(self):
+        """Focus v1 stub pair, or None when the generated stubs lack it.
+
+        v1 reports MICROMETRES where v2 reports metres. Callers must convert
+        and only reach this path via the explicit allow_focus_v1 opt-in.
+        """
+        try:
+            from importlib import import_module
+            pb2 = import_module('zen_api.lm.hardware.v1.focus_service_pb2')
+            pb2_grpc = import_module('zen_api.lm.hardware.v1.focus_service_pb2_grpc')
+            return pb2_grpc.FocusServiceStub(self._channel), pb2
+        except ImportError:
+            return None
+
     def read_z(self):
         import grpc
         from zen_api.lm.hardware.v2.focus_service_pb2 import FocusServiceGetPositionRequest
@@ -27,11 +41,26 @@ class GatewayMarkMixin:
             value = self._rpc("zen_api.lm.hardware.v2.FocusService.GetPosition", stub.GetPosition, FocusServiceGetPositionRequest(), timeout=self._timeout).value
         except grpc.RpcError as error:
             if error.code() == grpc.StatusCode.UNIMPLEMENTED:
-                raise MarkCapabilityError(str(error) + "；不会回退到单位不同的 Focus v1") from error
+                if getattr(self, 'allow_focus_v1', False):
+                    return self._read_z_v1()
+                raise MarkCapabilityError(
+                    str(error) + "；不会静默回退到单位为微米的 Focus v1"
+                    "（如确认本机仅有 v1，可在连接设置中显式启用 ZEN_ALLOW_FOCUS_V1）") from error
             raise
         if not isfinite(value):
             raise ValueError("Focus v2 返回无效 Z")
-        return value  # v2 is METRES. Do not fall back to the micrometre v1 service.
+        return value  # v2 is METRES. v1 micrometres require the explicit opt-in above.
+
+    def _read_z_v1(self):
+        pair = self._focus_v1()
+        if pair is None:
+            raise MarkCapabilityError("Focus v2 不可用，且当前安装包未包含 Focus v1 存根，无法降级")
+        stub, pb2 = pair
+        value = self._rpc("zen_api.lm.hardware.v1.FocusService.GetPosition", stub.GetPosition,
+                          pb2.FocusServiceGetPositionRequest(), timeout=self._timeout).value
+        if not isfinite(value):
+            raise ValueError("Focus v1 返回无效 Z")
+        return value * 1e-6  # v1 MICROMETRES -> metres
 
     def read_optics(self):
         from zen_api.lm.hardware.v2.objective_changer_service_pb2 import ObjectiveChangerServiceGetPositionRequest
@@ -47,19 +76,33 @@ class GatewayMarkMixin:
                 values.append(self._rpc("zen_api.lm.hardware.v2."+service.removesuffix("Stub")+".GetPosition",
                                         stub.GetPosition, request(), timeout=self._timeout).value)
             except grpc.RpcError as error:
-                if not self.xy_enabled and error.code() == grpc.StatusCode.UNIMPLEMENTED:
-                    values.append(None)  # Fixed/manual optics: explicitly unverified.
+                if error.code() == grpc.StatusCode.UNIMPLEMENTED:
+                    # Manual turret/optics can coexist with a motorized stage:
+                    # an unregistered service means "cannot verify", whatever
+                    # the XY mode. Positions stay None = explicitly unverified.
+                    values.append(None)
                 else:
                     raise
         return tuple(values)
 
     def move_z(self, z_m):
+        import grpc
         from zen_api.lm.hardware.v2.focus_service_pb2 import FocusServiceMoveToRequest
         if not isfinite(z_m):
             raise ValueError("Z 目标无效")
         stub = self._mark_stub('zen_api.lm.hardware.v2.focus_service_pb2_grpc', 'FocusServiceStub')
-        self._rpc('zen_api.lm.hardware.v2.FocusService.MoveTo', stub.MoveTo,
-                  FocusServiceMoveToRequest(value=z_m), timeout=self._timeout)
+        try:
+            self._rpc('zen_api.lm.hardware.v2.FocusService.MoveTo', stub.MoveTo,
+                      FocusServiceMoveToRequest(value=z_m), timeout=self._timeout)
+        except grpc.RpcError as error:
+            if error.code() != grpc.StatusCode.UNIMPLEMENTED or not getattr(self, 'allow_focus_v1', False):
+                raise
+            pair = self._focus_v1()
+            if pair is None:
+                raise MarkCapabilityError("Focus v2 不可用，且当前安装包未包含 Focus v1 存根，无法降级") from error
+            v1_stub, pb2 = pair
+            self._rpc('zen_api.lm.hardware.v1.FocusService.MoveTo', v1_stub.MoveTo,
+                      pb2.FocusServiceMoveToRequest(value=z_m * 1e6), timeout=self._timeout)  # metres -> µm
 
     def prepare_mark_experiment(self, name, low_m, high_m, *, use_autofocus=True):
         from google.protobuf.wrappers_pb2 import BoolValue, DoubleValue
@@ -155,6 +198,11 @@ class GatewayMarkMixin:
             method = self._experiments.RunExperiment if kind == 'confocal' else self._experiments.RunSnap
             request = ExperimentServiceRunExperimentRequest if kind == 'confocal' else ExperimentServiceRunSnapRequest
             capture_method = "zen_api.acquisition.v1beta.ExperimentService." + ("RunExperiment" if kind == "confocal" else "RunSnap")
+            capabilities = getattr(self, 'capabilities', None)
+            if capabilities is not None and capabilities.unsupported(capture_method):
+                self._rpc_record(capture_method, 'UNIMPLEMENTED_CACHED')
+                from .rpc_diagnostics import GatewayCallError
+                raise GatewayCallError(capture_method, grpc.StatusCode.UNIMPLEMENTED)
             try:
                 snap = method.future(request(experiment_id=experiment_id, output_name=output_name), timeout=timeout_s)
             except grpc.RpcError as error:
@@ -260,5 +308,16 @@ class GatewayMarkMixin:
             except Exception as error:
                 report[key] = None
                 report["errors"].append(diagnostic_from_error(error) or {"message": key+" 读取失败"})
+        # Distinguish "RPC succeeded but the service is not implemented on this
+        # system" from "position verified": null positions are unverified, not
+        # zero. Surface the per-method matrix so callers need not infer.
+        positions = report.get("optics_positions")
+        report["optics_verified"] = (
+            [position is not None for position in positions] if positions else [False, False]
+        )
+        capabilities = getattr(self, "capabilities", None)
+        if capabilities is not None:
+            report["capabilities"] = capabilities.to_dict()
+            report["capabilities"]["unimplemented_methods"] = capabilities.unimplemented()
         report["rpc_trace"] = self.rpc_trace()
         return report

@@ -11,6 +11,8 @@ class GatewayCallError(RuntimeError, grpc.RpcError):
         self.status = status
         hint = {
             grpc.StatusCode.UNIMPLEMENTED: "当前 ZEN/Gateway 未实现或未注册此方法，不会跳过或自动换接口；请核对 ZEN 版本、API toolkit 是否激活，以及该机型是否提供此服务",
+            grpc.StatusCode.INVALID_ARGUMENT: "参数无效。请核对实验 ID（须为本次连接中 Load/Clone 返回的 ID，不是会话 ID）、名称与数值范围",
+            grpc.StatusCode.ALREADY_EXISTS: "输出名或对象已存在。请更换输出名，或在 ZEN 中清理同名输出后再试",
             grpc.StatusCode.NOT_FOUND: "指定的实验或对象不存在，请核对名称；这不等于接口未实现",
             grpc.StatusCode.UNAUTHENTICATED: "认证失败，请核对当前 Gateway 控制令牌",
             grpc.StatusCode.PERMISSION_DENIED: "控制类调用被拒绝。请启用 Unsupervised API Mode（ZEN：Tools → Options → ZEN API；ZEN core：主页 API Mode 或 Maintenance → General Options → ZEN API），并确认 ZEN API toolkit 已激活",
@@ -47,6 +49,10 @@ class RpcDiagnosticsMixin:
         return list(getattr(self, '_rpc_trace', ()))
 
     def _rpc(self, method, call, request, **kwargs):
+        capabilities = getattr(self, 'capabilities', None)
+        if capabilities is not None and capabilities.unsupported(method):
+            self._rpc_record(method, 'UNIMPLEMENTED_CACHED')
+            raise GatewayCallError(method, grpc.StatusCode.UNIMPLEMENTED)
         try:
             result = call(request, **kwargs)
         except grpc.RpcError as error:
@@ -66,3 +72,6 @@ class RpcDiagnosticsMixin:
         if not hasattr(self, '_rpc_trace'):
             self.clear_rpc_trace()
         self._rpc_trace.append({"at": utc_now(), "method": method, "code": code})
+        capabilities = getattr(self, 'capabilities', None)
+        if capabilities is not None and code != 'UNIMPLEMENTED_CACHED':
+            capabilities.record(method, code)

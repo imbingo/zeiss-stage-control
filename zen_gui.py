@@ -459,16 +459,26 @@ class Workbench:
             if path:
                 fields["ZEN_GATEWAY_CA"].set(path)
 
+        allow_v1 = tk.BooleanVar(
+            value=self.gateway_overrides.get("ZEN_ALLOW_FOCUS_V1", "").lower() in ("1", "true", "yes"))
+        ttk.Checkbutton(
+            frame, variable=allow_v1,
+            text="允许 Focus v1 降级（仅旧版 ZEN；v1 单位 µm，会自动换算为 m）").grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
         def apply():
             self.gateway_overrides = {key: value.get().strip() for key, value in fields.items()
                                       if value.get().strip()}
+            if allow_v1.get():
+                self.gateway_overrides["ZEN_ALLOW_FOCUS_V1"] = "1"
             self.preferences.update(connection=self.gateway_overrides, xy_mode=self.xy_mode.get())
             dialog.destroy()
             self.connect_field()
 
         ttk.Button(frame, text="选择", command=browse).grid(row=2, column=2)
-        ttk.Button(frame, text="只读测试连接", command=apply).grid(row=4, column=1, pady=8, sticky="e")
-        ttk.Label(frame, text="填写值仅在本次运行有效。").grid(row=5, column=0, columnspan=3, sticky="w")
+        ttk.Button(frame, text="只读测试连接", command=apply).grid(row=5, column=1, pady=8, sticky="e")
+        ttk.Label(frame, text="地址与证书会保存；令牌仅在本次运行有效。").grid(
+            row=6, column=0, columnspan=3, sticky="w")
         dialog.grab_set()
 
     def open_preflight(self):
@@ -584,7 +594,10 @@ class Workbench:
         self.xy.set("XY  —")
         self.table.delete(*self.table.get_children())
         self.progress["value"] = 0
-        self._replace_workflow(GatewayDevice(channel, xy_enabled=self.xy_mode.get() != "no_xy"),
+        env = {**os.environ, **self.gateway_overrides}
+        allow_v1 = env.get("ZEN_ALLOW_FOCUS_V1", "").strip().lower() in ("1", "true", "yes")
+        self._replace_workflow(GatewayDevice(channel, xy_enabled=self.xy_mode.get() != "no_xy",
+                                             allow_focus_v1=allow_v1),
                                simulated=False, validate=validate_recipe, fit=fit_field)
         self.show_field_heading()
         self.workflow.connect()

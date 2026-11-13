@@ -42,7 +42,8 @@ class MarkGatewayTest(unittest.TestCase):
         self.snap_entered = Event()
         self.server = grpc.server(ThreadPoolExecutor(max_workers=10))
         modules = ('hardware.v1.simple_stage_service', 'hardware.v1.stage_service',
-                   'lm.hardware.v2.focus_service', 'lm.hardware.v2.objective_changer_service',
+                   'lm.hardware.v1.focus_service', 'lm.hardware.v2.focus_service',
+                   'lm.hardware.v2.objective_changer_service',
                    'lm.hardware.v2.optovar_service', 'acquisition.v1beta.experiment_service',
                    'lm.acquisition.v1.experiment_sw_autofocus_service',
                    'acquisition.v1beta.experiment_streaming_service')
@@ -93,9 +94,12 @@ class MarkGatewayTest(unittest.TestCase):
             return response(x=self.xy[0], y=self.xy[1])
         if method == 'GetStageMotionState':return response(state=3)
         if service.endswith('.FocusService'):
-            if self.no_focus:ctx.abort(grpc.StatusCode.UNIMPLEMENTED, 'no v2 focus')
-            if method == 'GetPosition':return response(value=self.z)
-            if method == 'MoveTo':self.z=req.value; self.z_moves.append(self.z);return response(position_changed=True)
+            v1 = '.v1.' in service  # v1 GetPosition/MoveTo use MICROMETRES; v2 uses metres.
+            if self.no_focus and not v1:ctx.abort(grpc.StatusCode.UNIMPLEMENTED, 'no v2 focus')
+            if method == 'GetPosition':return response(value=self.z*1e6 if v1 else self.z)
+            if method == 'MoveTo':
+                self.z=req.value/1e6 if v1 else req.value
+                self.z_moves.append(self.z);return response(position_changed=True)
         if service.endswith(('.ObjectiveChangerService', '.OptovarService')) and method == 'GetPosition':
             if self.optics_missing:ctx.abort(grpc.StatusCode.UNIMPLEMENTED, 'Fixed optics')
             return response(value=1)
@@ -166,6 +170,11 @@ class MarkGatewayTest(unittest.TestCase):
         self.assertEqual(self.device.read_optics(), (1, 1))
         self.no_focus=True
         with self.assertRaises(MarkCapabilityError):self.device.read_z()
+        with self.subTest('explicit v1 opt-in converts micrometres'):
+            self.device.allow_focus_v1=True
+            self.assertAlmostEqual(self.device.read_z(), 100e-6)
+            self.device.move_z(250e-6)
+            self.assertAlmostEqual(self.z, 250e-6)
 
     def test_af_limits_apply_only_to_clone_and_are_read_back(self):
         result=self.prepare()
@@ -253,8 +262,12 @@ class MarkGatewayTest(unittest.TestCase):
         self.assertEqual(self.stops, 1)
 
     def test_preparation_failure_identifies_exact_method_without_private_details(self):
+        from zen_hardware.capability import CapabilityMatrix
         for method in ('Load', 'Clone', 'GetAutofocusParameters', 'SetAutofocusParameters'):
             with self.subTest(method=method):
+                # A rejected method is cached as unimplemented; reset the matrix
+                # so each subTest actually reaches its own target method.
+                self.device.capabilities=CapabilityMatrix()
                 self.reject_method=method
                 with self.assertRaises(GatewayCallError) as caught:self.prepare()
                 error=caught.exception

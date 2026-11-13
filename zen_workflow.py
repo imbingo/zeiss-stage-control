@@ -68,11 +68,26 @@ class Workflow:
         self.state = state
         self.events.put(("state", state, index, detail))
 
+    def _save_capabilities(self):
+        try:
+            capabilities = getattr(self.device, "capabilities", None)
+            if capabilities is not None:
+                capabilities.save(self.root / "capability_report.json")
+        except OSError:
+            pass
+
     def connect(self):
         def action():
             self.result = None
             self.result_path = None
             self._state("连接检查")
+            capabilities_path = self.root / "capability_report.json"
+            try:
+                from zen_hardware.capability import CapabilityMatrix
+                if hasattr(self.device, "capabilities"):
+                    self.device.capabilities = CapabilityMatrix.load(capabilities_path)
+            except Exception:
+                pass
             try:
                 self.device.connect()
                 if self.xy_enabled:
@@ -97,7 +112,12 @@ class Workflow:
                 elif self.xy_enabled and motion is not Motion.IDLE:
                     self._state("设备状态待确认", detail="XY 未空闲，请在设备端检查后重新连接")
                 else:
-                    self._state("就绪")
+                    capabilities = getattr(self.device, "capabilities", None)
+                    unimplemented = capabilities.unimplemented() if capabilities is not None else []
+                    detail = (f"能力矩阵：{len(unimplemented)} 个方法在此系统未实现，详见 capability_report.json"
+                              if unimplemented else "")
+                    self._state("就绪", detail=detail)
+            self._save_capabilities()
 
         self._launch(action)
 
@@ -243,7 +263,10 @@ class Workflow:
         from zen_hardware.rpc_diagnostics import diagnostic_from_error
         diagnostic = diagnostic_from_error(error)
         if diagnostic:
-            return diagnostic["message"]
+            message = diagnostic["message"]
+            if "ExperimentSwAutofocusService" in diagnostic.get("method", ""):
+                message += "；软件 AF 参数接口在此 ZEN 版本不可用，可关闭采图配置中的自动对焦改用无 AF 手动示教"
+            return message
         from zen_hardware.mark_gateway import MarkCapabilityError
         if isinstance(error, (MarkCapabilityError, ValueError, TimeoutError, InterruptedError)):
             return str(error)
@@ -329,6 +352,7 @@ class Workflow:
                 }
                 self.events.put(("mark_diagnostic", self.mark_diagnostic_report))
                 self.events.put(("mark_error", detail))
+            self._save_capabilities()
         self._launch(action)
 
     def inspect_mark_experiments(self, names, *, reported_zen_version=""):
@@ -348,6 +372,7 @@ class Workflow:
                            "reported_zen_version": reported_zen_version, "version_source": "operator"})
             self.mark_diagnostic_report = report
             self.events.put(("mark_diagnostic", report))
+            self._save_capabilities()
         self._launch(action)
 
     def run_hardware_test(self, session, operation, parameters, *, confirmed=False, timeout_s=60):
@@ -373,5 +398,6 @@ class Workflow:
                 self._state("通信就绪（硬件单步）",detail="仅通道已连接；认证/位置/业务就绪须分别验证")
             elif report['writes']:
                 self._state("通信就绪（硬件单步）",detail="参数已操作；业务采集前请重新连接并校验")
+            self._save_capabilities()
             self.events.put(("hardware_result",report))
         self._launch(action)
