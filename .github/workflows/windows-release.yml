@@ -6,6 +6,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,21 +45,40 @@ jobs:
           'ZEISS proto source: zeiss-microscopy/OAD @ 781ce14954946366524b96347e7767cefb11a2c8' | Out-File -Encoding utf8 "$payload/proto-source.txt"
           Copy-Item -Recurse official-oad/ZEN-API/protofiles/proto_2026.11.1 "$payload/api-definitions"
           "PAYLOAD=$payload" >> $env:GITHUB_ENV
-      - name: Test bundled runtime and GUI collection
+      - name: Portable runtime check
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:PAYLOAD
           cmd /c 'check_windows.bat --no-pause'
           if ($LASTEXITCODE) { throw 'Portable runtime check failed' }
+      - name: Core and wire tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:PAYLOAD
           & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 55 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
+      - name: GUI regression tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:PAYLOAD
           & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_path_editor', 'test_zen_mark_gui', 'test_zen_hardware_gui']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 15 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Regression tests failed' }
+      - name: Qt offscreen smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:PAYLOAD
           $env:QT_QPA_PLATFORM = 'offscreen'
           & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 3 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Qt offscreen smoke tests failed' }
-          Remove-Item Env:QT_QPA_PLATFORM
+      - name: Tk GUI smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:PAYLOAD
           @'
           import sys, tempfile, time, tkinter as tk
           from pathlib import Path
