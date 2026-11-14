@@ -20,7 +20,7 @@ def main():
     window.resize(1600, 1000)
     window.show()
     output = Path(os.environ.get("ZEN_CAPTURE_DIR",str(Path(__file__).parent / "screenshots")))
-    output.mkdir(exist_ok=True)
+    output.mkdir(parents=True, exist_ok=True)
 
     def tick():
         app.processEvents()
