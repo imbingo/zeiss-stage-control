@@ -1,0 +1,62 @@
+name: Scan existing V2.7 artifact without executing payload
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  defender:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Prepare Microsoft Defender and prohibit automatic sample submission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $report = Join-Path $env:RUNNER_TEMP 'security-report'
+          New-Item -ItemType Directory -Force $report | Out-Null
+          "REPORT=$report" >> $env:GITHUB_ENV
+          try {
+              Set-MpPreference -SubmitSamplesConsent NeverSend
+              $prefs = Get-MpPreference
+              if ([int]$prefs.SubmitSamplesConsent -ne 2) { throw 'Automatic sample submission was not disabled' }
+              try { Update-MpSignature -ErrorAction Stop } catch { $_ | Out-String | Set-Content "$report/signature-update-warning.txt" }
+              Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,AntivirusSignatureVersion,AntivirusSignatureLastUpdated,AMEngineVersion,AMProductVersion,RealTimeProtectionEnabled | ConvertTo-Json | Set-Content -Encoding utf8 "$report/engine.json"
+              if (-not (Get-MpComputerStatus).AntivirusEnabled) { throw 'Defender antivirus is unavailable on this runner' }
+              $prefs | Select-Object SubmitSamplesConsent,DisableArchiveScanning | ConvertTo-Json | Set-Content -Encoding utf8 "$report/preferences.json"
+          } catch {
+              $_ | Out-String | Set-Content "$report/engine-unavailable.txt"
+              throw
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-setup
+          run-id: 43581509988
+          github-token: ${{ github.token }}
+          path: scan-input
+      - name: Hash, extract portable archive and scan files without launching them
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Resolve-Path scan-input).Path
+          Get-ChildItem $root -File | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash | ConvertTo-Json | Set-Content -Encoding utf8 "$env:REPORT/input-hashes.json"
+          Expand-Archive -LiteralPath "$root/ZEN_Surface_Tilt_Portable_V2.7.0.zip" -DestinationPath "$root/portable-expanded"
+          $files = Get-ChildItem $root -Recurse -File
+          $files | ForEach-Object { [PSCustomObject]@{Path=$_.FullName.Substring($root.Length+1);Size=$_.Length;SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} } | ConvertTo-Json -Depth 3 | Set-Content -Encoding utf8 "$env:REPORT/inventory.json"
+          $files | Where-Object {$_.Extension -in '.exe','.dll','.pyd','.ps1','.bat','.cmd','.pth'} | ForEach-Object {
+              $signature = Get-AuthenticodeSignature -LiteralPath $_.FullName
+              [PSCustomObject]@{Path=$_.FullName.Substring($root.Length+1);Status=[string]$signature.Status;Signer=if($signature.SignerCertificate){$signature.SignerCertificate.Subject}else{''}}
+          } | ConvertTo-Json | Set-Content -Encoding utf8 "$env:REPORT/signatures.json"
+          $cmd = Get-ChildItem "$env:ProgramData/Microsoft/Windows Defender/Platform/*/MpCmdRun.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $cmd) { $cmd = Get-Item "$env:ProgramFiles/Windows Defender/MpCmdRun.exe" }
+          & $cmd.FullName -Scan -ScanType 3 -File $root -DisableRemediation 2>&1 | Tee-Object "$env:REPORT/defender-scan.txt"
+          $exit = $LASTEXITCODE
+          $detections = @(Get-MpThreatDetection | Where-Object {($_.Resources -join ' ') -like "*$root*"})
+          $detections | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 "$env:REPORT/detections.json"
+          [PSCustomObject]@{ExitCode=$exit;RelevantDetections=$detections.Count;FilesInventoried=$files.Count;ScannedPath=$root;CompletedAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content -Encoding utf8 "$env:REPORT/result.json"
+          if ($exit -ne 0 -or $detections.Count -gt 0) { throw 'Defender scan was not clean; inspect report (not a release approval)' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: defender-v2.7-report
+          path: ${{ runner.temp }}/security-report
