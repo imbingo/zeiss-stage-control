@@ -371,7 +371,7 @@ class RecipesPage(QWidget):
         first = None
         for node in self._body.get("step_tree", []):
             c = QTreeWidgetItem(
-                [node["label"] + ("  🔒" if node.get("protected") else "")]
+                [node["label"] + (" · 保护" if node.get("protected") else "")]
             )
             c.setData(0, Qt.UserRole, (node["step_id"], None))
             self.step_tree.addTopLevelItem(c)

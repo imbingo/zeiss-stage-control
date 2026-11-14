@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from dataclasses import replace
-from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QWidget,
@@ -206,6 +206,11 @@ class RunCenter(QWidget):
         self.sample = app.sample_edit
         self.sample.textChanged.connect(self.invalidate)
         app.operator_edit.textChanged.connect(self.invalidate)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "steps"):
+            QTimer.singleShot(0, self.steps.resizeRowsToContents)
 
     def library(self):
         return self.app.pages["recipes"].library
@@ -536,6 +541,7 @@ class RunCenter(QWidget):
                 r, 1, QTableWidgetItem(states.get(s["state"], s["state"]))
             )
             self.steps.selectRow(r)
+        self.steps.resizeRowsToContents()
         if report["state"] != "running":
             if report["state"] == "complete" and "结果归档" in self._presented:
                 self.steps.setItem(
