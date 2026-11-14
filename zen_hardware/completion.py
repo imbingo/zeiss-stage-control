@@ -14,34 +14,48 @@ def verify_completion(device, operation, parameters, timeout_s, stop):
     observations = {}
     exp = parameters.get("experiment_id") or getattr(device, "_experiment_id", None)
     needs_status = operation in ("load_experiment", "af", "snap", "run_experiment")
+
+    def read(call, *args):
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError("动作完成读回超时")
+        if waiter.is_set():
+            raise InterruptedError("停止后完成状态尚未确认")
+        device._timeout = min(timeout_s, remaining)
+        value = call(*args)
+        if monotonic() > deadline:
+            raise TimeoutError("动作完成读回超时")
+        return value
+
     while True:
         if stop is not None and stop.is_set():
             raise InterruptedError("停止后完成状态尚未确认")
         if monotonic() >= deadline:
             raise TimeoutError("动作完成读回超时")
         # These are reads only. Never resend the original action.
-        device._timeout = min(timeout_s, max(0.01, deadline - monotonic()))
-        z = device.read_z()
+        z = read(device.read_z)
         if not isfinite(z):
             raise ValueError("Z 读回无效")
         xy = None
         if getattr(device, "xy_enabled", True):
-            state = device.motion_state()
+            state = read(device.motion_state)
             if state not in (Motion.IDLE, Motion.MOVING):
                 raise ValueError("XY 状态未知")
             if state is not Motion.IDLE:
                 stable = 0
                 waiter.wait(0.02)
                 continue
-            xy = device.read_xy()
+            xy = read(device.read_xy)
             if not all(isfinite(v) for v in xy):
                 raise ValueError("XY 读回无效")
         idle = True
         if needs_status:
             if not exp:
                 raise ValueError("缺少用于确认采集结束的实验 ID")
-            reply = device.call_hardware_operation(
-                "experiment_status", {"experiment_id": exp}
+            reply = read(
+                device.call_hardware_operation,
+                "experiment_status",
+                {"experiment_id": exp},
             )
             status = reply.get("status", reply)
             if (

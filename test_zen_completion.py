@@ -99,3 +99,16 @@ class CompletionTests(unittest.TestCase):
         )
         self.wait(w)
         self.assertEqual(w.state, "就绪")
+
+    def test_completion_deadline_prevents_subsequent_read_requests(self):
+        from unittest.mock import patch
+        from zen_hardware.completion import verify_completion
+
+        self.d.xy_enabled = True
+        reads = []
+        self.d.read_z = lambda: (reads.append("z") or 100e-6)
+        self.d.motion_state = lambda: (reads.append("xy") or None)
+        with patch("zen_hardware.completion.monotonic", side_effect=[0, 0, 0.01, 0.3]):
+            with self.assertRaises(TimeoutError):
+                verify_completion(self.d, "move_z", {"z_um": 100}, 0.2, Event())
+        self.assertEqual(reads, ["z"])
