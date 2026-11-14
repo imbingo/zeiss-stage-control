@@ -6,9 +6,10 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage,QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QTableWidget, QTableWidgetItem, QWidget,
+    QPushButton, QTableWidget, QTableWidgetItem, QWidget, QTabWidget, QPlainTextEdit,
 )
 
 from .. import theme
@@ -104,7 +105,7 @@ class RecordsPage(QWidget):
         super().__init__()
         self.app = app
         self.runs = []
-        lay, head = _page(self, "记录与分析",
+        lay, head = _page(self, "结果与追溯",
                           "每次运行自动归档 · 可筛选、对比、导出 · 无需连接设备")
         self.export_button = QPushButton("导出所选为 CSV", clicked=self.export_csv)
         self.index_button = QPushButton("重建 index.csv", clicked=self.rebuild_index)
@@ -180,6 +181,19 @@ class RecordsPage(QWidget):
         index_card.add(self.index_path)
         sl.addWidget(index_card)
         sl.addStretch(1)
+        self.capture_selector=QComboBox();self.capture_selector.setToolTip('选择孔位图像');self.capture_selector.currentIndexChanged.connect(self._show_detail)
+        self._preview_run_id=None
+        lay.addWidget(self.capture_selector)
+        self.evidence_tabs=QTabWidget()
+        image_page=QWidget();il=hbox(image_page,margins=0);self.image_labels=[]
+        for title in ('上孔','下孔'):
+            col=QWidget();cl=vbox(col,margins=0);cl.addWidget(label(title,role='muted'));view=label('选择一条含图像的记录');view.setMinimumSize(160,120);view.setAlignment(Qt.AlignCenter);cl.addWidget(view);il.addWidget(col);self.image_labels.append(view)
+        self.evidence_tabs.addTab(image_page,'上下孔图像')
+        self.evidence_text={}
+        for key,title in [('sequence.json','执行记录'),('snapshot.json','配方快照'),('command_log.json','动作与诊断')]:
+            text=QPlainTextEdit();text.setReadOnly(True);self.evidence_text[key]=text;self.evidence_tabs.addTab(text,title)
+        lay.addWidget(self.evidence_tabs)
+        self.evidence_tabs.setMaximumHeight(240)
         self.reload()
 
     # ---- data ----
@@ -190,6 +204,7 @@ class RecordsPage(QWidget):
 
     def on_show(self):
         self.reload()
+        if self.table.rowCount():self.table.selectRow(0)
 
     def _filtered(self):
         kind_map = {1: "tilt", 2: "mark", 3: "hardware", 4: "sequence"}
@@ -215,7 +230,7 @@ class RecordsPage(QWidget):
             if needle:
                 hay = " ".join(str(v) for v in (
                     run["run_id"], run["recipe"].get("recipe_name", ""),
-                    run["recipe"].get("experiment_name", ""), run["session"].get("sample", ""))).lower()
+                    run["recipe"].get("experiment_name", ""), run["session"].get("sample", ""),run.get("sequence",{}).get("recipe_identity",{}))).lower()
                 if needle not in hay:
                     continue
             yield run
@@ -296,7 +311,33 @@ class RecordsPage(QWidget):
             lines.append(f"失败阶段 {run['stage']}")
         lines.append("")
         lines.append(str(run["path"]))
+        identity=run.get('sequence',{}).get('recipe_identity',{})
+        if identity:
+            lines.insert(1,f"配方版本 {identity.get('recipe_id')} · Rev.{identity.get('revision',0):03d}")
+            lines.insert(2,'模式 '+str(identity.get('execution_mode')))
+            lines.insert(3,'工艺判定 '+{'MEASUREMENT_REJECTED':'角度不合格','AWAITING_EXTERNAL_REVIEW':'采集完成，待 SOMA','EQUIPMENT_FAULT':'设备异常'}.get(run.get('sequence',{}).get('disposition'),'待判定'))
         self.detail.setText("\n".join(lines))
+        if hasattr(self,'evidence_text'):
+            for key,edit in self.evidence_text.items():edit.setPlainText(json.dumps(_load_json(run['path']/key),ensure_ascii=False,indent=2))
+            captures=run.get('sequence',{}).get('captures',[])
+            if self._preview_run_id!=run['run_id']:
+                self.capture_selector.blockSignals(True);self.capture_selector.clear()
+                for capture in captures:self.capture_selector.addItem(capture['station'],capture['output_directory'])
+                self.capture_selector.blockSignals(False);self._preview_run_id=run['run_id']
+            selected_output=self.capture_selector.currentData()
+            output=Path(selected_output) if selected_output else Path(run.get('capture',{}).get('status',{}).get('output_directory',str(run['path'])))
+            for view,name in zip(self.image_labels,('upper.tif','lower.tif')):
+                file=output/name
+                try:
+                    import numpy as np
+                    import tifffile
+                    data=tifffile.imread(file)
+                    if data.ndim!=2:raise ValueError('仅预览二维单通道 TIFF')
+                    lo,hi=np.percentile(data,[1,99]);display=np.ascontiguousarray(np.clip((data.astype(float)-lo)/max(hi-lo,1)*255,0,255).astype('uint8'))
+                    image=QImage(display.data,display.shape[1],display.shape[0],display.strides[0],QImage.Format_Grayscale8).copy()
+                    view.setPixmap(QPixmap.fromImage(image).scaled(280,150,Qt.KeepAspectRatio,Qt.SmoothTransformation));view.setToolTip(str(file)+' · 仅预览拉伸，原始文件不变')
+                except (OSError,ValueError,ImportError):view.setText('本条记录无可预览图像')
+
 
     def open_dir(self):
         run = self._selected_run()

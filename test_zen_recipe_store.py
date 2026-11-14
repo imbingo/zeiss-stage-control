@@ -1,117 +1,159 @@
-"""Recipe library: immutable revisions, checks, release and comparison."""
-import json
-import tempfile
-import unittest
-from pathlib import Path
+"""Recipe compiler and release evidence regressions."""
 
-from zen_recipe_store import (ARCHIVED, DRAFT, RELEASED, RecipeLibrary,
-                              default_body)
+import json, tempfile, unittest
+from pathlib import Path
+from copy import deepcopy
+from zen_recipe_store import RecipeLibrary, default_body
+from zen_recipe_compile import compile_revision, compile_body
+from zen_records import write_json
 
 
 def valid_body():
-    body = default_body("产品 A")
-    body["example"] = False
-    body["common_params"].update(upper_experiment="Upper", lower_experiment="Lower")
-    body["external_dependencies"][0]["expected_xml_sha256"] = "a" * 64
-    return body
+    b = default_body("现场测试", example=True)
+    b["example"] = False
+    return b
 
 
 class RecipeLibraryTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.path = Path(self.tmp.name) / "data" / "recipes.json"
-        self.library = RecipeLibrary(self.path)
+        self.root = Path(self.tmp.name)
+        self.lib = RecipeLibrary(self.root / "recipes.json")
+        self.rid, self.rev = self.lib.create("现场测试", "tester", body=valid_body())
 
-    def test_create_persists_hash_and_identity(self):
-        recipe_id, revision = self.library.create("产品 A", "tester", body=valid_body())
-        self.assertEqual(revision, 1)
-        version = self.library.get(recipe_id, revision)
-        self.assertEqual(version["status"], DRAFT)
-        self.assertEqual(len(version["content_sha256"]), 64)
-        reloaded = RecipeLibrary(self.path)
-        self.assertEqual(reloaded.latest(recipe_id)["content_sha256"],
-                         version["content_sha256"])
+    def trial(self, **overrides):
+        v = self.lib.get(self.rid, self.rev)
+        report = {
+            "state": "complete",
+            "simulated": False,
+            "plan": {
+                "recipe_identity": {
+                    "recipe_id": self.rid,
+                    "revision": self.rev,
+                    "content_sha256": v["content_sha256"],
+                }
+            },
+            "experiment_fingerprints": {
+                "Demo AF": "a" * 64,
+                "Upper_mark": "b" * 64,
+                "Lower_mark": "c" * 64,
+            },
+        }
+        report.update(overrides)
+        path = self.root / "trial"
+        path.mkdir(exist_ok=True)
+        write_json(path / "sequence.json", report)
+        return path
 
-    def test_revision_is_frozen_copy(self):
-        recipe_id, revision = self.library.create("产品 A", "tester", body=valid_body())
+    def test_save_draft_keeps_revision_and_persists_changed_coordinates(self):
+        b = valid_body()
+        b["step_tree"][4]["children"][0]["params"]["x_um"] = 4321
+        self.lib.save_draft(self.rid, self.rev, b, by="tester", note="改坐标")
+        b["step_tree"][4]["children"][0]["params"]["x_um"] = 1
+        reloaded = RecipeLibrary(self.lib.path)
+        p = compile_revision(
+            reloaded, self.rid, self.rev, mode="engineering", simulated=False
+        )
+        self.assertAlmostEqual(p.stations[0].x_m, 0.004321)
+        self.assertEqual(len(reloaded.find(self.rid)["revisions"]), 1)
+
+    def test_structural_check_cannot_release_without_field_trial(self):
+        self.assertEqual(self.lib.check(self.rid, self.rev)["result"], "passed")
+        with self.assertRaises(ValueError):
+            self.lib.release(self.rid, self.rev, by="tester")
+
+    def test_release_requires_current_successful_real_complete_run(self):
+        self.lib.check(self.rid, self.rev)
+        for override in [
+            {"state": "failed"},
+            {"simulated": True},
+            {"experiment_fingerprints": {}},
+        ]:
+            with self.subTest(override=override), self.assertRaises(ValueError):
+                self.lib.record_trial(
+                    self.rid, self.rev, self.trial(**override), by="tester"
+                )
+        self.lib.record_trial(self.rid, self.rev, self.trial(), by="tester")
+        self.lib.release(self.rid, self.rev, by="tester")
+        p = compile_revision(
+            self.lib, self.rid, self.rev, mode="production", simulated=False
+        )
+        self.assertEqual(len(p.recipe_identity["experiment_fingerprints"]), 3)
+        with self.assertRaises(ValueError):
+            self.lib.save_draft(self.rid, self.rev, valid_body(), by="tester", note="")
+
+    def test_old_trial_and_single_step_cannot_qualify(self):
+        path = self.trial()
         body = valid_body()
-        before = self.library.get(recipe_id, revision)["content_sha256"]
-        body["common_params"]["safe_z_um"] = 99.0
-        new_rev = self.library.new_revision(recipe_id, body, by="tester",
-                                            change_note="改安全 Z")
-        body["common_params"]["safe_z_um"] = 123.0
-        self.assertEqual(self.library.get(recipe_id, revision)["content_sha256"], before)
-        self.assertEqual(self.library.get(recipe_id, new_rev)["body"]
-                         ["common_params"]["safe_z_um"], 99.0)
-
-    def test_check_gates_release(self):
-        recipe_id, revision = self.library.create("产品 A", "tester", body=valid_body())
+        body["common_params"]["safe_z_um"] = 25
+        self.lib.save_draft(self.rid, self.rev, body, by="tester", note="new")
         with self.assertRaises(ValueError):
-            self.library.release(recipe_id, revision, by="tester")
-        report = self.library.check(recipe_id, revision)
-        self.assertEqual(report["result"], "passed")
-        self.library.release(recipe_id, revision, by="王工", note="已核对")
-        version = self.library.get(recipe_id, revision)
-        self.assertEqual(version["status"], RELEASED)
-        self.assertEqual(version["validation"]["approved_by"], "王工")
-
-    def test_example_body_can_never_be_released(self):
-        recipe_id, revision = self.library.create("示例", "tester",
-                                                  body=default_body("示例", example=True))
-        report = self.library.check(recipe_id, revision)
-        self.assertEqual(report["result"], "failed")
+            self.lib.record_trial(self.rid, self.rev, path, by="tester")
+        path = self.trial()
+        report = json.loads((path / "sequence.json").read_text())
+        report["plan"]["recipe_identity"]["execution_scope"] = "H01"
+        write_json(path / "sequence.json", report)
         with self.assertRaises(ValueError):
-            self.library.release(recipe_id, revision, by="tester")
+            self.lib.record_trial(self.rid, self.rev, path, by="tester")
 
-    def test_check_after_edit_is_rejected(self):
-        recipe_id, revision = self.library.create("产品 A", "tester", body=valid_body())
-        self.library.check(recipe_id, revision)
-        version = self.library.get(recipe_id, revision)
-        version["body"]["common_params"]["safe_z_um"] = 42.0
+    def test_example_never_runs_on_real_device_or_releases(self):
+        rid, rev = self.lib.create("demo", "tester", body=default_body(example=True))
+        self.lib.check(rid, rev)
         with self.assertRaises(ValueError):
-            self.library.release(recipe_id, revision, by="tester")
-
-    def test_released_revision_is_read_only(self):
-        recipe_id, revision = self.library.create("产品 A", "tester", body=valid_body())
-        self.library.check(recipe_id, revision)
-        self.library.release(recipe_id, revision, by="王工")
-        new_rev = self.library.new_revision(recipe_id, valid_body(), by="李工",
-                                            change_note="复制为草稿",
-                                            base_revision=revision)
-        self.assertEqual(new_rev, 2)
-        self.assertEqual(self.library.get(recipe_id, revision)["status"], RELEASED)
-        self.assertEqual(self.library.get(recipe_id, new_rev)["status"], DRAFT)
-        self.assertEqual(self.library.get(recipe_id, new_rev)["parent_revision"], revision)
-
-    def test_compare_reports_field_level_changes(self):
-        recipe_id, revision = self.library.create("产品 A", "tester", body=valid_body())
-        changed = valid_body()
-        changed["common_params"]["capture_timeout_s"] = 240.0
-        newer = self.library.new_revision(recipe_id, changed, by="tester",
-                                          change_note="延长采图超时")
-        report = self.library.compare(recipe_id, revision, newer)
-        paths = [item["path"] for item in report["changes"]]
-        self.assertIn("common_params.capture_timeout_s", paths)
-        self.assertEqual(report["change_count"], len(paths))
-
-    def test_status_transitions_are_constrained(self):
-        recipe_id, revision = self.library.create("产品 A", "tester", body=valid_body())
-        self.library.check(recipe_id, revision)
-        self.library.release(recipe_id, revision, by="王工")
+            compile_revision(self.lib, rid, rev, mode="engineering", simulated=False)
         with self.assertRaises(ValueError):
-            self.library.check(recipe_id, revision)
-        self.library.archive(recipe_id, revision, by="王工")
-        self.assertEqual(self.library.get(recipe_id, revision)["status"], ARCHIVED)
+            self.lib.release(rid, rev, by="tester")
+
+    def test_invalid_values_and_reversed_steps_fail(self):
+        for key, val in [
+            ("capture_timeout_s", 0),
+            ("z_tolerance_um", 0),
+            ("safe_z_um", 999),
+            ("settle_s", float("nan")),
+        ]:
+            b = valid_body()
+            b["common_params"][key] = val
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                compile_body(b)
+        b = valid_body()
+        b["step_tree"].reverse()
         with self.assertRaises(ValueError):
-            self.library.release(recipe_id, revision, by="王工")
+            compile_body(b)
 
-    def test_library_file_is_written(self):
-        recipe_id, _ = self.library.create("产品 A", "tester", body=valid_body())
-        raw = json.loads(self.path.read_text(encoding="utf-8"))
-        self.assertEqual(raw["kind"], "recipe_library")
-        self.assertEqual(raw["recipes"][0]["recipe_id"], recipe_id)
+    def test_capture_only_template_does_not_require_af_or_tilt_points(self):
+        b = valid_body()
+        b["template"] = "仅上下孔采图"
+        b["tilt"] = {}
+        b["step_tree"] = [
+            n for n in b["step_tree"] if n["kind"] not in ("tilt", "gate")
+        ]
+        p = compile_body(b)
+        self.assertFalse(p.measure_enabled)
+        self.assertEqual(len(p.stations), 1)
 
+    def test_new_real_recipe_has_no_teaching_defaults(self):
+        b = default_body()
+        self.assertEqual(b["common_params"]["safe_z_um"], "")
+        self.assertEqual(b["tilt"]["points_um"], [])
+        with self.assertRaises(ValueError):
+            compile_body(b)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_revision_copy_compare_and_archive(self):
+        b = valid_body()
+        b["common_params"]["safe_z_um"] = 30
+        rev = self.lib.new_revision(self.rid, b, by="tester", change_note="new")
+        self.assertEqual(rev, 2)
+        self.assertGreater(self.lib.compare(self.rid, 1, 2)["change_count"], 0)
+        self.lib.archive(self.rid, rev, by="tester")
+        with self.assertRaises(ValueError):
+            compile_revision(
+                self.lib, self.rid, rev, mode="engineering", simulated=False
+            )
+
+    def test_corrupt_library_is_not_overwritten(self):
+        self.lib.path.write_text("{bad")
+        lib = RecipeLibrary(self.lib.path)
+        with self.assertRaises(ValueError):
+            lib.create("new", "tester")
+        self.assertEqual(lib.path.read_text(), "{bad")

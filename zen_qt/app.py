@@ -59,7 +59,7 @@ class WorkbenchWindow(QMainWindow):
         self._live_z = None
         self._live_xy = None
 
-        self.setWindowTitle("ZEN 表面测角工作台 v2.6.0")
+        self.setWindowTitle("精密测量工作站 v2.7.0")
         self.resize(1600, 980)
         self.setMinimumSize(1000, 620)
         self.setStyleSheet(theme.QSS)
@@ -120,7 +120,7 @@ class WorkbenchWindow(QMainWindow):
         brand.setObjectName("brand")
         brand.setStyleSheet(f"color:{theme.ACCENT}")
         lay.addWidget(brand)
-        lay.addWidget(label("v2.6.0", role="muted"))
+        lay.addWidget(label("v2.7.0", role="muted"))
         self.conn_chip = Chip("未连接")
         self.mode_chip = Chip("真实设备")
         self.mode_chip.set_kind("real")
@@ -184,8 +184,7 @@ class WorkbenchWindow(QMainWindow):
         self.nav_group.setExclusive(True)
         entries = (
             ("sequence", "运行中心"), ("recipes", "配方管理"),
-            ("device", "设备与手动操作"), ("tilt", "表面测角"),
-            ("marks", "对位采图"), ("records", "结果与追溯"),
+            ("device", "设备与手动操作"), ("records", "结果与追溯"),
             ("settings", "系统设置"),
         )
         for key, text in entries:
@@ -193,7 +192,7 @@ class WorkbenchWindow(QMainWindow):
             lay.addWidget(button)
             self.nav_buttons[key] = button
         lay.addWidget(label("工程", role="muted"))
-        for key, text in (("hardware", "硬件单步调试"),):
+        for key, text in (("hardware", "硬件通讯测试"),("tilt","独立测角测试"),("marks","单点采图测试")):
             button = self._nav_button(key, text)
             lay.addWidget(button)
             self.nav_buttons[key] = button
@@ -239,7 +238,7 @@ class WorkbenchWindow(QMainWindow):
         from .pages.records import RecordsPage
         from .pages.hardware import HardwarePage
         from .pages.settings import SettingsPage
-        from .pages.sequence import SequencePage
+        from .pages.run_center import RunCenter as SequencePage
         from .pages.recipes import RecipesPage
         self.page_containers = {}
         for key, cls in (("device", DevicePage), ("tilt", TiltPage),
@@ -254,14 +253,29 @@ class WorkbenchWindow(QMainWindow):
             scroll.setWidget(page)
             self.page_containers[key] = scroll
             self.stack.addWidget(scroll)
-        self.navigate("device")
+        # One equipment module owns its engineering tabs; existing page objects
+        # retain event handlers and shared workflow ownership.
+        from PySide6.QtWidgets import QTabWidget
+        from .pages.manual import ManualPage
+        self.equipment_tabs=QTabWidget()
+        self.pages['manual']=ManualPage(self)
+        for key,title in [('device','设备概览'),('manual','手动运动'),('hardware','采集与通讯测试'),('tilt','独立测角测试'),('marks','单点采图测试')]:
+            if key in self.page_containers:self.page_containers[key].takeWidget()
+            tab_scroll=QScrollArea();tab_scroll.setWidgetResizable(True);tab_scroll.setFrameShape(QFrame.NoFrame);tab_scroll.setWidget(self.pages[key])
+            self.equipment_tabs.addTab(tab_scroll,title)
+        self.page_containers['device'].setWidget(self.equipment_tabs)
+        for key in ('hardware','tilt','marks'):self.nav_buttons[key].hide()
+        self.navigate("sequence")
 
     # ---------- navigation / logging ----------
 
     def navigate(self, key):
+        original=key
+        if hasattr(self,'equipment_tabs') and key in ('hardware','tilt','marks','manual'):
+            self.equipment_tabs.setCurrentIndex(['device','manual','hardware','tilt','marks'].index(key));key='device'
         self.stack.setCurrentWidget(self.page_containers[key])
         self.nav_buttons[key].setChecked(True)
-        page = self.pages[key]
+        page = self.pages[original]
         if hasattr(page, "on_show"):
             page.on_show()
 
@@ -283,7 +297,7 @@ class WorkbenchWindow(QMainWindow):
     def export_diagnostic_bundle(self):
         from PySide6.QtWidgets import QFileDialog
         bundle = {"kind": "diagnostic_bundle", "exported_at": utc_now(),
-                  "software": "ZEN 表面测角工作台 v2.6.0 (Qt)",
+                  "software": "精密测量工作站 v2.7.0 (Qt)",
                   "simulated": bool(self.workflow and self.workflow.simulated),
                   "xy_mode": self.xy_mode,
                   "rpc_trace": (self.workflow.device.rpc_trace()
@@ -594,6 +608,10 @@ class WorkbenchWindow(QMainWindow):
     def _stamp_session(self, run_path):
         if run_path is None:
             return
+        # Sequence session was frozen before any action; never overwrite it
+        # with a subsequently edited sidebar value or drop its snapshot hash.
+        session_path=Path(run_path)/'session.json'
+        if (Path(run_path)/'snapshot.json').exists():return
         info = {"sample": self.sample_edit.text().strip(),
                 "operator": self.operator_edit.text().strip(),
                 "recorded_at": utc_now()}
@@ -691,6 +709,8 @@ class WorkbenchWindow(QMainWindow):
                 handler()
 
     def closeEvent(self, event):
+        if not self.pages["recipes"]._resolve_dirty():
+            event.ignore(); return
         if self.workflow and self.workflow.busy:
             self.stop()
             QMessageBox.information(self, "任务仍在处理",

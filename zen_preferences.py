@@ -24,6 +24,8 @@ def entry(value):
 
 def sanitize(value):
     result = {'ui_schema_version': 1}
+    for key in ('image_output','naming_rule'):
+        if text(value.get(key)) is not None: result[key]=value[key]
     if value.get('xy_mode') in ('motorized', 'no_xy'):
         result['xy_mode'] = value['xy_mode']
     connection = value.get('connection', {})

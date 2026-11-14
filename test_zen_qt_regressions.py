@@ -268,7 +268,7 @@ class QtRegressionTests(unittest.TestCase):
         self.w.navigate('marks')
         _app().processEvents()
         self.assertLessEqual(self.w.height(), 740)
-        scroll = self.w.page_containers['marks']
+        scroll = self.w.equipment_tabs.currentWidget()
         self.assertTrue(_wait(lambda: scroll.verticalScrollBar().maximum() > 0))
         self.assertEqual(self.w.pages['marks']._layer_layout.direction(),
                          QBoxLayout.TopToBottom)

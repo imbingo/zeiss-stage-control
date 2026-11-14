@@ -162,7 +162,7 @@ class MotionInterlock:
         try:
             self.checkpoint()
             self.device.move_xy(x, y)
-            wait_for_arrival(self.device, (x, y), self.xy_tolerance_m,
+            actual_xy=wait_for_arrival(self.device, (x, y), self.xy_tolerance_m,
                              self.arrival_timeout_s, self.stop)
             _, z = self.guard()
             if abs(z - self.safe_z_m) > self.z_tolerance_m:
@@ -170,7 +170,7 @@ class MotionInterlock:
         except Exception as error:
             self._aborted(entry, error)
             raise
-        self._confirmed(entry, x_m=x, y_m=y, safe_z_m=self.safe_z_m)
+        self._confirmed(entry, x_m=actual_xy[0], y_m=actual_xy[1], safe_z_m=z)
         return x, y
 
     def _settings(self, action, name, arguments):

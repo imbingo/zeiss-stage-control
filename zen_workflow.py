@@ -93,13 +93,13 @@ class Workflow:
                 {'key': 'xy_idle', 'result': 'passed'},
                 {'key': 'position_readback_finite', 'result': 'passed'},
                 {'key': 'z_within_task_range', 'result': 'passed'},
-                {'key': 'start_matches_single_point_af', 'result': 'passed'},
+                {'key': 'sample_reference', 'result': 'operator_attestation_required'},
                 {'key': 'capability_services', 'result': 'passed'},
                 {'key': 'config_fingerprint', 'result': 'passed',
                  'value_sha256': canonical_sha256({'token': token})},
             ],
             'readbacks': {
-                'xy_m': list(xy), 'optics': [str(v) for v in optics],
+                'xy_m': list(xy), 'z_m':(checked or {}).get('z_m'), 'optics': list(optics),
                 'confirmed_start_xy_m': list(start),
                 'z_min_m': plan.z_min_m, 'z_max_m': plan.z_max_m,
                 'safe_z_m': plan.safe_z_m,
@@ -474,7 +474,7 @@ class Workflow:
         if self.state not in {'就绪','完成','已中止'} or pending_recovery(self.root,simulated=self.simulated):
             raise RuntimeError('设备未就绪或存在待恢复记录')
         plan.validate(self.validate)
-        validate_capabilities(self.device)
+        validate_capabilities(self.device,plan.measure_enabled)
         if not self.simulated and (plan.simulated_configuration or plan.tilt.sign_convention != FIELD_CONVENTION):
             raise ValueError('演示配置不能用于现场任务，请新建现场任务并核对测角配方')
         if confirmed_start is None or len(confirmed_start)!=2 or not all(isfinite(v) for v in confirmed_start):

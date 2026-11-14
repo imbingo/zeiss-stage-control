@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:PAYLOAD
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 69 or bool(result.skipped))"
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence','test_zen_audit','test_zen_recipe_store','test_zen_recipe_execution']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 94 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
       - name: GUI regression tests
         shell: pwsh
@@ -77,9 +77,9 @@ jobs:
           @'
           import sys, unittest
           sys.path.insert(0, '.')
-          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence'])
+          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence','test_zen_qt_recipes','test_zen_qt_manual'])
           result = unittest.TextTestRunner(verbosity=2).run(suite)
-          sys.exit(not result.wasSuccessful() or result.testsRun != 23 or bool(result.skipped))
+          sys.exit(not result.wasSuccessful() or result.testsRun != 36 or bool(result.skipped))
           '@ | Set-Content -Encoding utf8 qt-smoke-runner.py
           $proc = Start-Process -FilePath ./runtime/python.exe -ArgumentList '-u','-I','-B','qt-smoke-runner.py' -NoNewWindow -PassThru -RedirectStandardOutput qt-smoke.out.txt -RedirectStandardError qt-smoke.err.txt
           if (-not $proc.WaitForExit(180000)) {
@@ -131,13 +131,13 @@ jobs:
           & $iscc "/DPayload=$env:PAYLOAD" "/O$pwd/release" ZEN_Surface_Tilt.iss
           if ($LASTEXITCODE) { throw 'Installer compilation failed' }
           $install = Join-Path $env:RUNNER_TEMP 'zen-installed'
-          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.6.0.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
+          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.7.0.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
           if ($process.ExitCode) { throw "Installer failed: $($process.ExitCode)" }
           Push-Location $install
           cmd /c 'check_windows.bat --no-pause'
           if ($LASTEXITCODE) { throw 'Installed runtime check failed' }
           Pop-Location
-          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.6.0.zip
+          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.7.0.zip
           Get-ChildItem release -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
