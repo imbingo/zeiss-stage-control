@@ -97,6 +97,10 @@ class RecipesPage(QWidget):
         for text, fn in [
             ("新建配方", self.new_recipe),
             ("导入旧配置", self.import_legacy),
+            (
+                "导入上次配置",
+                lambda: self.import_legacy(str(self.app.preferences.path)),
+            ),
             ("载入演示配方", self.seed_demo),
         ]:
             head.addWidget(QPushButton(text, clicked=fn))
@@ -948,16 +952,27 @@ class RecipesPage(QWidget):
         self.mark_dirty()
         self.refresh_params()
 
-    def import_legacy(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "导入旧 Sequence 配置", "", "JSON (*.json)"
-        )
+    def import_legacy(self, path=None):
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "导入旧 Sequence 配置", "", "JSON (*.json)"
+            )
         if not path or not self._resolve_dirty():
             return
         try:
             if Path(path).stat().st_size > 1024 * 1024:
                 raise ValueError("配置文件超过 1 MiB")
             raw = json.loads(Path(path).read_text(encoding="utf-8"))
+            if (
+                isinstance(raw, dict)
+                and raw.get("ui_schema_version") == 1
+                and isinstance(raw.get("sequence"), dict)
+            ):
+                raw = {
+                    "schema_version": 1,
+                    "kind": "sequence_ui",
+                    "draft": raw["sequence"],
+                }
             if (
                 not isinstance(raw, dict)
                 or raw.get("kind") != "sequence_ui"

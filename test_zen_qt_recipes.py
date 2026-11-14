@@ -70,7 +70,7 @@ class TestRecipesPage(unittest.TestCase):
         self.select("S1")
         self.p.point_table.selectRow(0)
         self.p.teach_tilt()
-        self.assertTrue(_wait(lambda:len(self.p._body["tilt"]["points_um"][0])==3))
+        self.assertTrue(_wait(lambda: len(self.p._body["tilt"]["points_um"][0]) == 3))
         self.assertEqual(self.p._body["tilt"]["points_um"][0], [0.0, 0.0, 100.0])
 
     def test_check_saves_current_edits_and_never_fakes_qualification(self):
@@ -102,6 +102,26 @@ class TestRecipesPage(unittest.TestCase):
         self.p.check_recipe()
         self.assertEqual(
             self.p.library.get(self.p.current_id, 1)["checks"]["result"], "passed"
+        )
+        self.w.preferences.update(
+            sequence={
+                "entry_unit": "um",
+                "fields": {
+                    "name": "旧自动配置",
+                    "safe_z_um": "25",
+                    "z_min_um": "0",
+                    "z_max_um": "300",
+                    "tilt_z_um": "100",
+                    "max_angle_urad": "123",
+                },
+                "rows": [["H01", "孔位", "4321", "1000", "100", "200"]],
+            }
+        )
+        self.p.import_legacy(str(self.w.preferences.path))
+        self.assertEqual(self.p._body["common_params"]["safe_z_um"], "25")
+        self.assertEqual(self.p._body["common_params"]["max_rx_urad"], "123")
+        self.assertEqual(
+            self.p._body["step_tree"][4]["children"][0]["params"]["x_um"], "4321"
         )
 
     def test_cancel_switch_and_close_retains_unsaved_draft(self):
