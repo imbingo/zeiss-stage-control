@@ -22,6 +22,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Verify source build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,4 +51,5 @@ jobs:
           cd assets
           sha256sum -c SHA256SUMS.txt
           gh release upload "$RELEASE_TAG" ZEN_Surface_Tilt_Setup_*.exe ZEN_Surface_Tilt_Portable_*.zip SHA256SUMS.txt --clobber
+          gh release upload "$RELEASE_TAG" ../security-release-v2.7/V2.7-security-report.md ../security-release-v2.7/V2.7-security-reports.zip ../security-release-v2.7/V2.7-Windows-UI-Screenshots.zip --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease
