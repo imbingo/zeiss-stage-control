@@ -90,6 +90,7 @@ class RecipesPage(QWidget):
         self.refresh()
         if self.library.error:
             QMessageBox.warning(self, "配方库读取失败", self.library.error)
+            self.setEnabled(False)
 
     def _build(self):
         lay, head = _page(self, "配方管理", "选择配方 → 编排流程 → 设置步骤参数")

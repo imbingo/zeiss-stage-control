@@ -157,3 +157,7 @@ class RecipeLibraryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             lib.create("new", "tester")
         self.assertEqual(lib.path.read_text(encoding="utf-8"), "{bad")
+        self.lib.path.write_text('{"kind":"unknown"}', encoding="utf-8")
+        other = RecipeLibrary(self.lib.path)
+        with self.assertRaises(ValueError):
+            other.create("new", "tester")

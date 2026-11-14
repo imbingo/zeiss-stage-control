@@ -170,8 +170,24 @@ class RecipeLibrary:
                 and raw.get("schema_version") == 1
                 and isinstance(raw.get("recipes"), list)
             ):
+                for recipe in raw["recipes"]:
+                    if (
+                        not isinstance(recipe, dict)
+                        or not isinstance(recipe.get("recipe_id"), str)
+                        or not isinstance(recipe.get("revisions"), list)
+                    ):
+                        raise ValueError("配方条目结构无效")
+                    for version in recipe["revisions"]:
+                        if (
+                            not isinstance(version, dict)
+                            or version.get("status") not in STATUS_NAMES
+                            or not isinstance(version.get("body"), dict)
+                            or not isinstance(version.get("revision"), int)
+                        ):
+                            raise ValueError("配方修订结构无效")
                 self._doc = raw
                 return
+            raise ValueError("不支持的配方库格式")
         except (OSError, ValueError) as error:
             if self.path.exists():
                 self.error = "配方库不可读，已保留原文件并禁止覆盖：" + str(error)

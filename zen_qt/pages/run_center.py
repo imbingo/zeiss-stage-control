@@ -258,7 +258,10 @@ class RunCenter(QWidget):
 
     def demo(self):
         page = self.app.pages["recipes"]
+        before = (page.current_id, page.current_rev)
         page.seed_demo()
+        if (page.current_id, page.current_rev) == before:
+            return
         self.app.connect_demo("sequence")
         self.select_recipe(page.current_id, page.current_rev, mode="simulation")
         self.app.navigate("sequence")
