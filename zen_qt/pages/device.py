@@ -1,7 +1,9 @@
 ﻿"""设备与自检 page: connection, gateway preflight, service discovery."""
 
+import os
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QPushButton, QWidget
+from PySide6.QtWidgets import QComboBox, QPushButton, QWidget
 
 from zen_hardware import preflight
 from .. import worker
@@ -62,6 +64,12 @@ class DevicePage(QWidget):
             il.addWidget(cell)
         il.addStretch(1)
         conn_card.add(info_row)
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItem('有电动 XY · 测角与采图', 'motorized')
+        self.mode_selector.addItem('无电动 XY · 仅单点采图', 'no_xy')
+        self.mode_selector.setCurrentIndex(max(0, self.mode_selector.findData(app.xy_mode)))
+        self.mode_selector.currentIndexChanged.connect(lambda *_: app.set_xy_mode(self.mode_selector.currentData()))
+        conn_card.add(self.mode_selector)
         btn_row = QWidget()
         rl = hbox(btn_row, spacing=8, margins=0)
         self.connect_button = QPushButton("连接真实设备…", clicked=self._connect_real)
@@ -176,9 +184,22 @@ class DevicePage(QWidget):
             self.app.log("info", "请先连接设备。")
             return
         device = workflow.device
-        self.preflight_pill.set_kind("accent", "运行中…")
-        self.preflight_summary.setText("正在执行只读预检…")
-        worker.run("preflight", lambda: preflight.check_gateway(device))
+        self.preflight_pill.set_kind('accent', '运行中…')
+        self.preflight_summary.setText('正在执行只读预检…')
+        env = {**os.environ, **self.app.gateway_overrides}
+        xy_enabled = workflow.xy_enabled
+        def query(_device):
+            checks = {}
+            def report(key, state, detail):
+                checks[key] = {'state': state, 'ok': '失败' not in state,
+                               'detail': detail}
+            preflight.check_gateway(env, report, xy_enabled=xy_enabled)
+            return {'ok': all(c['ok'] for c in checks.values()), 'checks': checks}
+        try:
+            workflow.read_only('preflight', query)
+            self._auto_preflight_done = True
+        except RuntimeError as error:
+            self.app.log('warn', str(error))
 
     def _scan_services(self, all_services=False):
         workflow = self.app.workflow
@@ -186,16 +207,19 @@ class DevicePage(QWidget):
             self.app.log("info", "请先连接设备。")
             return
         device = workflow.device
-        if getattr(device, "channel", None) is None:
+        if getattr(device, "_channel", None) is None:
             self.app.log("info", "此设备不支持服务扫描（演示模式无 channel）。")
             return
         self.scan_pill.set_kind("accent", "扫描中…")
-        worker.run("service_scan:" + ("all" if all_services else "zen"),
-                   lambda: self._do_scan(device, all_services))
+        try:
+            workflow.read_only('service_scan:' + ('all' if all_services else 'zen'),
+                               lambda dev: self._do_scan(dev, all_services))
+        except RuntimeError as error:
+            self.app.log('warn', str(error))
 
     def _do_scan(self, device, all_services):
         from zen_hardware.reflection import list_services
-        services = list_services(device.channel)
+        services = list_services(device._channel)
         if not all_services:
             filtered = [s for s in services if "zen" in s.lower()]
             return filtered or services
@@ -276,15 +300,28 @@ class DevicePage(QWidget):
         # auto-preflight once after a real device becomes ready
         if (state in ("就绪", "通信就绪", "完成") and not workflow.simulated
                 and not self._auto_preflight_done and self._last_preflight_data is None):
-            self._auto_preflight_done = True
             self._do_preflight()
         self._update_checks()
+
+    def on_device_changed(self, workflow):
+        self._last_preflight_data = None
+        self._auto_preflight_done = False
+        self.services_list.setText('—')
+        self.conn_labels['services'].setText('—')
 
     def refresh_enabled(self):
         workflow = self.app.workflow
         busy = bool(workflow and workflow.busy)
         connected = bool(workflow and workflow.device is not None)
         simulated = bool(workflow and workflow.simulated)
+        if (connected and not simulated and not busy and not self._auto_preflight_done
+                and workflow.state in ('就绪', '完成')):
+            self._do_preflight()
+            busy = workflow.busy
+        self.mode_selector.blockSignals(True)
+        self.mode_selector.setCurrentIndex(max(0, self.mode_selector.findData(self.app.xy_mode)))
+        self.mode_selector.blockSignals(False)
+        self.mode_selector.setEnabled(not busy)
         self.connect_button.setEnabled(not busy)
         self.reconnect_button.setEnabled(not busy)
         self.disconnect_button.setEnabled(connected and not busy)

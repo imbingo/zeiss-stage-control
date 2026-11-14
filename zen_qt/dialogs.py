@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -43,6 +43,11 @@ class GatewayDialog(QDialog):
             "本机默认配置可留空。远程连接请填写地址、CA 和令牌。", kind="info"))
         form = QFormLayout()
         form.setSpacing(8)
+        self.xy_mode = QComboBox()
+        self.xy_mode.addItem('有电动 XY · 测角与采图', 'motorized')
+        self.xy_mode.addItem('无电动 XY · 仅单点采图', 'no_xy')
+        self.xy_mode.setCurrentIndex(max(0, self.xy_mode.findData(app.xy_mode)))
+        form.addRow('设备模式', self.xy_mode)
         overrides = app.gateway_overrides
         self.ca_entry = QLineEdit(overrides.get("ZEN_GATEWAY_CA", ""))
 
@@ -72,6 +77,8 @@ class GatewayDialog(QDialog):
         lay.addWidget(label("地址与证书会保存；令牌仅本次运行有效。", role="muted"))
 
     def _apply(self):
+        if self.app.workflow and self.app.workflow.busy:
+            return
         overrides = {}
         for env_key, entry in (("ZEN_GATEWAY_ADDRESS", self.address),
                                ("ZEN_GATEWAY_CA", self.ca_entry),
@@ -84,6 +91,7 @@ class GatewayDialog(QDialog):
                              ("ZEN_ALLOW_DEFINITE_FOCUS", self.allow_definite)):
             if box.isChecked():
                 overrides[env_key] = "1"
+        self.app.set_xy_mode(self.xy_mode.currentData())
         self.app.gateway_overrides = overrides
         self.app.preferences.update(connection=overrides, xy_mode=self.app.xy_mode)
         self.accept()
@@ -277,8 +285,14 @@ class RecoveryDialog(QDialog):
         self.xy_box = QCheckBox("已按现场规程确认 XY：有电动 XY 时动作已结束；无电动 XY 时样品已固定、手动水平调整已结束")
         self.z_box = QCheckBox("已在 ZEN 或设备端独立确认软件 AF、Z 轴和拍摄均已结束")
         for box in (self.xy_box, self.z_box):
-            box.setWordWrap(True)
-            lay.addWidget(box)
+            row = QWidget()
+            row_lay = hbox(row, spacing=8, margins=0)
+            caption = label(box.text(), wrap=True)
+            box.setText('已确认')
+            box.setAccessibleName(caption.text())
+            row_lay.addWidget(box)
+            row_lay.addWidget(caption, 1)
+            lay.addWidget(row)
         runs = app.pending_runs()
         self.list_label = label("待确认运行记录：" + ("、".join(p.name for p in runs) if runs else "（无）"),
                                 role="muted", wrap=True)
@@ -297,5 +311,5 @@ class RecoveryDialog(QDialog):
         if not (self.xy_box.isChecked() and self.z_box.isChecked()):
             self.list_label.setText("须分别确认 XY 和 AF/Z 已结束。")
             return
-        self.app.confirm_recovery()
-        self.accept()
+        if self.app.confirm_recovery():
+            self.accept()

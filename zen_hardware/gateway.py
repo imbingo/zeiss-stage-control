@@ -182,6 +182,7 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
         from zen_api.acquisition.v1beta.experiment_service_pb2 import ExperimentServiceLoadRequest
 
         self._experiment_id = None
+        self._prepared_af = None
         reply = self._rpc("zen_api.acquisition.v1beta.ExperimentService.Load", self._experiments.Load,
             ExperimentServiceLoadRequest(experiment_name=name), timeout=self._timeout
         )
@@ -198,6 +199,8 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
 
         if self._experiment_id is None:
             raise RuntimeError("请先加载实验")
+        if getattr(self, '_prepared_af', None) == (self._experiment_id, 'definite_focus'):
+            return self.definite_focus_surface(timeout_seconds)
         request = ExperimentSwAutofocusServiceFindAutoFocusRequest(
             experiment_id=self._experiment_id, timeout=DoubleValue(value=timeout_seconds)
         )

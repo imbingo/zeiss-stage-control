@@ -43,3 +43,30 @@ class PreferencesTest(unittest.TestCase):
             restored=Preferences(path)
             self.assertEqual(restored.data['mark_capture']['upper']['z_m'], 'not-yet-numeric')
             self.assertNotIn('approved', restored.data['mark_capture'])
+
+    def test_explicit_si_entries_migrate_to_classic_micrometre_entries_once(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'ui.json'
+            prefs = Preferences(path)
+            prefs.update(mark_capture={'entry_unit':'m', 'upper':{
+                'experiment':'CLLOW','z_m':19.996e-6,'half_range_m':5e-6},
+                'output_dir':'D:/images','common':{'z_tolerance_m':.5e-6,'capture_timeout_s':300}})
+            for _ in range(2):
+                prefs = Preferences(path)
+                cap = prefs.data['mark_capture']
+                self.assertEqual(cap['entry_unit'], 'um')
+                self.assertAlmostEqual(float(cap['upper']['z_m']), 19.996)
+                self.assertAlmostEqual(float(cap['upper']['half_range_m']), 5)
+                self.assertAlmostEqual(float(cap['common']['z_tolerance_m']), .5)
+                self.assertEqual(cap['output'], 'D:/images')
+                self.assertTrue(prefs.update(mark_capture=cap))
+
+    def test_unknown_entry_unit_preserves_original_and_disables_overwrite(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'ui.json'
+            original = json.dumps({'ui_schema_version':1,'mark_capture':{'entry_unit':'furlong'}})
+            path.write_text(original, encoding='utf-8')
+            prefs = Preferences(path)
+            self.assertTrue(prefs.warning)
+            self.assertFalse(prefs.update(xy_mode='no_xy'))
+            self.assertEqual(path.read_text(encoding='utf-8'), original)

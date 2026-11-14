@@ -107,6 +107,8 @@ class MarkRecords:
         status = {"state": state, "result_valid": False, "recovery_required": recovery,
                   "started_at": self.started, "updated_at": utc_now(),
                   "kind": "mark_capture", "failure_stage": stage,
+                  'capture_complete': state == 'complete',
+                  'images_saved_count': len(self.document['images']),
                   "pair_complete": state == "complete" and len(self.document["images"]) == 2,
                   "output_directory": str(self.output)}
         write_json(self.path / "status.json", status)

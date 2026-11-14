@@ -1,12 +1,14 @@
-﻿"""对位采图 page: teach Z, preflight, Z envelope, guarded capture, previews."""
+"""对位采图 page: teach Z, preflight, Z envelope, guarded capture, previews."""
 
 import json
+from copy import deepcopy
+from math import isfinite
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+    QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QPlainTextEdit, QPushButton, QScrollArea, QWidget,
 )
@@ -29,7 +31,7 @@ class CommonParamsDialog(QDialog):
         ("af_timeout_s", "AF 超时 (s)", 10.0, 0.5, 600.0),
         ("arrival_timeout_s", "到位超时 (s)", 5.0, 0.5, 600.0),
         ("capture_timeout_s", "拍摄超时 (s)", 60.0, 1.0, 3600.0),
-        ("settle_s", "稳定等待 (s)", 0.2, 0.0, 60.0),
+        ("settle_s", "稳定等待 (s)", 0.2, 0.001, 60.0),
     )
 
     def __init__(self, parent, values):
@@ -62,6 +64,15 @@ class MarksPage(QWidget):
         self.app = app
         self._last_inspect = None
         self.layers = {}
+        self._restoring = True
+        self._configuration_simulated = False
+        self._field_preferences = None
+        self._last_result_output = None
+        self._preview_images = {}
+        self._unparsed_entries = {}
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self.persist)
         self.common = {"xy_tolerance_um": 1.0, "z_tolerance_um": 0.5, "af_timeout_s": 10.0,
                        "arrival_timeout_s": 5.0, "capture_timeout_s": 60.0, "settle_s": 0.2}
         lay, head = _page(self, "对位采图",
@@ -75,26 +86,26 @@ class MarksPage(QWidget):
         work = QWidget()
         wl = vbox(work, spacing=11, margins=0)
         bl.addWidget(work, 1)
-        side = QScrollArea()
-        side.setWidgetResizable(True)
-        side.setFrameShape(QScrollArea.NoFrame)
-        side_inner = QWidget()
-        self._side_lay = vbox(side_inner, spacing=11, margins=(0, 0, 8, 0))
-        side.setWidget(side_inner)
-        side.setFixedWidth(340)
+        side = QWidget()
+        self._side_lay = vbox(side, spacing=11, margins=0)
+        side.setFixedWidth(330)
+        work.setMinimumWidth(530)
         bl.addWidget(side)
 
         # ---- layer cards + Z envelope ----
         row = QWidget()
         rl = hbox(row, spacing=11, margins=0)
+        self._layer_layout = rl
         wl.addWidget(row)
         for key in ("upper", "lower"):
             card = Card(self.LAYER_TITLES[key])
+            card.setMinimumHeight(210)
             card._lay.insertWidget(1, self._layer_card(key, card))
             rl.addWidget(card, 1)
 
         env_card = Card("Z 包络与运动预览",
                         trailing=label("示教位 ± AF 半范围；当前 Z 实时更新", role="muted"))
+        env_card.setMinimumHeight(160)
         env_row = QWidget()
         el = hbox(env_row, spacing=11, margins=0)
         self.envelope = ZEnvelope()
@@ -105,8 +116,8 @@ class MarksPage(QWidget):
         self.env_text.setStyleSheet("font-size:11.5px; line-height:1.7")
         vil.addWidget(self.env_text)
         vil.addStretch(1)
-        vil.addWidget(note("拍摄时若克隆实验启用了 Z-stack，会先将其收敛为当前 Z 单层再拍，"
-                           "不会运动到堆栈首层。", kind="info"))
+        vil.addWidget(note('建议使用已在 ZEN 验证的单平面实验。检测到 Z-stack 时仅在临时实验上尝试收敛；'
+                           '软件位置检查不等于防撞保护。', kind='info'))
         el.addWidget(env_info, 1)
         env_card.add(env_row)
         wl.addWidget(env_card)
@@ -114,6 +125,7 @@ class MarksPage(QWidget):
         # ---- captured images ----
         images_row = QWidget()
         il = hbox(images_row, spacing=11, margins=0)
+        self._image_layout = il
         wl.addWidget(images_row, 1)
         self.image_cards = {}
         self.saved_pills = {}
@@ -121,6 +133,7 @@ class MarksPage(QWidget):
         self.path_labels = {}
         for key in ("upper", "lower"):
             card = Card(f"{self.LAYER_TITLES[key]}图像")
+            card.setMinimumHeight(250)
             saved = Pill("未拍摄")
             self.saved_pills[key] = saved
             card._lay.itemAt(0).widget().layout().addWidget(saved)
@@ -185,7 +198,7 @@ class MarksPage(QWidget):
                 button.setObjectName("primary")
             self.capture_buttons[key] = button
             run_card.add(button)
-        run_card.add(note("拍摄将移动 Z 轴。AF 开启时实际拍摄 Z 为 AF 精修焦面（在示教 ±半范围内）。",
+        run_card.add(note("拍摄将移动 Z 轴。AF 结果须在示教 ±半范围内；软件检查不能代替硬件限位。",
                           kind="warn"))
         self._side_lay.addWidget(run_card)
 
@@ -202,6 +215,13 @@ class MarksPage(QWidget):
         self._side_lay.addStretch(1)
 
         self.restore()
+        self._restoring = False
+        self._field_preferences = None if self._configuration_simulated else self._serialize()
+        self.use_af.toggled.connect(self._parameters_changed)
+        self.capture_kind.currentIndexChanged.connect(self._parameters_changed)
+        self.output_edit.textChanged.connect(self._parameters_changed)
+        for key in ('zpath', 'loading'):
+            self.check_items[key].check.toggled.connect(self.refresh_enabled)
         self.refresh_enabled()
 
     # ---- layer card ----
@@ -239,64 +259,159 @@ class MarksPage(QWidget):
         taught = Pill("未示教")
         form.addRow("状态", taught)
         z_edit.valueChanged.connect(lambda *_, k=key: self._z_edited(k))
-        half.valueChanged.connect(lambda *_: self._update_derived())
-        combo.currentTextChanged.connect(lambda *_: self._update_derived())
+        half.valueChanged.connect(lambda *_ , k=key: self._range_edited(k))
+        half.editingFinished.connect(lambda k=key: self._range_edited(k))
+        combo.currentTextChanged.connect(self._parameters_changed)
         state.update({"combo": combo, "z": z_edit, "half": half, "taught": taught,
                       "teach_button": teach, "z_set": False})
         self.layers[key] = state
         return widget
 
+    def _range_edited(self, key):
+        if not self._restoring:
+            self._unparsed_entries.pop((key, 'half_range_m'), None)
+            self.layers[key]['range_valid'] = True
+        self._parameters_changed()
+
     def _z_edited(self, key):
+        if not self._restoring:
+            self._unparsed_entries.pop((key, 'z_m'), None)
         state = self.layers[key]
         if not state["z_set"]:
             state["z_set"] = True
             state["taught"].set_kind("ok", "已输入")
+        self._parameters_changed()
+
+    def invalidate_confirmation(self):
+        for key in ('zpath', 'loading'):
+            self.check_items[key].check.setChecked(False)
+        self._last_inspect = None
+        self.check_items['experiments'].set_state('todo', '参数改变后需重新检查')
+
+    def _parameters_changed(self, *_):
+        if self._restoring:
+            return
+        self.invalidate_confirmation()
+        self._last_result_output = None
         self._update_derived()
+        self._save_timer.start(200)
 
     # ---- persistence ----
 
-    def restore(self):
-        prefs = self.app.preferences.data.get("mark_capture") or {}
-        for key in ("upper", "lower"):
-            saved = prefs.get(key) or {}
-            state = self.layers[key]
-            state["combo"].setCurrentText(saved.get("experiment", ""))
-            if saved.get("z_m") is not None:
-                state["z"].setValue(saved["z_m"] / UM)
-                state["z_set"] = True
-                state["taught"].set_kind("ok", "已示教")
-            if saved.get("half_range_m") is not None:
-                state["half"].setValue(saved["half_range_m"] / UM)
-        common = prefs.get("common") or {}
-        self.common.update({k: common[k] for k in self.common if k in common})
-        self.use_af.setChecked(prefs.get("use_autofocus", True))
-        index = self.capture_kind.findData(prefs.get("capture_kind", "camera_snap"))
-        if index >= 0:
-            self.capture_kind.setCurrentIndex(index)
-        if prefs.get("output_dir"):
-            self.output_edit.setText(prefs["output_dir"])
+    @staticmethod
+    def _number(value, *, positive=False):
+        if isinstance(value, bool):
+            return None
+        try:
+            value = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return value if isfinite(value) and (not positive or value > 0) else None
+
+    def restore(self, prefs=None):
+        prefs = self.app.preferences.data.get('mark_capture', {}) if prefs is None else prefs
+        was_restoring = self._restoring
+        self._restoring = True
+        try:
+            self._unparsed_entries.clear()
+            self._configuration_simulated = bool(prefs.get('simulated_configuration', False))
+            factor = 1 / UM if prefs.get('entry_unit') == 'm' else 1
+            for key in ('upper', 'lower'):
+                saved = prefs.get(key) or {}
+                state = self.layers[key]
+                state['combo'].setCurrentText(saved.get('experiment', ''))
+                z = self._number(saved.get('z_m'))
+                if z is not None and not state['z'].minimum() <= z * factor <= state['z'].maximum():
+                    z = None
+                if z is None and saved.get('z_m'):
+                    self._unparsed_entries[(key, 'z_m')] = saved['z_m']
+                state['z'].setValue(0 if z is None else z * factor)
+                state['z_set'] = z is not None
+                state['taught'].set_kind('warn' if z is not None else 'mute',
+                                        '历史输入 · 请现场核对' if z is not None else '未示教')
+                half = self._number(saved.get('half_range_m'), positive=True)
+                if half is not None and not state['half'].minimum() <= half * factor <= state['half'].maximum():
+                    half = None
+                state['range_valid'] = half is not None or not saved.get('half_range_m')
+                if not state['range_valid']:
+                    self._unparsed_entries[(key, 'half_range_m')] = saved['half_range_m']
+                state['half'].setValue(5 if half is None else half * factor)
+            common = prefs.get('common') or {}
+            for key in self.common:
+                stored_key = key.replace('_um', '_m')
+                value = self._number(common.get(stored_key), positive=True)
+                if value is not None:
+                    self.common[key] = value * factor if key.endswith('_um') else value
+            self.use_af.setChecked(prefs.get('use_autofocus', True))
+            index = self.capture_kind.findData(prefs.get('capture_kind', 'camera_snap'))
+            self.capture_kind.setCurrentIndex(max(0, index))
+            self.output_edit.setText(prefs.get('output', prefs.get('output_dir',
+                                     str(Path(self.app.data_root).parent / 'ZENMarkImages'))))
+        finally:
+            self._restoring = was_restoring
+        self.invalidate_confirmation()
         self._update_derived()
 
-    def persist(self):
-        prefs = {"use_autofocus": self.use_af.isChecked(),
-                 "capture_kind": self.capture_kind.currentData(),
-                 "output_dir": self.output_edit.text(),
-                 "common": dict(self.common)}
-        for key in ("upper", "lower"):
+    def _serialize(self):
+        common = {k.replace('_um', '_m'): str(v)
+                  for k, v in self.common.items()}
+        prefs = {'entry_unit': 'um', 'use_autofocus': self.use_af.isChecked(),
+                 'capture_kind': self.capture_kind.currentData(),
+                 'output': self.output_edit.text(), 'common': common,
+                 'simulated_configuration': self._configuration_simulated}
+        for key in ('upper', 'lower'):
             state = self.layers[key]
-            prefs[key] = {"experiment": state["combo"].currentText(),
-                          "z_m": state["z"].value() * UM if state["z_set"] else None,
-                          "half_range_m": state["half"].value() * UM}
+            prefs[key] = {'experiment': state['combo'].currentText(),
+                          'z_m': str(state['z'].value()) if state['z_set'] else '',
+                          'half_range_m': str(state['half'].value())}
+            for field in ('z_m', 'half_range_m'):
+                if (key, field) in self._unparsed_entries:
+                    prefs[key][field] = self._unparsed_entries[(key, field)]
+        return prefs
+
+    def persist(self):
+        if self._restoring:
+            return
+        # An offline demonstration must not replace the user's field profile.
+        prefs = self._field_preferences if self._configuration_simulated and self._field_preferences else self._serialize()
         self.app.preferences.update(mark_capture=prefs)
 
     def load_demo_defaults(self):
-        for key in ("upper", "lower"):
-            state = self.layers[key]
-            state["combo"].setCurrentText(self.LAYER_DEFAULT_EXPERIMENT[key])
-            state["z"].setValue(100.0 if key == "upper" else 200.0)
-            state["z_set"] = True
-            state["taught"].set_kind("ok", "演示 Z")
-            state["half"].setValue(5.0)
+        self._restoring = True
+        self._configuration_simulated = True
+        self._unparsed_entries.clear()
+        try:
+            for key in ('upper', 'lower'):
+                state = self.layers[key]
+                state['combo'].setCurrentText(self.LAYER_DEFAULT_EXPERIMENT[key])
+                state['z'].setValue(100.0 if key == 'upper' else 200.0)
+                state['z_set'] = True
+                state['range_valid'] = True
+                state['taught'].set_kind('warn', '演示 Z · 不用于现场')
+                state['half'].setValue(5.0)
+        finally:
+            self._restoring = False
+        self.invalidate_confirmation()
+        self._update_derived()
+
+    def on_device_changed(self, workflow):
+        self._save_timer.stop()
+        self.invalidate_confirmation()
+        self._last_result_output = None
+        self._preview_images.clear()
+        for key in ('upper', 'lower'):
+            self.image_labels[key].clear()
+            self.image_labels[key].setText('—')
+            self.saved_pills[key].set_kind('mute', '未拍摄')
+            self.path_labels[key].setText('—')
+        if workflow and workflow.simulated:
+            if not self._configuration_simulated:
+                self._field_preferences = deepcopy(self._serialize())
+            self.load_demo_defaults()
+        elif workflow and self._configuration_simulated:
+            self.restore(self._field_preferences or {})
+            self._configuration_simulated = False
+            self.persist()
         self._update_derived()
 
     # ---- recipe ----
@@ -309,8 +424,12 @@ class MarksPage(QWidget):
             state = self.layers[key]
             if not state["z_set"]:
                 return None
+            if not state.get('range_valid', True):
+                raise ValueError('历史 AF 半范围无效，请重新填写')
             return MarkLayer(state["combo"].currentText().strip(),
                              state["z"].value() * UM, state["half"].value() * UM)
+        if self.app.workflow and not self.app.workflow.simulated and self._configuration_simulated:
+            raise ValueError('演示配置不能用于现场，请重新填写或示教')
         recipe = MarkRecipe(layer("upper"), layer("lower"),
                             xy_tolerance_m=self.common["xy_tolerance_um"] * UM,
                             z_tolerance_m=self.common["z_tolerance_um"] * UM,
@@ -357,29 +476,31 @@ class MarksPage(QWidget):
         workflow = self.app.workflow
         if workflow is None or workflow.device is None:
             return
-        device = workflow.device
-        names = []
-        for attr in ("experiment_names", "experiments", "list_experiments"):
-            value = getattr(device, attr, None)
-            if callable(value):
-                try:
-                    names = list(value())
-                except Exception:  # noqa: BLE001
-                    names = []
-                break
-            if value:
-                names = list(value)
-                break
-        if not names:
-            self.app.log("info", "设备未暴露实验名列表；可直接输入实验名后用「只读检查」验证。")
+        if workflow.busy:
             return
-        for key in ("upper", "lower"):
-            combo = self.layers[key]["combo"]
-            current = combo.currentText()
+        try:
+            workflow.read_only('mark_experiments',
+                lambda device: device.call_hardware_operation('list_experiments', {}))
+        except RuntimeError as error:
+            self.app.log('warn', str(error))
+
+    def on_rpc_result(self, tag, result):
+        if tag != 'mark_experiments':
+            return
+        names = [x['name'] for x in result.get('experiments', []) if isinstance(x, dict) and x.get('name')]
+        for key in ('upper', 'lower'):
+            combo = self.layers[key]['combo']
+            text = combo.currentText()
+            combo.blockSignals(True)
             combo.clear()
             combo.addItems(names)
-            combo.setCurrentText(current)
-        self.app.log("info", f"已读取 {len(names)} 个实验名。")
+            combo.setCurrentText(text)
+            combo.blockSignals(False)
+        self.app.log('ok', f'已读取 {len(names)} 个实验名（未加载实验）')
+
+    def on_rpc_error(self, tag, error):
+        if tag == 'mark_experiments':
+            self.app.log('error', '实验名读取失败：' + str(error))
 
     def inspect(self):
         workflow = self.app.workflow
@@ -425,6 +546,7 @@ class MarksPage(QWidget):
             app.log("error", str(exc))
             return
         self.persist()
+        self.invalidate_confirmation()
         for key in layers:
             self.saved_pills[key].set_kind("accent", "采集中…")
         app.log("info", f"开始采集 {len(layers)} 层…")
@@ -438,8 +560,8 @@ class MarksPage(QWidget):
         dialog = CommonParamsDialog(self, self.common)
         if dialog.exec():
             self.common.update(dialog.values())
+            self._parameters_changed()
             self.persist()
-            self._update_derived()
 
     def _show_diagnostic(self):
         report = getattr(self.app.workflow, "mark_diagnostic_report", None) or self._last_inspect
@@ -492,10 +614,7 @@ class MarksPage(QWidget):
         self.env_text.setText("\n".join(lines) or "尚未示教 Z")
 
     def on_connect(self):
-        self._last_inspect = None
-        workflow = self.app.workflow
-        if workflow and workflow.simulated:
-            self.load_demo_defaults()
+        self.invalidate_confirmation()
         self._update_derived()
         self.refresh_enabled()
 
@@ -523,49 +642,78 @@ class MarksPage(QWidget):
             self._update_derived()
 
     def _summarize_diagnostic(self, report):
+        requested = report.get('requested_experiments', report.get('experiments', []))
         lines = []
-        experiments = report.get("experiments") or []
-        for exp in experiments:
-            if not isinstance(exp, dict):
-                continue
-            name = exp.get("name") or exp.get("experiment") or "?"
-            stack = exp.get("is_zstack") or exp.get("zstack") or exp.get("is_z_stack")
-            detail = f"{name}：{'含 Z-stack' if stack else '单平面/未知'}"
-            slices = exp.get("num_slices") or exp.get("zstack_slices")
-            if slices:
-                detail += f" · {slices} 层"
-            lines.append(detail)
-        for error in report.get("errors") or []:
-            if isinstance(error, dict):
-                lines.append(f"错误：{error.get('message', error)}")
-        if not lines and report.get("kind"):
-            lines.append(f"{report['kind']} · checked {report.get('checked_at', '')[:19]}")
-        self.diag_summary.setText("\n".join(lines[:8]) or "报告为空。")
-        has_stack = any("Z-stack" in line for line in lines)
-        self.check_items["experiments"].set_state(
-            "warn" if has_stack else "ok",
-            "含 Z-stack（拍摄时自动收敛单层）" if has_stack else "已检查")
+        for exp in requested:
+            if isinstance(exp, dict):
+                exists = exp.get('exists')
+                state = '名称存在' if exists is True else '名称不存在' if exists is False else '名称未确认'
+                lines.append(f"{exp.get('name', '?')}：{state}")
+        errors = list(report.get('errors') or [])
+        if report.get('error'):
+            errors.append(report['error'])
+        for error in errors:
+            lines.append('错误：' + str(error.get('message', error) if isinstance(error, dict) else error))
+        success = (report.get('kind') == 'read_only_experiment_check' and bool(requested)
+                   and not errors and all(e.get('exists') is True for e in requested))
+        lines.append('此检查不加载实验；曝光、维度、物镜及位置恢复设置需在 ZEN 核对。')
+        self.diag_summary.setText('\n'.join(lines))
+        self.check_items['experiments'].set_state('ok' if success else 'warn',
+            '名称已确认，硬件设置未核验' if success else '未通过/未完成，请查看报告')
 
     def _show_results(self, workflow):
         output = getattr(workflow, "mark_output_path", None)
         if output is None:
             return
         output = Path(output)
+        self._last_result_output = output
         self.steps.set_states(["done", "done", "done", "done", "done"])
         for key in ("upper", "lower"):
             tiff = output / f"{key}.tif"
             if not tiff.exists():
                 continue
             self.saved_pills[key].set_kind("ok", "已保存")
-            image = QImage(str(tiff))
+            image = self._preview(tiff)
             pixmap = QPixmap.fromImage(image)
             img_label = self.image_labels[key]
             if pixmap.isNull():
                 img_label.setText("已保存（预览不可用）")
             else:
-                img_label.setPixmap(pixmap.scaledToWidth(
-                    max(220, img_label.width() - 4), Qt.SmoothTransformation))
+                self._preview_images[key] = pixmap
+                img_label.setPixmap(pixmap.scaled(img_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
             self.path_labels[key].setText(str(tiff))
+
+    @staticmethod
+    def _preview(path):
+        image = QImage(str(path))
+        if not image.isNull():
+            return image
+        # Display-only conversion: never write back to the original TIFF.
+        import numpy as np
+        import tifffile
+        try:
+            data = tifffile.imread(path)
+            if data.ndim not in (2, 3) or (data.ndim == 3 and data.shape[2] != 3):
+                return image
+            if data.dtype == np.uint16:
+                data = (data // 257).astype(np.uint8)
+            if data.dtype != np.uint8:
+                return image
+            data = np.ascontiguousarray(data)
+            fmt = QImage.Format_Grayscale8 if data.ndim == 2 else QImage.Format_RGB888
+            return QImage(data.data, data.shape[1], data.shape[0], data.strides[0], fmt).copy()
+        except (OSError, ValueError, TypeError):
+            return image
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_layer_layout'):
+            narrow = self.width() < 1250
+            self._layer_layout.setDirection(QBoxLayout.TopToBottom if narrow else QBoxLayout.LeftToRight)
+            self._image_layout.setDirection(QBoxLayout.TopToBottom if narrow else QBoxLayout.LeftToRight)
+        for key, pixmap in self._preview_images.items():
+            self.image_labels[key].setPixmap(pixmap.scaled(self.image_labels[key].size(),
+                Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def refresh_enabled(self):
         app = self.app
@@ -574,11 +722,12 @@ class MarksPage(QWidget):
         ready = bool(workflow and workflow.device is not None
                      and workflow.state in ("就绪", "完成", "已中止")
                      and not app.locked() and not busy)
+        manual = all(self.check_items[k].check.isChecked() for k in ('zpath', 'loading'))
         both_error = self._recipe_error(("upper", "lower"))
         for key, button in self.capture_buttons.items():
             keys = ("upper", "lower") if key == "both" else (key,)
             error = self._recipe_error(keys)
-            button.setEnabled(ready and error is None)
+            button.setEnabled(ready and manual and error is None)
             button.setToolTip(error or "")
         self.inspect_button.setEnabled(bool(workflow and workflow.device is not None and not busy))
         manual = (self.check_items["zpath"].check.isChecked()
@@ -601,7 +750,12 @@ class MarksPage(QWidget):
                 self.capture_buttons[key].setToolTip(
                     self.capture_buttons[key].toolTip() or "请先勾选两项人工确认")
         # step strip (idle view)
-        if not busy:
+        for state in self.layers.values():
+            for name in ('combo', 'z', 'half', 'teach_button'):
+                state[name].setEnabled(not busy)
+        for control in (self.use_af, self.capture_kind, self.output_edit, self.common_button):
+            control.setEnabled(not busy)
+        if not busy and self._last_result_output is None:
             taught = sum(1 for k in ("upper", "lower") if self.layers[k]["z_set"])
             self.steps.set_states([
                 "done" if connected else "current",

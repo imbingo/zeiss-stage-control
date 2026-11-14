@@ -42,7 +42,7 @@ class RunRecords:
         self.path.mkdir()
         self.started = utc_now()
         write_json(self.path / "recipe.json", {
-            "schema_version": 1, "software_version": "2.5.0",
+            "schema_version": 1, "software_version": "2.5.1",
             "recipe_name": name, "experiment_name": experiment,
             "point_order": targets, "xy_tolerance_m": tolerance_m,
             "af_timeout_s": af_timeout, "arrival_timeout_s": arrival_timeout,

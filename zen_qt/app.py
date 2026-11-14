@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
-    QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget, QButtonGroup,
+    QPushButton, QScrollArea, QStackedWidget, QToolButton, QVBoxLayout, QWidget, QButtonGroup,
 )
 
 from zen_hardware.gateway import GatewayDevice, secure_channel
@@ -58,9 +58,9 @@ class WorkbenchWindow(QMainWindow):
         self._live_z = None
         self._live_xy = None
 
-        self.setWindowTitle("ZEN 表面测角工作台 v2.5")
+        self.setWindowTitle("ZEN 表面测角工作台 v2.5.1")
         self.resize(1600, 980)
-        self.setMinimumSize(1240, 780)
+        self.setMinimumSize(1000, 620)
         self.setStyleSheet(theme.QSS)
 
         root = QWidget()
@@ -119,7 +119,7 @@ class WorkbenchWindow(QMainWindow):
         brand.setObjectName("brand")
         brand.setStyleSheet(f"color:{theme.ACCENT}")
         lay.addWidget(brand)
-        lay.addWidget(label("v2.5", role="muted"))
+        lay.addWidget(label("v2.5.1", role="muted"))
         self.conn_chip = Chip("未连接")
         self.mode_chip = Chip("真实设备")
         self.mode_chip.set_kind("real")
@@ -196,7 +196,8 @@ class WorkbenchWindow(QMainWindow):
             self.nav_buttons[key] = button
         lay.addStretch(1)
         session_card = Card()
-        session_lay = vbox(session_card, spacing=4, margins=(10, 9, 10, 9))
+        session_lay = session_card._lay
+        session_lay.setSpacing(4)
         session_lay.addWidget(label("样品 / 批次", role="muted"))
         self.sample_edit = QLineEdit(str(self.session.get("sample", "")))
         self.sample_edit.setPlaceholderText("如 W-0412 · Lot A7")
@@ -212,7 +213,12 @@ class WorkbenchWindow(QMainWindow):
         lay.addWidget(session_card)
         for edit in (self.sample_edit, self.operator_edit):
             edit.editingFinished.connect(self._save_session)
-        return nav
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFixedWidth(212)
+        scroll.setWidget(nav)
+        return scroll
 
     def _nav_button(self, key, text):
         button = QToolButton()
@@ -230,18 +236,24 @@ class WorkbenchWindow(QMainWindow):
         from .pages.records import RecordsPage
         from .pages.hardware import HardwarePage
         from .pages.settings import SettingsPage
+        self.page_containers = {}
         for key, cls in (("device", DevicePage), ("tilt", TiltPage),
                          ("marks", MarksPage), ("records", RecordsPage),
                          ("hardware", HardwarePage), ("settings", SettingsPage)):
             page = cls(self)
             self.pages[key] = page
-            self.stack.addWidget(page)
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            scroll.setWidget(page)
+            self.page_containers[key] = scroll
+            self.stack.addWidget(scroll)
         self.navigate("device")
 
     # ---------- navigation / logging ----------
 
     def navigate(self, key):
-        self.stack.setCurrentWidget(self.pages[key])
+        self.stack.setCurrentWidget(self.page_containers[key])
         self.nav_buttons[key].setChecked(True)
         page = self.pages[key]
         if hasattr(page, "on_show"):
@@ -265,7 +277,7 @@ class WorkbenchWindow(QMainWindow):
     def export_diagnostic_bundle(self):
         from PySide6.QtWidgets import QFileDialog
         bundle = {"kind": "diagnostic_bundle", "exported_at": utc_now(),
-                  "software": "ZEN 表面测角工作台 v2.5 (Qt)",
+                  "software": "ZEN 表面测角工作台 v2.5.1 (Qt)",
                   "simulated": bool(self.workflow and self.workflow.simulated),
                   "xy_mode": self.xy_mode,
                   "rpc_trace": (self.workflow.device.rpc_trace()
@@ -286,20 +298,27 @@ class WorkbenchWindow(QMainWindow):
 
     def _replace_workflow(self, device, *, simulated, validate, fit):
         old = self.workflow
+        if old and old.busy:
+            raise RuntimeError('已有设备任务，请等待完成后更换连接')
+        if old:
+            self._drain(old)
+            if isinstance(old.device, GatewayDevice):
+                old.device.close()
         self.workflow = Workflow(device, self.data_root, simulated=simulated,
                                  validate=validate, fit=fit)
         self.pending = None
         self._connected_mode = self.xy_mode
         self.field_verified = False
         self.verified_xy = None
-        self.clear_result()
-        if old is not None:
-            self._drain(old)
-            if isinstance(old.device, GatewayDevice):
-                old.device.close()
         self.current_xy = None
+        self._live_z = self._live_xy = None
         self.hw_session = None
-        self.log("info", "已绑定 " + ("离线演示设备" if simulated else "现场 Gateway 通道"))
+        self.clear_result()
+        for page in self.pages.values():
+            handler = getattr(page, 'on_device_changed', None)
+            if handler:
+                handler(self.workflow)
+        self.log('info', '已绑定 ' + ('离线演示设备' if simulated else '现场 Gateway 通道'))
 
     def _drain(self, workflow):
         try:
@@ -342,6 +361,9 @@ class WorkbenchWindow(QMainWindow):
         """Offline demo: 'tilt' runs the 4-point demo; 'marks' binds the mark simulator."""
         if self.workflow and self.workflow.busy:
             return
+        if kind != 'marks' and self.xy_mode == 'no_xy':
+            self.log('warn', '无 XY 模式仅支持单点采图。测角演示请先切换为有电动 XY。')
+            return
         if kind == "marks":
             self._replace_workflow(SimulatedMarkDevice(xy_enabled=self.xy_mode != "no_xy"),
                                    simulated=True, validate=validate_recipe, fit=fit_demo)
@@ -354,7 +376,7 @@ class WorkbenchWindow(QMainWindow):
             self._replace_workflow(SimulatedDevice(fault=fault), simulated=True,
                                    validate=validate_recipe, fit=fit_demo)
             recipe = Recipe("演示配方", "Demo AF", DEMO_POINTS, 1e-6, 3, 2, DEMO_CONVENTION)
-            self.field_recipe = recipe
+            self.pages['tilt'].apply_recipe(recipe)
             self.pending = (recipe, single)
             self.workflow.connect()
             self.navigate("tilt")
@@ -369,6 +391,12 @@ class WorkbenchWindow(QMainWindow):
             old.device.close()
         self._live_z = self._live_xy = None
         self.field_verified = False
+        self.verified_xy = None
+        self.current_xy = None
+        for page in self.pages.values():
+            handler = getattr(page, 'on_device_changed', None)
+            if handler:
+                handler(None)
         self.log("info", "已断开客户端通道；物理动作是否停止需在设备端确认。")
         self.refresh_ui()
 
@@ -379,6 +407,8 @@ class WorkbenchWindow(QMainWindow):
             self.log("warn", "已请求停止后续采集；正在等待的同步 RPC 不能取消，请在设备端确认停止。")
 
     def set_xy_mode(self, mode):
+        if mode not in ('motorized', 'no_xy'):
+            raise ValueError('未知 XY 模式')
         if mode == self.xy_mode:
             return
         if self.workflow and self.workflow.busy:
@@ -411,6 +441,8 @@ class WorkbenchWindow(QMainWindow):
         dialog.exec()
 
     def confirm_recovery(self):
+        if self.workflow and self.workflow.busy:
+            return False
         from PySide6.QtWidgets import QMessageBox
         try:
             if self.workflow and self.workflow.simulated:
@@ -419,12 +451,16 @@ class WorkbenchWindow(QMainWindow):
                 confirm_recovery(run, xy_confirmed=True, af_z_confirmed=True)
         except OSError:
             QMessageBox.critical(self, "恢复记录失败", "恢复记录保存失败，请检查数据目录。")
-            return
+            return False
         self.recovery_runs = pending_recovery(self.data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(self.data_root, simulated=False)
         self.field_verified = False
+        if self.workflow:
+            self.workflow._state('通信就绪（硬件单步）', detail='恢复确认已记录；业务采集前请重新连接并校验')
+        self.pages['marks'].invalidate_confirmation()
         self.log("ok", "恢复确认已记录；请重新连接并校验。")
         self.refresh_ui()
+        return not self.locked()
 
     # ---------- workflow event handling ----------
 
@@ -443,6 +479,12 @@ class WorkbenchWindow(QMainWindow):
         self.refresh_ui()
 
     def _on_event(self, workflow, kind, data):
+        if kind == 'read_only_result':
+            self._rpc_done(data[0], data[1])
+            return
+        if kind == 'read_only_error':
+            self._rpc_fail(data[0], data[1])
+            return
         if kind == "state":
             state, point, detail = data
             message = f"{state} · 点位 {point or '—'} {detail}".rstrip()
@@ -521,33 +563,17 @@ class WorkbenchWindow(QMainWindow):
         workflow = self.workflow
         if workflow is None or workflow.busy or workflow.state in ("未连接", "连接检查"):
             return
-        device = workflow.device
-        if getattr(self, "_z_inflight", False):
-            return
-        self._z_inflight = True
-
-        def read():
+        def read(device):
             out = {}
-            if hasattr(device, "read_z"):
-                try:
-                    out["z"] = device.read_z()
-                except Exception:
-                    pass
-            if workflow.xy_enabled and hasattr(device, "read_xy"):
-                try:
-                    out["xy"] = device.read_xy()
-                except Exception:
-                    pass
+            if hasattr(device, 'read_z'):
+                out['z'] = device.read_z()
+            if workflow.xy_enabled:
+                out['xy'] = device.read_xy()
             return out
-
-        def worker_fn():
-            try:
-                value = read()
-            except Exception:
-                value = {}
-            worker.bridge(self).done.emit("position", value)
-
-        Thread(target=worker_fn, daemon=True).start()
+        try:
+            workflow.read_only('position', read)
+        except RuntimeError:
+            pass
 
     def _rpc_done(self, tag, value):
         if tag == "position":
@@ -562,8 +588,9 @@ class WorkbenchWindow(QMainWindow):
                 handler(tag, value)
 
     def _rpc_fail(self, tag, error):
-        if tag == "position":
+        if tag == 'position':
             self._z_inflight = False
+            self._live_z = self._live_xy = None
         for page in self.pages.values():
             handler = getattr(page, "on_rpc_error", None)
             if handler:
@@ -618,6 +645,11 @@ class WorkbenchWindow(QMainWindow):
                                     "已请求停止后续采集。请等待本轮记录保存后关闭。")
             event.ignore()
             return
+        self._save_session()
+        self.pages['marks'].persist()
+        self.pages['hardware'].save_preferences()
         if self.workflow and isinstance(self.workflow.device, GatewayDevice):
             self.workflow.device.close()
+        self.pump.timer.stop()
+        self.z_timer.stop()
         event.accept()

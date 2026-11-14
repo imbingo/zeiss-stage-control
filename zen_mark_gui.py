@@ -201,7 +201,7 @@ class MarkCaptureDialog(tk.Toplevel):
     def persist_preferences(self):
         self._save_job = None
         saved = {key: {name: var.get() for name, var in group.items()} for key, group in self.fields.items()}
-        saved.update({"common": {key: var.get() for key, var in self.common.items()},
+        saved.update({'entry_unit': 'um', "common": {key: var.get() for key, var in self.common.items()},
                       "output": self.output.get(), "capture_kind": "confocal" if self.capture_kind.get().startswith("共聚焦") else "camera_snap",
                       "use_autofocus": self.use_af.get(), "simulated_configuration": self.demo_config,
                       "reported_zen_version": self.reported_zen_version.get()})

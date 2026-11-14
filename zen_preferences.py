@@ -1,6 +1,7 @@
 """Automatic UI preferences, excluding credentials and action approvals."""
 
 import json
+from math import isfinite
 from pathlib import Path
 from zen_records import write_json
 
@@ -10,6 +11,15 @@ COMMON = ('xy_tolerance_m', 'z_tolerance_m', 'af_timeout_s', 'arrival_timeout_s'
 
 def text(value):
     return value if isinstance(value, str) and len(value) <= 4096 else None
+
+
+def entry(value):
+    """Keep legacy raw strings; accept finite Qt numbers as the same schema."""
+    if isinstance(value, str):
+        return text(value)
+    if type(value) in (int, float) and isfinite(value):
+        return str(value)
+    return None
 
 
 def sanitize(value):
@@ -22,9 +32,14 @@ def sanitize(value):
                                 if (val := text(connection.get(key))) is not None}
     capture = value.get('mark_capture', {})
     if "mark_capture" in value and isinstance(capture, dict):
-        saved = {}
+        # Legacy Tk keys end in _m but contain raw UI values in MICROMETRES.
+        # Keep that wire-compatible entry schema and mark the unit explicitly.
+        unit = capture.get('entry_unit', 'um')
+        if unit not in ('um', 'm'):
+            raise ValueError('unsupported preference entry unit')
+        saved = {'entry_unit': 'um'}
         for key in ('output', 'reported_zen_version'):
-            if (val := text(capture.get(key))) is not None:saved[key] = val
+            if (val := text(capture.get(key, capture.get('output_dir') if key == 'output' else None))) is not None:saved[key] = val
         if capture.get('capture_kind') in ('camera_snap', 'confocal'):
             saved['capture_kind'] = capture['capture_kind']
         for key in ('use_autofocus', 'simulated_configuration'):
@@ -33,12 +48,30 @@ def sanitize(value):
                             ('lower', ('experiment', 'z_m', 'half_range_m')), ('common', COMMON)):
             source = capture.get(group, {})
             if isinstance(source, dict):
-                saved[group] = {key: val for key in keys if (val := text(source.get(key))) is not None}
+                source = dict(source)
+                if group == 'common':
+                    for unit_key in ('xy_tolerance', 'z_tolerance'):
+                        if unit_key+'_um' in source:
+                            source[unit_key+'_m'] = source[unit_key+'_um']
+                            # Already in the canonical UI entry unit.
+                            source.pop(unit_key+'_um')
+                        elif unit == 'm' and unit_key+'_m' in source:
+                            try:source[unit_key+'_m'] = float(source[unit_key+'_m']) * 1e6
+                            except (TypeError, ValueError, OverflowError):pass
+                elif unit == 'm':
+                    for key in ('z_m', 'half_range_m'):
+                        if key in source:
+                            try:source[key] = float(source[key]) * 1e6
+                            except (TypeError, ValueError, OverflowError):pass
+                saved[group] = {key: val for key in keys if (val := entry(source.get(key))) is not None}
         result['mark_capture'] = saved
     hardware = value.get("hardware_test", {})
     if isinstance(hardware, dict):
         allowed = ("experiment_name", "camera_id", "z_um", "x_um", "y_um", "low_um", "high_um", "first_um", "last_um", "interval_um", "af_timeout_s", "exposure_value", "output_name", "rpc_timeout_s")
         result["hardware_test"] = {k: v for k in allowed if (v := text(hardware.get(k))) is not None}
+    session = value.get('session', {})
+    if isinstance(session, dict):
+        result['session'] = {k: v for k in ('sample', 'operator') if (v := text(session.get(k))) is not None}
     return result
 
 
@@ -61,8 +94,8 @@ class Preferences:
     def update(self, **sections):
         if self.warning:
             return False
-        candidate = sanitize({**self.data, **sections})
         try:
+            candidate = sanitize({**self.data, **sections})
             self.path.parent.mkdir(parents=True, exist_ok=True)
             write_json(self.path, candidate)
         except (OSError, ValueError):

@@ -38,8 +38,8 @@ class SettingsPage(QWidget):
         lay.addWidget(data)
 
         about = Card("版本")
-        about.add(label("ZEN 表面测角工作台 v2.5 · Qt 界面\n"
-                        "硬件与测量逻辑与 v2.4.x 相同；Tk 经典界面仍可通过 start_gui_classic.bat 启动。",
+        about.add(label("ZEN 表面测角工作台 v2.5.1 · Qt 界面\n"
+                        "修复 Qt 配置迁移、恢复与安全确认；Tk 经典界面可通过 start_gui_classic.bat 启动。",
                         role="muted", wrap=True))
         lay.addWidget(about)
         lay.addStretch(1)

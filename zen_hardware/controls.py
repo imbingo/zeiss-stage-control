@@ -67,19 +67,15 @@ class GatewayControlsMixin:
                             'image_output_path':('GetImageOutputPath','ExperimentServiceGetImageOutputPathRequest')}[operation]
             values={} if operation=='image_output_path' else {'experiment_id':p['experiment_id']}
             if operation in ('snap','run_experiment'):values['output_name']=p['output_name']
-            # RunSnap/RunExperiment block until acquisition finishes; a 41-slice
-            # stack already takes ~60s, so these calls get a generous floor while
-            # still honouring a larger user-configured timeout.
-            minimum={'snap':300.0,'run_experiment':1800.0}.get(operation)
-            timeout_s=None if minimum is None else max(float(self._timeout),minimum)
-            return as_dict(self._control_rpc(experiment,'ExperimentService',method,request,timeout_s=timeout_s,**values))
+            # The entered deadline is authoritative; never hide a 30-minute floor.
+            return as_dict(self._control_rpc(experiment,'ExperimentService',method,request,**values))
         if operation in ('get_af','set_af_range','af'):
             package='lm.acquisition.v1.experiment_sw_autofocus_service'
             module = __import__('importlib').import_module('zen_api.'+package+'_pb2')
             if operation=='af':
                 request=getattr(module,'ExperimentSwAutofocusServiceFindAutoFocusRequest')(
                     experiment_id=p['experiment_id'], timeout=DoubleValue(value=p['af_timeout_s']))
-                return as_dict(self._af_rpc('FindAutoFocus', request, p['af_timeout_s']+self._timeout))
+                return as_dict(self._af_rpc('FindAutoFocus', request, self._timeout))
             reply=self._af_rpc('GetAutofocusParameters',
                 getattr(module,'ExperimentSwAutofocusServiceGetAutofocusParametersRequest')(
                     experiment_id=p['experiment_id']), self._timeout)

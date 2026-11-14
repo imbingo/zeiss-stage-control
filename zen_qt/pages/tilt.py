@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
+    QFileDialog, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
     QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QWidget,
 )
 
@@ -92,6 +92,7 @@ class TiltPage(QWidget):
 
         plot_card = Card("XY 点位与残差", trailing=label("悬停看单点", role="muted"))
         self.canvas = PointsCanvas()
+        self.canvas.setMinimumHeight(220)
         plot_card.add(self.canvas)
         legend = QWidget()
         ll = hbox(legend, spacing=14, margins=0)
@@ -111,6 +112,7 @@ class TiltPage(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setMinimumHeight(200)
         table_card.add(self.table)
         wl.addWidget(table_card, 1)
 
@@ -123,16 +125,17 @@ class TiltPage(QWidget):
         self.recipe_info = label("未加载现场配方；也可在离线演示中自动生成演示配方。", role="muted", wrap=True)
         recipe_card.add(self.recipe_info)
         buttons = QWidget()
-        btl = hbox(buttons, spacing=6, margins=0)
-        for text, fn in (("新建 / 编辑", self.edit_recipe), ("保存配方", self.save_recipe),
-                         ("编辑点位路径", self.edit_path), ("CSV 导入", self.choose_points)):
-            btl.addWidget(QPushButton(text, clicked=fn))
+        btl = QGridLayout(buttons)
+        btl.setContentsMargins(0, 0, 0, 0)
+        for index, (text, fn) in enumerate((('新建 / 编辑', self.edit_recipe), ('保存配方', self.save_recipe),
+                         ('编辑点位路径', self.edit_path), ('CSV 导入', self.choose_points))):
+            btl.addWidget(QPushButton(text, clicked=fn), index // 2, index % 2)
         recipe_card.add(buttons)
         sl.addWidget(recipe_card)
 
         points_card = Card("点位管理")
         row = QWidget()
-        rl = hbox(row, spacing=6, margins=0)
+        rl = vbox(row, spacing=6, margins=0)
         self.teach_button = QPushButton("示教当前 XY", clicked=self.teach)
         self.delete_button = QPushButton("删除选中点", clicked=self.delete_point)
         self.af_button = QPushButton("当前点单点 AF 校验", clicked=self.run_single_af)
@@ -162,8 +165,8 @@ class TiltPage(QWidget):
         sl.addWidget(self.export_button)
         sl.addStretch(1)
 
-        if self.app.xy_mode == "no_xy":
-            wl.insertWidget(0, note("无 XY 模式：角度扫描不可用，请切换到「对位采图」。"))
+        self.no_xy_note = note('无 XY 模式：角度扫描不可用，请切换到「对位采图」。')
+        wl.insertWidget(0, self.no_xy_note)
         self.refresh_enabled()
 
     # ---- recipe & points ----
@@ -397,6 +400,7 @@ class TiltPage(QWidget):
         busy = bool(workflow and workflow.busy)
         ready = self.field_ready()
         recipe = app.field_recipe
+        self.no_xy_note.setVisible(app.xy_mode == 'no_xy')
         self.start_button.setEnabled(ready and app.field_verified and recipe is not None)
         self.stop_button.setEnabled(busy)
         self.teach_button.setEnabled(ready and recipe is not None)
@@ -407,9 +411,10 @@ class TiltPage(QWidget):
             "accent" if busy else "ok" if workflow and workflow.state in ("就绪", "完成") else "mute",
             "运行中" if busy else (workflow.state if workflow else "未运行"))
         # step strip
+        completed = bool(workflow and workflow.result)
         states = ["done" if recipe else "current",
                   "done" if recipe and recipe.targets else "current",
-                  "done" if app.field_verified else "current",
+                  "done" if app.field_verified or completed else "current",
                   "current" if busy else "todo",
                   "done" if workflow and workflow.result else "todo"]
         self.steps.set_states(states)

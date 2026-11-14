@@ -278,6 +278,8 @@ class MarkGatewayTest(unittest.TestCase):
         with self.assertRaises(ValueError):self.prepare()
         self.assertEqual(self.z_moves, [])
         with self.subTest('v1beta service path when v1 unregistered'):
+            # Reflection descriptor discovery needs headroom on busy CI hosts.
+            self.device._timeout = 2
             from zen_hardware.capability import CapabilityMatrix
             self.device.capabilities=CapabilityMatrix()
             self.reject_bounds=False
@@ -389,9 +391,13 @@ class MarkGatewayTest(unittest.TestCase):
                 self.device.capabilities=CapabilityMatrix()
                 self.reject_method=method
                 if method == 'GetAutofocusParameters':
-                    # Read rejected -> write-only Set fallback succeeds instead.
+                    # No readback means no bounded AF without an explicit opt-in.
+                    with self.assertRaises(MarkCapabilityError):self.prepare()
+                    self.assertEqual(self.set_ids, [])
+                    self.device.allow_unverified_af=True
                     result=self.prepare()
                     self.assertEqual(result['af_range'], 'written_unverified_readback')
+                    self.device.allow_unverified_af=False
                     self.assertEqual(self.z_moves, [])
                     self.assertEqual(self.snaps, 0)
                     continue

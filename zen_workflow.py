@@ -401,3 +401,14 @@ class Workflow:
             self._save_capabilities()
             self.events.put(("hardware_result",report))
         self._launch(action)
+
+    def read_only(self, tag, query):
+        """Run a side query under the same device gate as motion and capture."""
+        def action():
+            try:
+                result = query(self.device)
+            except Exception as error:
+                self.events.put(('read_only_error', tag, error))
+            else:
+                self.events.put(('read_only_result', tag, result))
+        self._launch(action)

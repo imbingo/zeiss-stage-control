@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
-    QTabWidget, QVBoxLayout, QWidget,
+    QTabWidget, QVBoxLayout, QWidget, QSizePolicy,
 )
 
 from . import theme
@@ -60,6 +60,7 @@ class Card(QFrame):
         self._lay = vbox(self, spacing=8, margins=(14, 12, 14, 12))
         if title is not None:
             head = QWidget()
+            head.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             head_lay = hbox(head, margins=0)
             head_lay.addWidget(label(title, role="h3"))
             head_lay.addStretch(1)
@@ -79,6 +80,7 @@ class Card(QFrame):
 class Pill(QLabel):
     def __init__(self, text="", kind="mute"):
         super().__init__(text)
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.set_kind(kind, text)
 
     def set_kind(self, kind, text=None):
@@ -159,8 +161,8 @@ class CheckItem(QWidget):
         lay.addWidget(self.icon, 0, Qt.AlignTop)
         body = QWidget()
         body_lay = vbox(body, spacing=2, margins=0)
-        self.title = label(title)
-        self.detail = label(detail, role="muted")
+        self.title = label(title, wrap=True)
+        self.detail = label(detail, role="muted", wrap=True)
         self.detail.setStyleSheet("font-size:11px")
         body_lay.addWidget(self.title)
         body_lay.addWidget(self.detail)
@@ -308,7 +310,8 @@ class LogDock(QTabWidget):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        self.setFixedHeight(176)
+        self.setFixedHeight(144)
+        self.collapsed = False
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(2000)
@@ -324,11 +327,18 @@ class LogDock(QTabWidget):
         corner = QWidget()
         corner_lay = hbox(corner, spacing=6, margins=(0, 0, 8, 0))
         corner_lay.addStretch(1)
+        self.fold_button = QPushButton('收起日志', clicked=self.toggle_fold)
+        corner_lay.addWidget(self.fold_button)
         for text, fn in (("刷新", self.refresh_tab), ("复制", self.copy_current),
                          ("导出诊断包…", app.export_diagnostic_bundle)):
             corner_lay.addWidget(QPushButton(text, clicked=fn))
         self.setCornerWidget(corner)
         self.currentChanged.connect(lambda *_: self.refresh_tab())
+
+    def toggle_fold(self):
+        self.collapsed = not self.collapsed
+        self.setFixedHeight(36 if self.collapsed else 144)
+        self.fold_button.setText('展开日志' if self.collapsed else '收起日志')
 
     def add(self, level, text):
         from datetime import datetime

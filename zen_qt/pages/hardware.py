@@ -24,6 +24,9 @@ class HardwarePage(QWidget):
         self.op = None
         self.values = {}
         self.latest = None
+        self.field_values = dict(app.preferences.data.get('hardware_test', {}))
+        self.current_experiment_id = ''
+        self._experiment_device = None
         lay, head = _page(self, "硬件单步调试",
                           "按目录逐项调用 Gateway 接口 · 写入前要求人工确认 · 全部调用记入持久日志")
 
@@ -69,8 +72,12 @@ class HardwarePage(QWidget):
         rowl = hbox(row, spacing=8, margins=0)
         rowl.addWidget(label("RPC 超时 (s)", role="muted"))
         self.timeout = QDoubleSpinBox()
-        self.timeout.setRange(1, 600)
-        self.timeout.setValue(60)
+        self.timeout.setRange(1, 7200)
+        try:
+            self.timeout.setValue(float(self.field_values.get('rpc_timeout_s', '60')))
+        except ValueError:
+            self.timeout.setValue(60)
+        self.timeout.setToolTip('按输入值执行，不自动延长；多层扫描请按实际时长增大。')
         rowl.addWidget(self.timeout)
         self.approved = QCheckBox("我已知晓此操作会写入参数或移动设备")
         rowl.addWidget(self.approved, 1)
@@ -106,7 +113,15 @@ class HardwarePage(QWidget):
     # ---- session / binding ----
 
     def new_session(self):
+        if self.app.workflow and self.app.workflow.busy:
+            return
+        bound = self.session.library.device if self.session.library else None
         self.session = HardwareTestSession(self.app.data_root)
+        self.latest = None
+        self.log_view.clear()
+        self.result_pill.set_kind('mute', '—')
+        if self.app.workflow and self.app.workflow.device is bound:
+            self.session.bind(bound, simulated=self.app.workflow.simulated)
         self._update_bind_info()
         self.app.log("info", f"已新建硬件测试会话：{self.session.directory}")
 
@@ -117,7 +132,13 @@ class HardwarePage(QWidget):
             return
         if workflow.busy:
             return
+        if not hasattr(workflow.device, 'call_hardware_operation'):
+            self.bind_info.setText('当前模拟器不支持硬件单步，请载入采图演示或连接真实设备。')
+            return
         try:
+            if self._experiment_device is not workflow.device:
+                self.current_experiment_id = ''
+            self._experiment_device = workflow.device
             self.session.bind(workflow.device, simulated=workflow.simulated)
         except RuntimeError as exc:
             self.bind_info.setText(str(exc))
@@ -131,6 +152,26 @@ class HardwarePage(QWidget):
         if not bound:
             self.bind_info.setText(
                 f"会话目录 {self.session.directory}\n绑定后单步调用与测量共用同一设备通道。")
+
+    def on_device_changed(self, workflow):
+        self.current_experiment_id = ''
+        self._experiment_device = None
+        self.session.library = None
+        self.approved.setChecked(False)
+        self._update_bind_info()
+        if self.op:
+            self._select()
+
+    def save_preferences(self):
+        self.app.preferences.update(hardware_test={**self.field_values,
+            'rpc_timeout_s': str(self.timeout.value())})
+
+    def _edit(self, key, value):
+        if key == 'experiment_id':
+            self.current_experiment_id = value
+        else:
+            self.field_values[key] = value
+        self.approved.setChecked(False)
 
     def on_show(self):
         workflow = self.app.workflow
@@ -161,6 +202,7 @@ class HardwarePage(QWidget):
         self.op = None
         while self.form.rowCount():
             self.form.removeRow(0)
+        self.save_preferences()
         self.values = {}
         self.approved.setChecked(False)
         if not items:
@@ -181,7 +223,10 @@ class HardwarePage(QWidget):
         k, text = kind_map[kind]
         self.op_kind.set_kind(k, text)
         for field in self.op.fields:
-            entry = QLineEdit("10" if field.name == "af_timeout_s" else "")
+            value = self.current_experiment_id if field.name == 'experiment_id' else self.field_values.get(
+                field.name, '10' if field.name == 'af_timeout_s' else '')
+            entry = QLineEdit(value)
+            entry.textChanged.connect(lambda value, key=field.name: self._edit(key, value))
             if field.optional:
                 entry.setPlaceholderText("可选")
             self.values[field.name] = entry
@@ -198,6 +243,7 @@ class HardwarePage(QWidget):
         if self.op.xy_required and not workflow.xy_enabled:
             self.result_info.setText("此操作需要电动 XY；当前为无 XY 连接。")
             return
+        self.save_preferences()
         timeout = float(self.timeout.value())
         params = {name: entry.text() for name, entry in self.values.items()}
         confirmed = self.approved.isChecked()
@@ -230,12 +276,17 @@ class HardwarePage(QWidget):
             f"{report.get('title', report.get('operation'))} · {status}"
             + ("；设备状态须人工确认" if report.get("recovery_required") else "；详见日志"))
         self.log_view.appendPlainText(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-        if report["operation"] in ("connect", "disconnect") and "experiment_id" in self.values:
-            self.values["experiment_id"].setText("")
+        if report['operation'] in ('connect', 'disconnect'):
+            self.current_experiment_id = ''
+            if 'experiment_id' in self.values:
+                self.values['experiment_id'].setText('')
         result = report.get("result") or {}
         if status == "success" and report["operation"] in ("load_experiment", "clone_experiment") \
-                and result.get("experiment_id") and "experiment_id" in self.values:
-            self.values["experiment_id"].setText(result["experiment_id"])
+                and result.get('experiment_id'):
+            self.current_experiment_id = result['experiment_id']
+            self._experiment_device = workflow.device
+            if 'experiment_id' in self.values:
+                self.values['experiment_id'].setText(self.current_experiment_id)
         if report.get("writes"):
             self.app.field_verified = False
 
@@ -262,5 +313,6 @@ class HardwarePage(QWidget):
         busy = bool(self.app.workflow and self.app.workflow.busy)
         can_run = bool(self.app.workflow and not busy and self.session.library is not None
                        and self.op is not None)
-        self.run_button.setEnabled(self.run_button.isEnabled() and not busy or can_run)
+        can_run = can_run and self.session.library.device is self.app.workflow.device
+        self.run_button.setEnabled(can_run)
         self.stop_button.setEnabled(busy)

@@ -40,3 +40,14 @@ class ControlsTests(unittest.TestCase):
         d=Controls();d.camera=GetCameraData(id='c',binning=2,min_exposure_time=1,max_exposure_time=100)
         with self.assertRaises(ValueError):d.call_hardware_operation('set_exposure',{'camera_id':'c','exposure_value':12})
         self.assertEqual(len(d.calls),1)
+
+    def test_capture_deadline_matches_user_input_without_hidden_floor(self):
+        class DeadlineControls(Controls):
+            def _rpc(self, method, call, request, **kwargs):
+                self.deadline = kwargs['timeout']
+                return call(request, **kwargs)
+        for op in ('snap','run_experiment'):
+            device = DeadlineControls()
+            device._timeout = 60.0
+            device.call_hardware_operation(op, {'experiment_id':'e','output_name':'unique'})
+            self.assertEqual(device.deadline, 60.0)

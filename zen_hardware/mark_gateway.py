@@ -358,6 +358,7 @@ class GatewayMarkMixin:
         if not use_autofocus:
             return {"experiment_id": self._experiment_id, "autofocus": False}
         import grpc
+        read_error = None
         try:
             params = self._af_rpc('GetAutofocusParameters',
                                   Get(experiment_id=self._experiment_id), self._timeout)
@@ -365,7 +366,18 @@ class GatewayMarkMixin:
             if error.code() != grpc.StatusCode.UNIMPLEMENTED:
                 raise
             params = None
+            read_error = error
         if params is None:
+            df_method = 'zen_api.lm.acquisition.v1.DefiniteFocusService.FindSurface'
+            if (getattr(self, 'allow_definite_focus', False) and self._definite_focus() is not None
+                    and not self.capabilities.unsupported(df_method)):
+                self._prepared_af = (self._experiment_id, 'definite_focus')
+                return {'experiment_id': self._experiment_id, 'af_engine': 'definite_focus'}
+            if not getattr(self, 'allow_unverified_af', False):
+                raise MarkCapabilityError(
+                    'AF 参数读取不可用，无法回读校验搜索范围；默认已阻止 AF。'
+                    '请关闭 AF 改用手动示教；只有在 ZEN 核对范围安全后，才可显式启用允许实验内置 AF 范围。'
+                ) from read_error
             # Get unavailable (seen on ZEN 3.12): constrain the search range
             # with a write-only Set. Unset wrapped/enumerated fields stay
             # unmodified on the experiment; mode/contrast are left untouched.

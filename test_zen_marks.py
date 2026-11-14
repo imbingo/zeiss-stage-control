@@ -58,6 +58,8 @@ class MarkCaptureTest(unittest.TestCase):
         self.assertFalse(pending_recovery(self.root, simulated=True))
         document = json.loads((w.mark_output_path / 'capture.json').read_text(encoding='utf-8'))
         self.assertTrue(document['status']['pair_complete'])
+        self.assertTrue(document['status']['capture_complete'])
+        self.assertEqual(document['status']['images_saved_count'], 2)
         self.assertFalse(document['status']['result_valid'])
         self.assertEqual(set(document['images']), {'upper', 'lower'})
         self.assertTrue(document['simulated'])

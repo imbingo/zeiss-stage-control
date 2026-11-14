@@ -22,7 +22,8 @@ STATE_PILLS = {"complete": ("ok", "有效"), "stopped": ("warn", "中止"),
 
 def _load_json(path):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding='utf-8'))
+        return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
         return {}
 
@@ -40,7 +41,16 @@ def scan_runs(data_root):
             status = _load_json(run / "status.json")
             recipe = _load_json(run / "recipe.json")
             result = _load_json(run / "result.json")
-            session = _load_json(run / "session.json")
+            session = _load_json(run / 'session.json')
+            capture = _load_json(run / 'capture.json')
+            recovery = _load_json(run / 'recovery.json')
+            confirmed = (recovery.get('source') == 'operator_external_check'
+                         and recovery.get('xy_confirmed') is True
+                         and recovery.get('af_z_confirmed') is True
+                         and bool(recovery.get('confirmed_at')))
+            recovery_required = status.get('recovery_required') is not False and not confirmed
+            if status.get('state') not in ('complete', 'stopped', 'failed') and not confirmed:
+                recovery_required = True
             kind = status.get("kind") or ("mark_capture" if recipe.get("kind") == "mark_capture"
                                           else "hardware" if status.get("kind") == "hardware_test"
                                           else "tilt" if recipe.get("point_order") is not None
@@ -52,9 +62,12 @@ def scan_runs(data_root):
             runs.append({
                 "path": run, "run_id": run.name, "kind": kind, "simulated": simulated,
                 "started": status.get("started_at", ""), "state": status.get("state", "unknown"),
-                "valid": bool(status.get("result_valid")), "recovery": status.get("recovery_required"),
+                "valid": bool(status.get('result_valid')), 'recovery': recovery_required,
+                'capture_complete': kind == 'mark' and status.get('state') == 'complete',
+                'pair_complete': bool(capture.get('status', {}).get('pair_complete')),
                 "stage": status.get("failure_stage", ""), "recipe": recipe, "result": result,
-                "session": session, "n_images": len(recipe.get("images", {})) if recipe else 0,
+                "session": session, "n_images": len(capture.get('images', {})),
+                'capture': capture,
             })
     return runs
 
@@ -68,7 +81,8 @@ def index_rows(runs):
             "operator": session.get("operator", ""),
             "recipe": recipe.get("recipe_name") or recipe.get("kind", ""),
             "experiment": recipe.get("experiment_name") or "",
-            "state": run["state"], "result_valid": run["valid"],
+            "state": run['state'], 'result_valid': run['valid'],
+            'capture_complete': run['capture_complete'], 'pair_complete': run['pair_complete'],
             "recovery_required": run["recovery"],
             "rx_urad": result.get("rx_urad", ""), "ry_urad": result.get("ry_urad", ""),
             "rms_um": "" if "rms_m" not in result else result["rms_m"] * 1e6,
@@ -101,7 +115,7 @@ class RecordsPage(QWidget):
         self.kind_combo.setFixedWidth(96)
         fl.addWidget(self.kind_combo)
         self.state_combo = QComboBox()
-        self.state_combo.addItems(["状态：全部", "有效", "中止", "失败", "待恢复"])
+        self.state_combo.addItems(['状态：全部', '已完成', '中止', '失败', '待恢复'])
         self.state_combo.setFixedWidth(110)
         fl.addWidget(self.state_combo)
         self.search = QLineEdit()
@@ -180,7 +194,7 @@ class RecordsPage(QWidget):
         for run in self.runs:
             if kind and run["kind"] != kind:
                 continue
-            if state_idx == 1 and not run["valid"]:
+            if state_idx == 1 and (run['state'] != 'complete' or run['recovery']):
                 continue
             if state_idx == 2 and run["state"] != "stopped":
                 continue
@@ -249,8 +263,13 @@ class RecordsPage(QWidget):
         lines = [
             f"类型 {KIND_NAMES.get(run['kind'], run['kind'])} · {'演示' if run['simulated'] else '真实'}",
             f"开始 {run['started']}",
-            f"状态 {run['state']} · 有效 {run['valid']} · 待恢复 {run['recovery']}",
+            f"状态 {run['state']} · 待恢复 {run['recovery']}",
         ]
+        if run['kind'] == 'mark':
+            lines.append(f"图像 {run['n_images']} 张 · 保存完成 {run['capture_complete']} · 图片对完整 {run['pair_complete']}")
+            lines.append('图像内容/清晰度/标定需另行核验；不等同于对位分析通过。')
+        elif run['kind'] == 'tilt':
+            lines.append(f"测角结果有效 {run['valid']}")
         if recipe.get("recipe_name"):
             lines.append(f"配方 {recipe['recipe_name']} · 实验 {recipe.get('experiment_name', '')}")
         if recipe.get("point_order"):
@@ -280,13 +299,16 @@ class RecordsPage(QWidget):
             QApplication.clipboard().setText(str(run["path"]))
 
     def rebuild_index(self):
+        self.runs = scan_runs(self.app.data_root)
         rows = list(index_rows(self.runs))
+        self.app.data_root.mkdir(parents=True, exist_ok=True)
         path = Path(self.app.data_root) / "index.csv"
         try:
             with path.open("w", encoding="utf-8-sig", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=list(rows[0].keys()) if rows else
                                         ["run_id", "started_at", "kind", "simulated", "sample",
                                          "operator", "recipe", "experiment", "state", "result_valid",
+                                         "capture_complete", "pair_complete",
                                          "recovery_required", "rx_urad", "ry_urad", "rms_um",
                                          "pv_um", "n_points", "n_images", "failure_stage", "path"])
                 writer.writeheader()
