@@ -75,7 +75,7 @@ class TiltPage(QWidget):
         self.recipe_name = label("未加载")
         bl.addWidget(self.recipe_name)
         bl.addWidget(QPushButton("编辑…", clicked=self.edit_recipe))
-        self.start_button = QPushButton("开始批量测角 ▶", clicked=self.run_batch)
+        self.start_button = QPushButton("配置批量测角…", clicked=self.run_batch)
         self.start_button.setObjectName("primary")
         bl.addWidget(self.start_button)
         self.stop_button = QPushButton("完成当前点后停止", clicked=self.app.stop)
@@ -300,29 +300,8 @@ class TiltPage(QWidget):
             self.app.log("error", str(exc))
 
     def run_batch(self):
-        recipe = self.app.field_recipe
-        workflow = self.app.workflow
-        if not recipe or not self.field_ready() or not self.app.field_verified:
-            return
-        try:
-            validate_recipe(recipe)
-        except ValueError as exc:
-            self.app.log("error", str(exc))
-            return
-        dialog = ConfirmRunDialog(self, recipe, self.app.verified_xy)
-        if not dialog.exec():
-            return
-        self.table.setRowCount(0)
-        self.point_status.clear()
-        self.active_index = None
-        self.progress.setMaximum(len(recipe.targets))
-        self.progress.setValue(0)
-        self.progress.show()
-        self._redraw()
-        try:
-            workflow.start(recipe, path_confirmed=True, confirmed_start=self.app.verified_xy)
-        except (RuntimeError, ValueError) as exc:
-            self.app.log("error", str(exc))
+        self.app.navigate('recipes')
+        self.app.log('info','批量测角请在配方管理中配置并使用步骤测试；本页保留只读与当前点 AF 校验。')
 
     def export(self):
         workflow = self.app.workflow
@@ -403,7 +382,7 @@ class TiltPage(QWidget):
         ready = self.field_ready()
         recipe = app.field_recipe
         self.no_xy_note.setVisible(app.xy_mode == 'no_xy')
-        self.start_button.setEnabled(ready and app.field_verified and recipe is not None)
+        self.start_button.setEnabled(not bool(app.workflow and app.workflow.busy))
         self.stop_button.setEnabled(busy)
         self.teach_button.setEnabled(ready and recipe is not None)
         self.delete_button.setEnabled(ready and recipe is not None)

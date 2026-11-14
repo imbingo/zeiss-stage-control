@@ -1,92 +1,122 @@
-"""Actual Qt Sequence controls, persistence and complete simulated task."""
-import tempfile
+"""Run centre uses selected recipe revisions, with no cross-page configuration."""
+
+import os, tempfile, unittest, json
 from pathlib import Path
-import unittest
-from PySide6.QtWidgets import QTableWidgetItem
-from test_zen_qt_smoke import _app,_wait
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from test_zen_qt_smoke import _app, _wait
 from zen_qt.app import WorkbenchWindow
+from zen_recipe_store import RecipeLibrary
+from zen_qt.pages.records import scan_runs
 
 
 class QtSequenceTests(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):_app()
+    def setUpClass(cls):
+        _app()
 
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
-        self.root=Path(self.tmp.name)/'data';self.w=WorkbenchWindow(self.root);self.w.z_timer.stop()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.w = WorkbenchWindow(Path(self.tmp.name) / "data")
+        self.w.z_timer.stop()
+        self.p = self.w.pages["recipes"]
+        self.p.seed_demo()
+        self.w.sample_edit.setText("W-001")
+        self.w.operator_edit.setText("tester")
+        self.w.connect_demo("sequence")
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy))
+        self.c = self.w.pages["sequence"]
+        self.c.select_recipe(self.p.current_id, self.p.current_rev, mode="simulation")
         self.addCleanup(self.cleanup)
 
     def cleanup(self):
-        if self.w.workflow and self.w.workflow.busy:self.w.workflow.stop();_wait(lambda:not self.w.workflow.busy)
-        self.w.close();_app().processEvents()
+        self.p._dirty = False
+        if self.w.workflow.busy:
+            self.w.workflow.stop()
+            _wait(lambda: not self.w.workflow.busy)
+        self.w.close()
 
-    def demo(self):
-        self.w.connect_demo('sequence')
-        self.assertTrue(_wait(lambda:not self.w.workflow.busy and self.w.workflow.state=='就绪'))
-        return self.w.pages['sequence']
-
-    def check(self,page):
-        page.preflight()
-        self.assertTrue(_wait(lambda:not self.w.workflow.busy and page._checked is not None),page.status.text())
-        page.path_confirm.setChecked(True);page.load_confirm.setChecked(True)
-        self.assertTrue(page.start_button.isEnabled())
-
-    def test_whole_sequence_through_page_controls_and_record_archive(self):
-        page=self.demo();self.check(page)
-        page.start_button.click()
-        self.assertTrue(_wait(lambda:not self.w.workflow.busy,20))
+    def start(self):
+        self.c.preflight()
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy))
+        self.assertIsNotNone(self.c._checked, self.c.status.text())
+        self.c.path_confirm.setChecked(True)
+        self.c.load_confirm.setChecked(True)
+        self.c.start()
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy, 30))
         _app().processEvents()
-        self.assertEqual(self.w.workflow.state,'完成',page.status.text())
-        self.assertEqual(self.w.workflow.device.capture_count,4)
-        self.assertGreater(page.steps.rowCount(),5)
-        self.assertFalse(page.path_confirm.isChecked());self.assertFalse(page.load_confirm.isChecked())
-        self.assertFalse(page.start_button.isEnabled())
-        self.w.navigate('records')
-        self.assertEqual(self.w.pages['records'].runs[0]['n_images'],4)
 
-    def test_readonly_preflight_and_every_change_invalidate_checks(self):
-        page=self.demo();self.check(page)
-        self.assertEqual(self.w.workflow.device.moves,[]);self.assertEqual(self.w.workflow.device.z_moves,[])
-        page.fields['safe_z_um'].setText('25')
-        self.assertIsNone(page._checked);self.assertFalse(page.path_confirm.isChecked())
-        self.check(page)
-        page.stations.setItem(1,2,QTableWidgetItem('2100'))
-        self.assertIsNone(page._checked);self.assertFalse(page.start_button.isEnabled())
-        self.check(page)
-        self.w.pages['tilt'].apply_recipe(self.w.field_recipe)
-        self.assertIsNone(page._checked);self.assertFalse(page.path_confirm.isChecked())
+    def test_changed_recipe_controls_move_and_records_same_revision(self):
+        b = self.p._body
+        b["step_tree"][4]["children"][0]["params"]["x_um"] = 4321
+        self.p.mark_dirty()
+        self.assertTrue(self.p.save_new_version())
+        self.c.select_recipe(self.p.current_id, 1, mode="simulation")
+        self.start()
+        w = self.w.workflow
+        self.assertEqual(w.sequence_report["state"], "complete")
+        self.assertAlmostEqual(w.device.xy[0], 0.004321)
+        report = json.loads(
+            (w.sequence_run_path / "snapshot.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            report["plan"]["recipe_identity"]["content_sha256"],
+            self.p.library.get(self.p.current_id, 1)["content_sha256"],
+        )
+        self.assertEqual(scan_runs(self.w.data_root)[0]["n_images"], 2)
 
-    def test_preferences_keep_draft_not_approvals_and_demo_cannot_be_field(self):
-        page=self.demo();self.check(page)
-        page.fields['safe_z_um'].setText('unfinished')
-        page.persist()
-        saved=self.w.preferences.data['sequence']
-        self.assertEqual(saved['fields']['safe_z_um'],'unfinished')
-        self.assertNotIn('confirmed',saved)
-        other=WorkbenchWindow(self.root)
-        try:
-            p=other.pages['sequence']
-            self.assertEqual(p.fields['safe_z_um'].text(),'unfinished')
-            self.assertFalse(p.path_confirm.isChecked());self.assertIsNone(p._checked)
-            self.assertTrue(p._source_demo)
-            self.assertIsNotNone(other.field_recipe)
-            self.assertEqual(len(other.field_recipe.targets),4)
-        finally:other.close()
-        page.new_field()
-        self.assertFalse(page._source_demo);self.assertEqual(page.stations.rowCount(),0)
+    def test_revisiting_center_keeps_execution_progress(self):
+        self.start()
+        before = [
+            self.c.steps.item(r, 1).text() for r in range(self.c.steps.rowCount())
+        ]
+        self.w.navigate("recipes")
+        self.w.navigate("sequence")
+        self.assertEqual(
+            before,
+            [self.c.steps.item(r, 1).text() for r in range(self.c.steps.rowCount())],
+        )
+        self.assertIn("完成", before)
 
-    def test_no_xy_mode_and_device_change_block_launch(self):
-        page=self.demo();self.check(page)
-        self.w.disconnect();self.assertIsNone(page._checked)
-        self.assertFalse(page.start_button.isEnabled())
-        self.w.set_xy_mode('no_xy');self.w.connect_demo('sequence')
-        self.assertIsNone(self.w.workflow)
+    def test_capture_only_no_af_calls(self):
+        self.p.template.setCurrentText("仅上下孔采图")
+        self.p.save_new_version()
+        self.c.select_recipe(self.p.current_id, 1, mode="simulation")
+        self.start()
+        self.assertEqual(self.w.workflow.device.af_attempts, 0)
+        self.assertEqual(self.w.workflow.sequence_report["state"], "complete")
+        self.assertIsNone(self.w.workflow.sequence_report["result"])
 
-    def test_demo_preserves_existing_field_configuration(self):
-        page=self.w.pages['sequence']
-        page.fields['name'].setText('现场任务')
-        page.fields['safe_z_um'].setText('350')
-        page.persist()
-        self.demo()
-        self.assertEqual(self.w.preferences.data['sequence']['fields']['safe_z_um'],'350')
-        self.assertFalse(self.w.preferences.data['sequence']['simulated_configuration'])
+    def test_edit_sample_invalidates_readonly_check(self):
+        self.c.preflight()
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy))
+        self.assertIsNotNone(self.c._checked)
+        self.w.sample_edit.setText("W-002")
+        self.assertIsNone(self.c._checked)
+        self.assertFalse(self.c.start_button.isEnabled())
+
+    def test_production_rejects_draft_and_real_mode_rejects_simulator(self):
+        self.c.mode.setCurrentIndex(0)
+        self.c.preflight()
+        self.assertIsNone(self.c._checked)
+        self.assertIn("已放行", self.c.status.text())
+        self.c.mode.setCurrentIndex(1)
+        self.c.preflight()
+        self.assertIn("模拟设备", self.c.status.text())
+
+    def test_frozen_plan_survives_library_edits_after_start(self):
+        self.c.preflight()
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy))
+        self.c.path_confirm.setChecked(True)
+        self.c.load_confirm.setChecked(True)
+        self.c.start()
+        b = self.p._body
+        b["step_tree"][4]["children"][0]["params"]["x_um"] = 9876
+        self.p.library.save_draft(self.p.current_id, 1, b, by="tester", note="next run")
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy, 30))
+        self.assertAlmostEqual(self.w.workflow.device.xy[0], 0.004)
+        self.assertNotEqual(
+            self.w.workflow.sequence_report["recipe_identity"]["content_sha256"],
+            self.p.library.get(self.p.current_id, 1)["content_sha256"],
+        )

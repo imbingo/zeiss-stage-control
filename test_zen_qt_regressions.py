@@ -80,8 +80,8 @@ class QtRegressionTests(unittest.TestCase):
         accept = next(b for b in buttons.buttons() if buttons.buttonRole(b) == QDialogButtonBox.AcceptRole)
         accept.click()
         self.assertEqual(dialog.result(), 0)
-        dialog.xy_box.click()
-        dialog.z_box.click()
+        for _, _, box in dialog.checks:
+            box.click()
         accept.click()
         self.assertEqual(dialog.result(), 1)
         self.assertFalse(self.w.locked())
@@ -268,7 +268,7 @@ class QtRegressionTests(unittest.TestCase):
         self.w.navigate('marks')
         _app().processEvents()
         self.assertLessEqual(self.w.height(), 740)
-        scroll = self.w.page_containers['marks']
+        scroll = self.w.equipment_tabs.currentWidget()
         self.assertTrue(_wait(lambda: scroll.verticalScrollBar().maximum() > 0))
         self.assertEqual(self.w.pages['marks']._layer_layout.direction(),
                          QBoxLayout.TopToBottom)

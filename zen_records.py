@@ -1,9 +1,11 @@
 """Persist a run incrementally using an explicit, credential-free schema."""
 
 import csv
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
+from importlib import metadata
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +14,56 @@ from zen_acquisition import PointRecord
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def software_version():
+    """Report the installed build, or clearly say this is a source checkout.
+
+    A hard-coded version string makes every historical run claim to belong to
+    whichever release happened to be current when the code was written.
+    Packaged builds can inject ZEN_APP_VERSION.
+    """
+    override = os.environ.get("ZEN_APP_VERSION", "").strip()
+    if override:
+        return override
+    try:
+        return metadata.version("zeiss-stage-control")
+    except metadata.PackageNotFoundError:
+        return "2.7.0+source"
+
+
+def canonical_sha256(value):
+    """Stable hash of a canonicalised dict; metadata is excluded by the caller."""
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def write_manifest(root, *, run_id, files, base=None):
+    """Freeze a content-addressed list of every artifact a run produced.
+
+    The image directory lives outside the central record directory, so a path
+    string alone cannot prove a TIFF still exists or was not replaced.
+    """
+    root = Path(root)
+    base = Path(base) if base is not None else None
+    entries = []
+    for item in sorted({Path(f) for f in files}):
+        if not item.is_file():
+            continue
+        digest = hashlib.sha256()
+        with item.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1 << 20), b""):
+                digest.update(chunk)
+        rel = str(item.relative_to(base)) if base and item.is_relative_to(base) else item.name
+        entries.append({"rel_path": rel, "sha256": digest.hexdigest(),
+                        "bytes": item.stat().st_size})
+    document = {"kind": "artifact_manifest", "schema_version": 1, "run_id": run_id,
+                "created_at": utc_now(), "artifact_count": len(entries),
+                "artifacts": entries,
+                "manifest_sha256": canonical_sha256({"artifacts": entries})}
+    write_json(root / "manifest.json", document)
+    return document
 
 
 def write_json(path, value):
@@ -42,7 +94,8 @@ class RunRecords:
         self.path.mkdir()
         self.started = utc_now()
         write_json(self.path / "recipe.json", {
-            "schema_version": 1, "software_version": "2.6.0",
+            "schema_version": 1, "software_version": software_version(),
+            "model_version": "1.1",
             "recipe_name": name, "experiment_name": experiment,
             "point_order": targets, "xy_tolerance_m": tolerance_m,
             "af_timeout_s": af_timeout, "arrival_timeout_s": arrival_timeout,
@@ -119,11 +172,63 @@ def pending_recovery(root: Path, *, simulated: bool):
     return tuple(sorted(pending))
 
 
-def confirm_recovery(run: Path, *, xy_confirmed: bool, af_z_confirmed: bool):
-    """Persist operator attestation after external checks on both subsystems."""
-    if xy_confirmed is not True or af_z_confirmed is not True:
+RECOVERY_ITEMS = (
+    ("xy_idle", "载物台 XY 动作已结束、样品已固定"),
+    ("af_z_idle", "软件 AF、Z 轴与拍摄均已结束"),
+    ("experiment_idle", "ZEN 实验与采集已停止，无后台任务"),
+    ("optics_unchanged", "物镜、倍率与光路未被改变"),
+)
+
+
+def confirm_recovery(run: Path, *, xy_confirmed=None, af_z_confirmed=None,
+                     operator="", items=None, reason="", readbacks=None):
+    """Append one signed, per-run, per-item operator attestation.
+
+    The legacy two-boolean call still works and becomes a two-item checklist.
+    Every item must be explicitly confirmed; callers are responsible for
+    writing one record per run instead of silently unlocking a whole batch.
+    """
+    run = Path(run)
+    checklist = []
+    for item in (items or ()):
+        key = str(item.get("key", ""))
+        checklist.append({"key": key, "label": str(item.get("label", key))[:200],
+                          "confirmed": item.get("confirmed") is True,
+                          "method": str(item.get("method", "operator_external_check"))[:120],
+                          "value": str(item.get("value", ""))[:200]})
+    if not checklist:
+        checklist = [
+            {"key": "xy_idle", "label": RECOVERY_ITEMS[0][1],
+             "confirmed": xy_confirmed is True,
+             "method": "operator_external_check", "value": ""},
+            {"key": "af_z_idle", "label": RECOVERY_ITEMS[1][1],
+             "confirmed": af_z_confirmed is True,
+             "method": "operator_external_check", "value": ""},
+        ]
+    by_key = {item["key"]: item for item in checklist}
+    xy = by_key.get("xy_idle", {}).get("confirmed", xy_confirmed is True)
+    af_z = by_key.get("af_z_idle", {}).get("confirmed", af_z_confirmed is True)
+    if xy is not True or af_z is not True:
         raise ValueError("须分别确认 XY 和 AF/Z 已结束")
-    write_json(run / "recovery.json", {
-        "confirmed_at": utc_now(), "source": "operator_external_check",
+    if not all(item["confirmed"] is True for item in checklist):
+        raise ValueError("恢复确认的每一项都必须逐项勾选")
+    try:
+        json.dumps(readbacks or {}, allow_nan=False)
+        safe_readbacks = readbacks or {}
+    except (TypeError, ValueError):
+        safe_readbacks = {"note": "设备回读值未能序列化，未写入"}
+    record = {
+        "source": "operator_external_check", "confirmed_at": utc_now(),
         "xy_confirmed": True, "af_z_confirmed": True,
-    })
+        "run_id": run.name, "operator": str(operator or "")[:120],
+        "reason": str(reason or "")[:500], "items": checklist,
+        "readbacks": safe_readbacks,
+    }
+    record["attestation_sha256"] = canonical_sha256(
+        {k: v for k, v in record.items() if k != "attestation_sha256"})
+    write_json(run / "recovery.json", record)
+    with (run / "recovery.jsonl").open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    return record

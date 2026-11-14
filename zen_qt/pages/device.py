@@ -1,4 +1,4 @@
-﻿"""设备与自检 page: connection, gateway preflight, service discovery."""
+"""设备与自检 page: connection, gateway preflight, service discovery."""
 
 import os
 
@@ -19,7 +19,7 @@ def _page(widget, title, subtitle):
     col = QWidget()
     cl = vbox(col, spacing=2, margins=0)
     t = label(title, role="title")
-    t.setStyleSheet("font-size:16px")
+    t.setStyleSheet("font-size:20px;font-weight:700")
     cl.addWidget(t)
     cl.addWidget(label(subtitle, role="muted"))
     head.addWidget(col)
@@ -35,7 +35,7 @@ class DevicePage(QWidget):
         self.app = app
         self._last_preflight_data = None
         self._auto_preflight_done = False
-        lay, head = _page(self, "设备与自检",
+        lay, head = _page(self, "设备与手动操作",
                           "连接 Gateway → 自动预检 → 可选的服务发现与硬件单步调试")
         self.steps = StepStrip(["连接", "预检", "服务发现", "就绪"])
         head.addWidget(self.steps)
