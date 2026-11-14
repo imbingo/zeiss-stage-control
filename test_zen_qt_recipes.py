@@ -65,6 +65,13 @@ class TestRecipesPage(unittest.TestCase):
         self.assertNotIn("upper_z_um", self.p.param_edits)
         self.select("H01")
         self.assertEqual(self.p.param_edits["x_um"].text(), "8765")
+        self.w.connect_demo("sequence")
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy))
+        self.select("S1")
+        self.p.point_table.selectRow(0)
+        self.p.teach_tilt()
+        self.assertTrue(_wait(lambda:len(self.p._body["tilt"]["points_um"][0])==3))
+        self.assertEqual(self.p._body["tilt"]["points_um"][0], [0.0, 0.0, 100.0])
 
     def test_check_saves_current_edits_and_never_fakes_qualification(self):
         self.select("H01")

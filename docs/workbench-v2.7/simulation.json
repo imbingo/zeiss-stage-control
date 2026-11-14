@@ -3,7 +3,7 @@
   "state": "complete",
   "captures": 2,
   "recipe_identity": {
-    "recipe_id": "RCP-8D5353A1B2",
+    "recipe_id": "RCP-743EEE23D6",
     "revision": 1,
     "content_sha256": "b1f2222108475588c1746ee75f528db9a3855479147f60e03631c488ec205b2d",
     "execution_mode": "simulation",

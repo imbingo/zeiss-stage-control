@@ -212,7 +212,11 @@ class RecipesPage(QWidget):
         lay.addWidget(self.release_hint)
 
     def on_show(self):
+        note = self.change_note.text() if self._dirty else None
         self.refresh_tree()
+        self.refresh_all()
+        if note is not None:
+            self.change_note.setText(note)
 
     def _operator(self):
         return self.app.operator_edit.text().strip()
@@ -481,6 +485,7 @@ class RecipesPage(QWidget):
 
             rl.addWidget(QPushButton("＋测角点", clicked=add))
             rl.addWidget(QPushButton("删除所选点", clicked=remove))
+            rl.addWidget(QPushButton("读取当前 XY/Z", clicked=self.teach_tilt))
             row.setEnabled(not self._read_only())
             self.form.addRow(row)
         elif kind == "gate":
@@ -547,6 +552,8 @@ class RecipesPage(QWidget):
         self._loading = False
 
     def update_enabled(self, v):
+        self.check_button.setEnabled(v["status"] == DRAFT)
+        self.save_button.setEnabled(v["status"] == DRAFT)
         self.save_state.setText(
             "有未保存修改"
             if self._dirty
@@ -818,6 +825,29 @@ class RecipesPage(QWidget):
         except ValueError as e:
             QMessageBox.warning(self, "放行", str(e))
 
+    def teach_tilt(self):
+        w = self.app.workflow
+        if self._read_only() or not w or w.busy or not hasattr(self, "point_table"):
+            return
+        row = self.point_table.currentRow()
+        points = self._body.get("tilt", {}).get("points_um", [])
+        if not 0 <= row < len(points):
+            self.validation_hint.setText("请先选择一个测角点")
+            return
+        token = (
+            self.current_id,
+            self.current_rev,
+            row,
+            json.dumps(points, ensure_ascii=False),
+        )
+        try:
+            w.read_only(
+                "recipe_tilt_teach",
+                lambda d: {"target": token, "xy": d.read_xy(), "z": d.read_z()},
+            )
+        except RuntimeError as e:
+            self.validation_hint.setText(str(e))
+
     def teach(self):
         w = self.app.workflow
         n = self._find_step(self._selected_step_id)
@@ -856,10 +886,23 @@ class RecipesPage(QWidget):
             self.validation_hint.setText(str(e))
 
     def on_rpc_error(self, tag, error):
-        if tag in ("recipe_teach", "recipe_experiments"):
+        if tag in ("recipe_teach", "recipe_experiments", "recipe_tilt_teach"):
             self.validation_hint.setText(str(error))
 
     def on_rpc_result(self, tag, value):
+        if tag == "recipe_tilt_teach":
+            rid, rev, row, fingerprint = value["target"]
+            points = self._body.get("tilt", {}).get("points_um", [])
+            if (
+                (rid, rev) != (self.current_id, self.current_rev)
+                or self._read_only()
+                or json.dumps(points, ensure_ascii=False) != fingerprint
+            ):
+                return
+            points[row] = [value["xy"][0] * 1e6, value["xy"][1] * 1e6, value["z"] * 1e6]
+            self.mark_dirty()
+            self.refresh_params()
+            return
         if tag == "recipe_experiments":
             names = []
 

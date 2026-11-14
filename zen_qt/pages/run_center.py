@@ -131,7 +131,7 @@ class RunCenter(QWidget):
         self.mode.addItem("正式运行", "production")
         self.mode.addItem("现场工程试运行", "engineering")
         self.mode.addItem("离线模拟", "simulation")
-        self.mode.currentIndexChanged.connect(self.invalidate)
+        self.mode.currentIndexChanged.connect(self.selection_changed)
         task.add(self.mode)
         self.version_label = label("请选择配方", wrap=True)
         task.add(self.version_label)
@@ -580,7 +580,7 @@ class RunCenter(QWidget):
                     self.status.setText("运行已结束，验证记录未关联：" + str(e))
 
     def on_device_changed(self, w):
-        self.invalidate()
+        self.selection_changed()
 
     def choose_output(self):
         path = QFileDialog.getExistingDirectory(self, "图像输出目录")
