@@ -1,0 +1,32 @@
+﻿method,3.12_documented_service,3.12_current_route,3.14_documented,3.14core_documented,3.15_documented
+zen_api.hardware.v1.SimpleStageService.GetPosition,zen_api.lm.hardware.v2.StageService,False,True,True,True
+zen_api.hardware.v1.SimpleStageService.MoveTo,zen_api.lm.hardware.v2.StageService,False,True,True,True
+zen_api.hardware.v1.StageService.GetStageMotionState,zen_api.hardware.v1.StageService,True,True,True,True
+zen_api.lm.hardware.v2.FocusService.GetPosition,zen_api.lm.hardware.v2.FocusService,True,True,True,True
+zen_api.lm.hardware.v2.FocusService.MoveTo,zen_api.lm.hardware.v2.FocusService,True,True,True,True
+zen_api.lm.hardware.v2.FocusService.Stop,zen_api.lm.hardware.v2.FocusService,True,True,True,True
+zen_api.lm.hardware.v1.FocusService.GetPosition,zen_api.lm.hardware.v1.FocusService,True,True,True,True
+zen_api.lm.hardware.v1.FocusService.MoveTo,zen_api.lm.hardware.v1.FocusService,True,True,True,True
+zen_api.lm.hardware.v2.ObjectiveChangerService.GetPosition,not in official archive,False,True,True,True
+zen_api.lm.hardware.v2.OptovarService.GetPosition,not in official archive,False,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.GetAvailableExperiments,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.Load,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.Clone,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.Export,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.RunSnap,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.RunExperiment,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.Stop,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.GetStatus,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentService.GetImageOutputPath,zen_api.acquisition.v1beta.ExperimentService,True,True,True,True
+zen_api.acquisition.v1beta.ExperimentStreamingService.MonitorExperiment,zen_api.acquisition.v1beta.ExperimentStreamingService,True,True,True,True
+zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.GetAutofocusParameters,zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService,True,True,True,True
+zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.SetAutofocusParameters,zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService,True,True,True,True
+zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.FindAutoFocus,zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService,True,True,True,True
+zen_api.lm.acquisition.v1.ZStackService.IsZStackExperiment,zen_api.lm.acquisition.v1beta.ZStackService,True,True,True,True
+zen_api.lm.acquisition.v1.ZStackService.GetZStackInfo,zen_api.lm.acquisition.v1beta.ZStackService,True,True,True,True
+zen_api.lm.acquisition.v1.ZStackService.ModifyZStackFirstLast,zen_api.lm.acquisition.v1beta.ZStackService,True,True,True,True
+zen_api.lm.acquisition.v1.ZStackService.ModifyZStackCenterRange,zen_api.lm.acquisition.v1beta.ZStackService,True,True,True,True
+zen_api.lm.acquisition.v1.DefiniteFocusService.FindSurface,not in official archive,False,True,True,True
+zen_api.lm.hardware.v2.CameraService.GetCameras,not in official archive,False,True,True,True
+zen_api.lm.hardware.v2.CameraService.GetCamera,not in official archive,False,True,True,True
+zen_api.lm.hardware.v2.CameraService.ConfigureCamera,not in official archive,False,True,True,True

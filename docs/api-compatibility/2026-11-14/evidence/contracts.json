@@ -1,0 +1,1912 @@
+{
+  "application_commit": "4867009141e76b070c8279d233f2502d65d4b8a7",
+  "official_commit": "781ce14954946366524b96347e7767cefb11a2c8",
+  "legacy_commit": "c94fb25f693900c4ad23b4e4fbe3f7f3f7b57fbc",
+  "inspection": "Static official contracts, not microscope execution or guaranteed runtime availability",
+  "zeiss_rpc_count": 31,
+  "standard_reflection_request_kinds": [
+    "list_services",
+    "file_containing_symbol"
+  ],
+  "methods": [
+    {
+      "method": "zen_api.hardware.v1.SimpleStageService.GetPosition",
+      "legacy_service": "zen_api.lm.hardware.v2.StageService",
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.StageService",
+          "current_route_available": false,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.SimpleStageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.SimpleStageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.SimpleStageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.hardware.v1.SimpleStageService.MoveTo",
+      "legacy_service": "zen_api.lm.hardware.v2.StageService",
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.StageService",
+          "current_route_available": false,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.SimpleStageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.SimpleStageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.SimpleStageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.hardware.v1.StageService.GetStageMotionState",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.StageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.StageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.StageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.hardware.v1.StageService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.FocusService.GetPosition",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.FocusService.MoveTo",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.FocusService.Stop",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v1.FocusService.GetPosition",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v1.FocusService.MoveTo",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v1.FocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.ObjectiveChangerService.GetPosition",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": false,
+          "service": null,
+          "current_route_available": false
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.ObjectiveChangerService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.ObjectiveChangerService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.ObjectiveChangerService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.OptovarService.GetPosition",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": false,
+          "service": null,
+          "current_route_available": false
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.OptovarService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.OptovarService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.OptovarService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.GetAvailableExperiments",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 2,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 2,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 2,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 2,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.Load",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.Clone",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.Export",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.RunSnap",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.RunExperiment",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.Stop",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.GetStatus",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 2,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 3,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 3,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 3,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentService.GetImageOutputPath",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.acquisition.v1beta.ExperimentStreamingService.MonitorExperiment",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentStreamingService",
+          "current_route_available": true,
+          "server_streaming": true,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 8,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentStreamingService",
+          "current_route_available": true,
+          "server_streaming": true,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 9,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentStreamingService",
+          "current_route_available": true,
+          "server_streaming": true,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 9,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.acquisition.v1beta.ExperimentStreamingService",
+          "current_route_available": true,
+          "server_streaming": true,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 9,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.GetAutofocusParameters",
+      "legacy_service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+      "legacy_routing_implemented": true,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.SetAutofocusParameters",
+      "legacy_service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+      "legacy_routing_implemented": true,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 3,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 3,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 3,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService.FindAutoFocus",
+      "legacy_service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+      "legacy_routing_implemented": true,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ExperimentSwAutofocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.ZStackService.IsZStackExperiment",
+      "legacy_service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "legacy_routing_implemented": true,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.ZStackService.GetZStackInfo",
+      "legacy_service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "legacy_routing_implemented": true,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.ZStackService.ModifyZStackFirstLast",
+      "legacy_service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "legacy_routing_implemented": true,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.ZStackService.ModifyZStackCenterRange",
+      "legacy_service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "legacy_routing_implemented": true,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.ZStackService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 2,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.acquisition.v1.DefiniteFocusService.FindSurface",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": false,
+          "service": null,
+          "current_route_available": false
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.DefiniteFocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.DefiniteFocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.acquisition.v1.DefiniteFocusService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.CameraService.GetCameras",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": false,
+          "service": null,
+          "current_route_available": false
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 5,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 5,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 5,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.CameraService.GetCamera",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": false,
+          "service": null,
+          "current_route_available": false
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 5,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 5,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 1,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 5,
+            "differences": []
+          }
+        }
+      }
+    },
+    {
+      "method": "zen_api.lm.hardware.v2.CameraService.ConfigureCamera",
+      "legacy_service": null,
+      "legacy_routing_implemented": false,
+      "versions": {
+        "ZEN3.12_20250509": {
+          "documented": false,
+          "service": null,
+          "current_route_available": false
+        },
+        "proto_2026.5.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 5,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.7.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 5,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        },
+        "proto_2026.11.1": {
+          "documented": true,
+          "service": "zen_api.lm.hardware.v2.CameraService",
+          "current_route_available": true,
+          "server_streaming": false,
+          "request": {
+            "compared_message_pairs": 5,
+            "differences": []
+          },
+          "response": {
+            "compared_message_pairs": 1,
+            "differences": []
+          }
+        }
+      }
+    }
+  ]
+}

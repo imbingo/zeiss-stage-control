@@ -1,0 +1,23 @@
+[
+  {
+    "official_api": "2026.5.1",
+    "official_product_mapping": "ZEN 3.14",
+    "tests": 58,
+    "passed": true,
+    "scope": "Local generated-stub and mock wire tests, not ZEN or microscope runtime"
+  },
+  {
+    "official_api": "2026.7.1",
+    "official_product_mapping": "ZEN core 3.14",
+    "tests": 58,
+    "passed": true,
+    "scope": "Local generated-stub and mock wire tests, not ZEN or microscope runtime"
+  },
+  {
+    "official_api": "2026.11.1",
+    "official_product_mapping": "ZEN 3.15",
+    "tests": 58,
+    "passed": true,
+    "scope": "Local generated-stub and mock wire tests, not ZEN or microscope runtime"
+  }
+]

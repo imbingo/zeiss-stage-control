@@ -1,0 +1,142 @@
+{
+  "kind": "local_protocol_mock_only",
+  "application_commit": "4867009141e76b070c8279d233f2502d65d4b8a7",
+  "checks": [
+    {
+      "check": "Focus v2 read/move in metres",
+      "pass": true
+    },
+    {
+      "check": "AF Get/Set/readback/Find via v1beta",
+      "pass": true
+    },
+    {
+      "check": "ZStack v1beta collapse + confocal complete frame",
+      "pass": true
+    },
+    {
+      "check": "No-AF camera SNAP complete frame",
+      "pass": true
+    },
+    {
+      "check": "Unavailable optics/camera remain unavailable",
+      "pass": true
+    },
+    {
+      "check": "Confirmed current motorized connect lacks old XY path",
+      "pass": true,
+      "expected_incompatibility": true
+    }
+  ],
+  "limitations": [
+    "Not ZEN execution; mock only.",
+    "Message fixture fields checked statically against official 3.12 archive.",
+    "Does not test hardware, authentication, licensing, AF quality or ZStack acceptance."
+  ],
+  "calls": [
+    {
+      "service": "zen_api.lm.hardware.v2.FocusService",
+      "method": "GetPosition"
+    },
+    {
+      "service": "zen_api.lm.hardware.v2.FocusService",
+      "method": "MoveTo"
+    },
+    {
+      "service": "zen_api.lm.hardware.v2.FocusService",
+      "method": "GetPosition"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "Load"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "Clone"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+      "method": "GetAutofocusParameters"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+      "method": "SetAutofocusParameters"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+      "method": "GetAutofocusParameters"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ExperimentSwAutofocusService",
+      "method": "FindAutoFocus"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "Clone"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "IsZStackExperiment"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "GetZStackInfo"
+    },
+    {
+      "service": "zen_api.lm.hardware.v2.FocusService",
+      "method": "GetPosition"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "ModifyZStackFirstLast"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "GetZStackInfo"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "RunExperiment"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "GetStatus"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "Load"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "Clone"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "Clone"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "IsZStackExperiment"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "GetZStackInfo"
+    },
+    {
+      "service": "zen_api.lm.hardware.v2.FocusService",
+      "method": "GetPosition"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "ModifyZStackFirstLast"
+    },
+    {
+      "service": "zen_api.lm.acquisition.v1beta.ZStackService",
+      "method": "GetZStackInfo"
+    },
+    {
+      "service": "zen_api.acquisition.v1beta.ExperimentService",
+      "method": "RunSnap"
+    }
+  ]
+}
