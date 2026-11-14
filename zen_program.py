@@ -261,6 +261,9 @@ def execute_program(w, plan, output, session, preflight):
             and expected.get(name) != digest
         ):
             raise ValueError("实验内容与放行版本不同：" + name)
+        previous_digest = report["experiment_fingerprints"].get(name)
+        if previous_digest is not None and previous_digest != digest:
+            raise ValueError("同名实验在本次任务中已被修改，请重新验证：" + name)
         report["experiment_fingerprints"][name] = digest
         experiment = name
 

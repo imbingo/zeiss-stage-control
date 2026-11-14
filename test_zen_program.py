@@ -82,9 +82,9 @@ class ProgramTests(unittest.TestCase):
 
         self.assertEqual(scan_runs(self.w.root)[0]["n_images"], 2)
         self.assertEqual(
-            json.loads((self.w.sequence_run_path / "snapshot.json").read_text(encoding="utf-8"))[
-                "session"
-            ]["operator"],
+            json.loads(
+                (self.w.sequence_run_path / "snapshot.json").read_text(encoding="utf-8")
+            )["session"]["operator"],
             "E1",
         )
 
@@ -266,11 +266,11 @@ class ProgramTests(unittest.TestCase):
                 }
             },
         }
-        (run / "sequence.json").write_text(json.dumps(r),encoding="utf-8")
+        (run / "sequence.json").write_text(json.dumps(r), encoding="utf-8")
         with self.assertRaises(ValueError):
             lib.record_trial(rid, rev, run, by="E1")
         r["simulated"] = False
-        (run / "sequence.json").write_text(json.dumps(r),encoding="utf-8")
+        (run / "sequence.json").write_text(json.dumps(r), encoding="utf-8")
         lib.check(rid, rev)
         lib.record_trial(rid, rev, run, by="E1")
         lib.release(rid, rev, by="E1")
@@ -296,3 +296,27 @@ class ProgramTests(unittest.TestCase):
         )
         self.assertEqual(r["state"], "complete", r.get("error"))
         self.assertEqual(self.d.lab_calls.count("load_experiment"), 1)
+
+    def test_experiment_changes_within_trial_cannot_be_qualified(self):
+        original = self.d.call_hardware_operation
+        digests = iter(["a" * 64, "b" * 64])
+
+        def control(operation, params):
+            if operation == "export_experiment":
+                return {"xml_sha256": next(digests)}
+            return original(operation, params)
+
+        self.d.call_hardware_operation = control
+        self.w.simulated = False
+        b = body(
+            [
+                make_step("load_experiment", experiment="Upper"),
+                make_step("load_experiment", experiment="Upper"),
+                make_step("move_z", z_um=200),
+            ]
+        )
+        b["example"] = False
+        report = self.execute(b)
+        self.assertEqual(report["state"], "failed")
+        self.assertIn("已被修改", report["error"]["message"])
+        self.assertEqual(self.d.z_moves, [])
