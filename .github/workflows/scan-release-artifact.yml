@@ -18,7 +18,9 @@ jobs:
           "REPORT=$report" >> $env:GITHUB_ENV
           try {
               Set-MpPreference -SubmitSamplesConsent NeverSend
+              Set-MpPreference -DisableArchiveScanning $false
               $prefs = Get-MpPreference
+              if ($prefs.DisableArchiveScanning) { throw 'Archive scanning could not be enabled' }
               if ([int]$prefs.SubmitSamplesConsent -ne 2) { throw 'Automatic sample submission was not disabled' }
               try { Update-MpSignature -ErrorAction Stop } catch { $_ | Out-String | Set-Content "$report/signature-update-warning.txt" }
               Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,AntivirusSignatureVersion,AntivirusSignatureLastUpdated,AMEngineVersion,AMProductVersion,RealTimeProtectionEnabled | ConvertTo-Json | Set-Content -Encoding utf8 "$report/engine.json"
@@ -35,10 +37,15 @@ jobs:
           github-token: ${{ github.token }}
           path: scan-input
       - name: Hash, extract portable archive and scan files without launching them
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $root = (Resolve-Path scan-input).Path
+          $headers = @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json'}
+          Invoke-WebRequest -Uri 'https://api.github.com/repos/imbingo/zeiss-stage-control/actions/artifacts/14109025836/zip' -Headers $headers -OutFile "$root/windows-setup-original.zip"
+          if ((Get-FileHash "$root/windows-setup-original.zip" -Algorithm SHA256).Hash -ne '9717066d12f4ddcec54b976e0c7598226ab448ed48e782097c000273b865d37a') { throw 'Original archive hash mismatch' }
           Get-ChildItem $root -File | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash | ConvertTo-Json | Set-Content -Encoding utf8 "$env:REPORT/input-hashes.json"
           Expand-Archive -LiteralPath "$root/ZEN_Surface_Tilt_Portable_V2.7.0.zip" -DestinationPath "$root/portable-expanded"
           $files = Get-ChildItem $root -Recurse -File
