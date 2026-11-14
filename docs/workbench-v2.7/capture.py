@@ -5,7 +5,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics
 from PySide6.QtCore import Qt
 import matplotlib
 
@@ -16,10 +16,28 @@ from zen_qt.app import WorkbenchWindow
 
 def main():
     app = QApplication([])
+    font_path = os.environ.get("ZEN_CAPTURE_FONT")
+    if font_path:
+        font_id = QFontDatabase.addApplicationFont(font_path)
+        families = QFontDatabase.applicationFontFamilies(font_id)
+        if not families:
+            raise RuntimeError("Capture font could not be loaded")
+        QFont.insertSubstitution("Microsoft YaHei UI", families[0])
+        app.setFont(QFont(families[0], 10))
+        from matplotlib import font_manager
+
+        font_manager.fontManager.addfont(font_path)
+        matplotlib.rcParams["font.sans-serif"] = [
+            font_manager.FontProperties(fname=font_path).get_name()
+        ]
+    if not QFontMetrics(app.font()).inFontUcs4(ord("测")):
+        raise RuntimeError("No Chinese font available: screenshots would be unreadable")
     window = WorkbenchWindow(Path(tempfile.mkdtemp(prefix="workbench-ui-")) / "data")
     window.resize(1600, 1000)
     window.show()
-    output = Path(os.environ.get("ZEN_CAPTURE_DIR",str(Path(__file__).parent / "screenshots")))
+    output = Path(
+        os.environ.get("ZEN_CAPTURE_DIR", str(Path(__file__).parent / "screenshots"))
+    )
     output.mkdir(parents=True, exist_ok=True)
 
     def tick():

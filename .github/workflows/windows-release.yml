@@ -98,13 +98,20 @@ jobs:
           $env:QT_QPA_PLATFORM = 'offscreen'
           $env:PYTHONWARNINGS = 'ignore'
           $env:PYTHONPATH = $env:PAYLOAD
+          $fontDir = Join-Path $env:RUNNER_TEMP 'zen-capture-font'
+          New-Item -ItemType Directory -Force $fontDir | Out-Null
+          $font = Join-Path $fontDir 'NotoSansCJKsc-Regular.otf'
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf' -OutFile $font
+          if ((Get-FileHash $font -Algorithm SHA256).Hash -ne '2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b') { throw 'Capture font checksum mismatch' }
+          $env:ZEN_CAPTURE_FONT = $font
+          $env:QT_QPA_FONTDIR = $fontDir
           foreach ($scale in @('1', '1.25', '1.5')) {
               $env:QT_SCALE_FACTOR = $scale
               $env:ZEN_CAPTURE_DIR = Join-Path $env:RUNNER_TEMP "zen-windows-ui/$scale/screenshots"
               & ./runtime/python.exe -B docs/workbench-v2.7/capture.py
               if ($LASTEXITCODE) { throw "Workbench capture failed at scale $scale" }
           }
-          Remove-Item Env:QT_SCALE_FACTOR, Env:ZEN_CAPTURE_DIR -ErrorAction SilentlyContinue
+          Remove-Item Env:QT_SCALE_FACTOR, Env:ZEN_CAPTURE_DIR, Env:ZEN_CAPTURE_FONT, Env:QT_QPA_FONTDIR -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         with:
           name: windows-ui-preview
