@@ -108,8 +108,8 @@ class RecipeExecutionTests(unittest.TestCase):
         self.assertTrue((image / "upper.tif").exists())
         self.assertFalse((image / "lower.tif").exists())
         self.assertEqual(
-            json.loads((w.sequence_run_path / "snapshot.json").read_text())["plan"][
-                "recipe_identity"
-            ]["revision"],
+            json.loads(
+                (w.sequence_run_path / "snapshot.json").read_text(encoding="utf-8")
+            )["plan"]["recipe_identity"]["revision"],
             1,
         )

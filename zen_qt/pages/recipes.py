@@ -762,15 +762,21 @@ class RecipesPage(QWidget):
         self.app.navigate("sequence")
 
     def simulate(self):
+        if self.app.workflow and self.app.workflow.busy:
+            return
         if self._dirty and not self.save_new_version():
             return
         self.app.connect_demo("sequence")
         self._run("simulation")
 
     def field_trial(self):
+        if self.app.workflow and self.app.workflow.busy:
+            return
         self._run("engineering")
 
     def test_step(self):
+        if self.app.workflow and self.app.workflow.busy:
+            return
         self._run(
             (
                 "simulation"
@@ -779,6 +785,11 @@ class RecipesPage(QWidget):
             ),
             self._selected_step_id,
         )
+
+    def refresh_enabled(self):
+        busy = bool(self.app.workflow and self.app.workflow.busy)
+        for button in (self.simulate_button, self.trial_button, self.test_step_button):
+            button.setEnabled(not busy and self.current_id is not None)
 
     def release_recipe(self):
         if self._dirty:

@@ -57,7 +57,9 @@ class QtSequenceTests(unittest.TestCase):
         w = self.w.workflow
         self.assertEqual(w.sequence_report["state"], "complete")
         self.assertAlmostEqual(w.device.xy[0], 0.004321)
-        report = json.loads((w.sequence_run_path / "snapshot.json").read_text())
+        report = json.loads(
+            (w.sequence_run_path / "snapshot.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(
             report["plan"]["recipe_identity"]["content_sha256"],
             self.p.library.get(self.p.current_id, 1)["content_sha256"],

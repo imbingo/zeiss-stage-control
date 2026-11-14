@@ -91,7 +91,7 @@ class RecipeLibraryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.lib.record_trial(self.rid, self.rev, path, by="tester")
         path = self.trial()
-        report = json.loads((path / "sequence.json").read_text())
+        report = json.loads((path / "sequence.json").read_text(encoding="utf-8"))
         report["plan"]["recipe_identity"]["execution_scope"] = "H01"
         write_json(path / "sequence.json", report)
         with self.assertRaises(ValueError):
@@ -156,4 +156,4 @@ class RecipeLibraryTests(unittest.TestCase):
         lib = RecipeLibrary(self.lib.path)
         with self.assertRaises(ValueError):
             lib.create("new", "tester")
-        self.assertEqual(lib.path.read_text(), "{bad")
+        self.assertEqual(lib.path.read_text(encoding="utf-8"), "{bad")
