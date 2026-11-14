@@ -110,11 +110,14 @@ class MotionInterlock:
             raise ValueError('实际 Z 超出任务核对范围，已停止后续动作')
         if self.device.motion_state() is not Motion.IDLE:
             raise ValueError('XY 未空闲，已停止后续动作')
-        return self.device.read_xy(), z
+        xy=self.device.read_xy()
+        if len(xy)!=2 or not all(isfinite(v) for v in xy):
+            raise ValueError('XY 位置回读无效，未发送后续运动')
+        return xy, z
 
     def same_xy(self, expected):
         xy = self.device.read_xy()
-        if (not all(isfinite(v) for v in xy)
+        if (not all(isfinite(v) for v in (*xy,*expected))
                 or hypot(xy[0] - expected[0], xy[1] - expected[1]) > self.xy_tolerance_m):
             raise ValueError('XY 与已确认位置不一致，已停止 Sequence')
 
@@ -155,6 +158,7 @@ class MotionInterlock:
         return z_after
 
     def move_xy(self, x, y):
+        if not all(isfinite(v) for v in (x,y)):raise ValueError('目标 XY 必须为有限坐标')
         # The safe-Z transfer is unconditional: no caller can reach the raw
         # MoveTo without going through this method.
         self.move_z(self.safe_z_m)

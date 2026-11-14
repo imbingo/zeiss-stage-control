@@ -74,6 +74,11 @@ class InterlockTests(unittest.TestCase):
         with self.assertRaises(SequenceStopped):
             self.interlock.move_xy(.001, .001)
         self.assertEqual(self.device.trace, [])
+        self.stop.clear()
+        with self.assertRaises(ValueError):self.interlock.move_xy(float('nan'),0)
+        self.device.read_xy=lambda:(float('nan'),0)
+        with self.assertRaises(ValueError):self.interlock.move_z(20e-6)
+        self.assertEqual(self.device.trace, [])
 
 
 class RecoveryAttestationTests(unittest.TestCase):
