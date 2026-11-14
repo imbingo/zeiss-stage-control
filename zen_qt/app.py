@@ -377,6 +377,7 @@ class WorkbenchWindow(QMainWindow):
     def exit_demo(self):
         if self.workflow and self.workflow.simulated and not self.workflow.busy:
             self.disconnect()
+            self.equipment_tabs.setCurrentIndex(0)
             self.navigate('device')
             self.log('info','已退出离线演示；请点击连接现场设备。')
 

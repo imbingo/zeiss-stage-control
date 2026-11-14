@@ -71,6 +71,8 @@ class HotfixUiTests(unittest.TestCase):
         self.assertFalse(self.w.exit_demo_button.isHidden())
         self.w.exit_demo_button.click()
         self.assertIsNone(self.w.workflow)
+        self.assertEqual(self.w.equipment_tabs.currentIndex(),0)
+        self.assertFalse(self.w.pages['marks']._configuration_simulated)
         self.assertTrue(self.w.exit_demo_button.isHidden())
         self.assertEqual(self.w.pages["hardware"].current_experiment_id, "")
 

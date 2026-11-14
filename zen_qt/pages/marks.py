@@ -410,7 +410,7 @@ class MarksPage(QWidget):
             if not self._configuration_simulated:
                 self._field_preferences = deepcopy(self._serialize())
             self.load_demo_defaults()
-        elif workflow and self._configuration_simulated:
+        elif (workflow is None or not workflow.simulated) and self._configuration_simulated:
             self.restore(self._field_preferences or {})
             self._configuration_simulated = False
             self.persist()
