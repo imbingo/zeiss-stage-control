@@ -246,9 +246,16 @@ class SequencePage(QWidget):
         try:
             if not checked or checked['token']!=self.fingerprint() or checked['device']!=id(workflow.device):
                 raise ValueError('请重新执行只读检查')
+            attestations=[
+                {'key':'paths_and_safe_z','label':self.path_confirm.text(),
+                 'confirmed':True,'method':'operator_external_check','value':''},
+                {'key':'experiment_behaviour','label':self.load_confirm.text(),
+                 'confirmed':True,'method':'operator_external_check','value':''},
+            ]
             workflow.start_sequence(self.build_plan(),self.fields['output'].text(),
                 confirmed=self.path_confirm.isChecked(),experiment_loading_confirmed=self.load_confirm.isChecked(),
-                confirmed_start=checked['xy'],session={'sample':self.app.sample_edit.text(),'operator':self.app.operator_edit.text()})
+                confirmed_start=checked['xy'],session={'sample':self.app.sample_edit.text(),'operator':self.app.operator_edit.text()},
+                preflight=checked,attestations=attestations)
             self._checked=None;self.path_confirm.setChecked(False);self.load_confirm.setChecked(False)
             self.steps.setRowCount(0);self.status.setText('Sequence 已提交；全部设备调用共用任务互斥门。')
             self.app.field_verified=False;self.app.verified_xy=None
@@ -335,6 +342,21 @@ class SequencePage(QWidget):
             if not isinstance(data,dict) or data.get('schema_version')!=1 or data.get('kind')!='sequence_ui' or not isinstance(data.get('draft'),dict) or data['draft'].get('entry_unit')!='um':
                 raise ValueError('Sequence 配置版本或单位无效')
             clean=sanitize({'sequence':data['draft']})['sequence']
+            dropped=self._unknown_fields(data['draft'],clean)
             self.restore(clean)
             self.invalidate()
+            if dropped:self.status.setText('配置已读取，但以下字段未被识别并已忽略：'+'、'.join(dropped))
         except (OSError,ValueError,KeyError,TypeError) as error:self.status.setText('配置读取失败：'+str(error))
+
+    @staticmethod
+    def _unknown_fields(raw,clean):
+        """The whitelist sanitizer drops unknown keys silently; surface them."""
+        dropped=[]
+        for group,value in raw.items():
+            if group=='fields' and isinstance(value,dict):
+                dropped+=['fields.'+str(k) for k in value if str(k) not in clean.get('fields',{})]
+            elif group=='tilt' and isinstance(value,dict):
+                dropped+=['tilt.'+str(k) for k in value if str(k) not in (clean.get('tilt') or {})]
+            elif group not in clean:
+                dropped.append(str(group))
+        return sorted(set(dropped))

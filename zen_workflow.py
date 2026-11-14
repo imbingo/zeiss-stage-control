@@ -8,7 +8,8 @@ from threading import Event, Lock, Thread
 from zen_acquisition import AcquisitionFailed, acquire
 from zen_hardware import AutofocusTimeout, DeviceDisconnected, Motion
 from zen_hardware.gateway import connection_hint
-from zen_records import RunRecords, pending_recovery
+from zen_hardware.interlock import enforces_safe_z
+from zen_records import RunRecords, canonical_sha256, pending_recovery, utc_now
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,51 @@ class Workflow:
         except BaseException:
             self._gate.release()
             raise
+
+    def motion_device(self, *, safe_z_m, z_min_m, z_max_m, z_tolerance_m,
+                      xy_tolerance_m, arrival_timeout_s, settle_s, tilt_z_m=None):
+        """The only supported way for a new executor to get a writable device.
+
+        A raw adapter has no safe-Z transfer and no command/readback pairing.
+        Callers that bypass this factory must be treated as unsafe in review.
+        """
+        from zen_hardware.interlock import MotionInterlock
+        return MotionInterlock(self.device, safe_z_m=safe_z_m, z_min_m=z_min_m,
+                               z_max_m=z_max_m, z_tolerance_m=z_tolerance_m,
+                               xy_tolerance_m=xy_tolerance_m,
+                               arrival_timeout_s=arrival_timeout_s,
+                               settle_s=settle_s, stop=self._stop,
+                               tilt_z_m=tilt_z_m)
+
+    @staticmethod
+    def freeze_preflight(checked, plan, start):
+        """Turn the in-memory read-only check into a durable record."""
+        token = str((checked or {}).get('token', ''))
+        xy = (checked or {}).get('xy') or ()
+        optics = (checked or {}).get('optics') or ()
+        return {
+            'kind': 'preflight_record', 'model_version': '1.1',
+            'recorded_at': utc_now(), 'result': 'passed',
+            'checks': [
+                {'key': 'xy_idle', 'result': 'passed'},
+                {'key': 'position_readback_finite', 'result': 'passed'},
+                {'key': 'z_within_task_range', 'result': 'passed'},
+                {'key': 'start_matches_single_point_af', 'result': 'passed'},
+                {'key': 'capability_services', 'result': 'passed'},
+                {'key': 'config_fingerprint', 'result': 'passed',
+                 'value_sha256': canonical_sha256({'token': token})},
+            ],
+            'readbacks': {
+                'xy_m': list(xy), 'optics': [str(v) for v in optics],
+                'confirmed_start_xy_m': list(start),
+                'z_min_m': plan.z_min_m, 'z_max_m': plan.z_max_m,
+                'safe_z_m': plan.safe_z_m,
+            },
+            'limitations': [
+                '只读检查未测试 AF / 曝光 / 实验加载行为',
+                '未锁定物镜转盘；服务注册不证明每个方法已通过实机验证',
+            ],
+        }
 
     def _state(self, state, index=0, detail=""):
         self.state = state
@@ -154,6 +200,8 @@ class Workflow:
                     sign_convention=recipe.sign_convention, simulated=self.simulated,
                     confirmed_start=confirmed_start,
                 )
+                if not single_point and not enforces_safe_z(self.device):
+                    records.log('安全提示：本次 XY 移动未经软件安全 Z 互锁，依赖现场人工路径确认')
 
                 def persist(row):
                     records.append(row)
@@ -414,7 +462,8 @@ class Workflow:
         self._launch(action)
 
     def start_sequence(self, plan, output, *, confirmed=False,
-                       experiment_loading_confirmed=False, confirmed_start=None, session=None):
+                       experiment_loading_confirmed=False, confirmed_start=None,
+                       session=None, preflight=None, attestations=None):
         from pathlib import Path
         from zen_sequence import execute_sequence, validate_capabilities
         from zen_fit import FIELD_CONVENTION
@@ -436,4 +485,7 @@ class Workflow:
         from copy import deepcopy
         snapshot=deepcopy(plan);start=tuple(confirmed_start)
         info={k:str((session or {}).get(k,''))[:512] for k in ('sample','operator')}
-        self._launch(lambda:execute_sequence(self,snapshot,output,start,info))
+        record=self.freeze_preflight(preflight,plan,start) if preflight else None
+        signed=list(attestations or [])
+        self._launch(lambda:execute_sequence(self,snapshot,output,start,info,
+                                             preflight=record,attestations=signed))

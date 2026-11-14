@@ -80,8 +80,8 @@ class QtRegressionTests(unittest.TestCase):
         accept = next(b for b in buttons.buttons() if buttons.buttonRole(b) == QDialogButtonBox.AcceptRole)
         accept.click()
         self.assertEqual(dialog.result(), 0)
-        dialog.xy_box.click()
-        dialog.z_box.click()
+        for _, _, box in dialog.checks:
+            box.click()
         accept.click()
         self.assertEqual(dialog.result(), 1)
         self.assertFalse(self.w.locked())

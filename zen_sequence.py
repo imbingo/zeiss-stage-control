@@ -2,17 +2,13 @@
 from dataclasses import asdict, dataclass
 from math import isfinite
 from pathlib import Path
-from time import monotonic
 from uuid import uuid4
 
-from zen_acquisition import acquire, wait_for_arrival
-from zen_hardware import Motion
+from zen_acquisition import acquire
+from zen_hardware.interlock import MotionInterlock, SequenceStopped, enforces_safe_z
 from zen_marks import MarkRecipe, MarkRecords, capture_marks
-from zen_records import RunRecords, utc_now, write_json
-
-
-class SequenceStopped(InterruptedError):
-    pass
+from zen_records import (RunRecords, canonical_sha256, software_version,
+                         utc_now, write_json, write_manifest)
 
 
 class SequenceRejected(ValueError):
@@ -90,90 +86,22 @@ def validate_capabilities(device):
         if not any(name in names for name in choices):raise ValueError('自动任务缺少服务：'+title)
 
 
-class SequenceDevice:
-    """Apply readback guards and safe-Z transfers around the existing adapter.
+class SequenceDevice(MotionInterlock):
+    """Sequence policy on top of the shared interlock.
 
-    The configured limits check commands/readbacks; they are not a hardware
-    travel limit and cannot constrain ZEN's own autofocus motion.
+    All safety behaviour lives in MotionInterlock (zen_hardware/interlock.py),
+    so a second executor cannot accidentally get a device without safe Z.
     """
+
     def __init__(self, device, plan, stop):
-        self.device,self.plan,self.stop=device,plan,stop
-        self.angle_mode=False
-        self.optics=device.read_optics()
-
-    def __getattr__(self,name):return getattr(self.device,name)
-
-    def checkpoint(self):
-        if self.stop.is_set():raise SequenceStopped('已停止后续任务；不自动移动或返回')
-
-    def guard(self):
-        self.checkpoint()
-        if self.device.read_optics()!=self.optics:
-            raise ValueError('物镜/倍率读回变化，已停止 Sequence')
-        z=self.device.read_z()
-        if not isfinite(z) or not self.plan.z_min_m <= z <= self.plan.z_max_m:
-            raise ValueError('实际 Z 超出任务核对范围，已停止后续动作')
-        if self.device.motion_state() is not Motion.IDLE:
-            raise ValueError('XY 未空闲，已停止后续动作')
-        return self.device.read_xy(),z
-
-    def same_xy(self,expected):
-        from math import hypot
-        xy=self.device.read_xy()
-        if not all(isfinite(v) for v in xy) or hypot(xy[0]-expected[0],xy[1]-expected[1])>self.plan.tilt.tolerance_m:
-            raise ValueError('XY 与已确认位置不一致，已停止 Sequence')
-
-    def move_z(self,z):
-        xy,_=self.guard()
-        if not isfinite(z) or not self.plan.z_min_m <= z <= self.plan.z_max_m:
-            raise ValueError('目标 Z 超出任务范围')
-        self.checkpoint();self.device.move_z(z)
-        deadline=monotonic()+self.plan.tilt.arrival_timeout
-        stable=0
-        while True:
-            self.checkpoint();self.same_xy(xy)
-            if self.device.motion_state() is not Motion.IDLE or self.device.read_optics()!=self.optics:
-                raise ValueError('Z 转场期间 XY 或光学状态变化')
-            actual=self.device.read_z()
-            stable=stable+1 if isfinite(actual) and abs(actual-z)<=self.plan.z_tolerance_m else 0
-            if stable>=3:break
-            if monotonic()>=deadline:raise TimeoutError('Sequence Z 到位确认超时')
-            self.stop.wait(.02)
-        if self.stop.wait(self.plan.settle_s):self.checkpoint()
-        xy_after,z_after=self.guard();self.same_xy(xy)
-        if abs(z_after-z)>self.plan.z_tolerance_m:raise ValueError('Z 稳定等待后偏离目标')
-
-    def move_xy(self,x,y):
-        self.move_z(self.plan.safe_z_m)
-        self.checkpoint();self.device.move_xy(x,y)
-        wait_for_arrival(self.device,(x,y),self.plan.tilt.tolerance_m,
-                         self.plan.tilt.arrival_timeout,self.stop)
-        _,z=self.guard()
-        if abs(z-self.plan.safe_z_m)>self.plan.z_tolerance_m:
-            raise ValueError('XY 转场期间 Z 偏离安全位置')
-
-    def _settings(self,action):
-        xy,z=self.guard()
-        result=action()
-        _,after=self.guard();self.same_xy(xy)
-        if abs(after-z)>self.plan.z_tolerance_m:
-            raise ValueError('实验加载/准备改变了 Z，停止后续任务，请检查实验设置')
-        return result
-
-    def load_experiment(self,name):
-        return self._settings(lambda:self.device.load_experiment(name))
-
-    def prepare_mark_experiment(self,*a,**kw):
-        return self._settings(lambda:self.device.prepare_mark_experiment(*a,**kw))
-
-    def autofocus(self,timeout):
-        if self.angle_mode:self.move_z(self.plan.tilt_z_m)
-        xy,_=self.guard();self.checkpoint()
-        value=self.device.autofocus(timeout)
-        _,z=self.guard();self.same_xy(xy)
-        if not isfinite(value) or abs(z-value)>self.plan.z_tolerance_m:
-            raise ValueError('AF 返回焦面与 Z 回读不一致')
-        return value
+        super().__init__(device,
+                         safe_z_m=plan.safe_z_m, z_min_m=plan.z_min_m,
+                         z_max_m=plan.z_max_m, z_tolerance_m=plan.z_tolerance_m,
+                         xy_tolerance_m=plan.tilt.tolerance_m,
+                         arrival_timeout_s=plan.tilt.arrival_timeout,
+                         settle_s=plan.settle_s, stop=stop,
+                         tilt_z_m=plan.tilt_z_m)
+        self.plan = plan
 
 
 class SequenceCaptureRecords(MarkRecords):
@@ -188,21 +116,41 @@ class SequenceCaptureRecords(MarkRecords):
                        'started_at':self.started,'run_id':identity,'parent_run_id':parent.path.name,
                        'station_name':station.name,'recipe':station.capture.to_dict(),
                        'requested_layers':['upper','lower'],'images':{}}
-        self.status('running',recovery=True,stage='准备孔位输出目录')
+        self.status('running', recovery=True, stage='准备孔位输出目录')
         self.output.mkdir(parents=True)
         write_json(self.path/'recipe.json',self.document)
         self.sync()
 
 
-def execute_sequence(workflow,plan,output,confirmed_start,session):
+def build_snapshot(plan, confirmed_start, session, preflight, attestations):
+    """Freeze a complete copy, not a reference to editable UI state."""
+    document = {'kind':'sequence_snapshot','model_version':'1.1',
+                'software_version':software_version(),'frozen_at':utc_now(),
+                'plan':plan.to_dict(),'confirmed_start_xy_m':list(confirmed_start),
+                'session':dict(session or {}),'preflight':dict(preflight or {}),
+                'operator_attestations':list(attestations or [])}
+    # The hash covers process content only; timestamps/metadata are excluded.
+    document['snapshot_sha256'] = canonical_sha256({
+        k:v for k,v in document.items()
+        if k not in ('frozen_at','software_version')})
+    return document
+
+
+def execute_sequence(workflow,plan,output,confirmed_start,session,*,
+                     preflight=None,attestations=None):
     """Runs under Workflow._gate for the entire task, including all child captures."""
-    parent=None;child=None;step=None;steps=[];actions_possible=False
+    parent=None;child=None;step=None;steps=[];actions_possible=False;device=None
     workflow.sequence_run_path=None
     workflow.sequence_report=None
     workflow.result=None;workflow.result_path=None
     output=Path(output).expanduser().resolve()
-    report={'kind':'sequence','simulated':workflow.simulated,'plan':plan.to_dict(),
-            'steps':steps,'captures':[],'state':'running','result':None}
+    snapshot=build_snapshot(plan,confirmed_start,session,preflight,attestations)
+    snapshot_id=snapshot['snapshot_sha256']
+    report={'kind':'sequence','model_version':'1.1',
+            'software_version':software_version(),'snapshot_sha256':snapshot_id,
+            'simulated':workflow.simulated,'plan':plan.to_dict(),
+            'steps':steps,'captures':[],'state':'running',
+            'disposition':'PENDING','result':None}
     def persist():
         workflow.sequence_report=report
         if parent:write_json(parent.path/'sequence.json',report)
@@ -225,15 +173,23 @@ def execute_sequence(workflow,plan,output,confirmed_start,session):
                           sign_convention=plan.tilt.sign_convention,simulated=workflow.simulated,
                           confirmed_start=confirmed_start)
         workflow.sequence_run_path=parent.path
-        write_json(parent.path/'session.json',session)
+        write_json(parent.path/'snapshot.json',snapshot)
+        if preflight:write_json(parent.path/'preflight.json',preflight)
+        if attestations:write_json(parent.path/'attestations.json',{'items':list(attestations)})
+        write_json(parent.path/'session.json',dict(session or {},
+                   snapshot_sha256=snapshot_id,
+                   operator_attestations=list(attestations or [])))
         write_json(parent.path/'recipe.json',dict(plan.to_dict(),recipe_name=plan.name,
                    point_order=plan.tilt.targets,experiment_name=plan.tilt.experiment,
-                   simulated=workflow.simulated))
+                   simulated=workflow.simulated,snapshot_sha256=snapshot_id,
+                   frozen_at=snapshot['frozen_at'],software_version=software_version()))
         image_root=output/f'{"demo_sequence" if workflow.simulated else "sequence"}_{parent.path.name}'
         report['output_directory']=str(image_root)
         image_root.mkdir(parents=True)
         begin('设备与起点检查')
         device=SequenceDevice(workflow.device,plan,workflow._stop)
+        if not enforces_safe_z(device):
+            raise ValueError('执行器未经过安全互锁层，拒绝移动')
         xy,_=device.guard();device.same_xy(confirmed_start)
         done()
         begin('测角路径采集')
@@ -252,6 +208,8 @@ def execute_sequence(workflow,plan,output,confirmed_start,session):
         if not all(isfinite(result[k]) for k in ('rx_urad','ry_urad','rms_m')):
             raise ValueError('测角计算返回无效结果')
         report['result']=result
+        report['limits_used']={'max_abs_angle_urad':plan.max_abs_angle_urad,
+                               'max_rms_m':plan.max_rms_m}
         write_json(parent.path/'angle_result.json',result)
         if (max(abs(result['rx_urad']),abs(result['ry_urad']))>plan.max_abs_angle_urad
                 or result['rms_m']>plan.max_rms_m):
@@ -277,7 +235,18 @@ def execute_sequence(workflow,plan,output,confirmed_start,session):
             report['captures'][-1]['state']='complete';done();child=None
         begin('返回安全 Z')
         device.move_z(plan.safe_z_m);done()
-        report.update(state='complete',finished_at=utc_now(),recovery_required=False)
+        report.update(state='complete',finished_at=utc_now(),recovery_required=False,
+                      disposition='AWAITING_EXTERNAL_REVIEW')
+        persist()
+        # Freeze a hash list before writing the summary into the image directory.
+        try:
+            produced=[p for p in image_root.rglob('*') if p.is_file()]
+            manifest=write_manifest(parent.path,run_id=parent.path.name,
+                                    files=produced,base=image_root)
+            report['manifest_sha256']=manifest['manifest_sha256']
+            report['artifact_count']=manifest['artifact_count']
+        except OSError:
+            report['manifest_sha256']=None
         persist()
         write_json(image_root/'sequence.json',report)
         parent.finish('complete',recovery_required=False,result=result)
@@ -287,12 +256,15 @@ def execute_sequence(workflow,plan,output,confirmed_start,session):
     except Exception as error:
         from zen_hardware.rpc_diagnostics import diagnostic_from_error
         stopped=workflow._stop.is_set() or isinstance(error,InterruptedError)
-        recovery=actions_possible and not isinstance(error,SequenceRejected)
+        rejected=isinstance(error,SequenceRejected)
+        recovery=actions_possible and not rejected
         from zen_acquisition import AcquisitionFailed
         detail=(error.stage+' · '+workflow._mark_hint(error.__cause__)
                 if isinstance(error,AcquisitionFailed) and error.__cause__ else workflow._mark_hint(error))
         report.update(state='stopped' if stopped else 'failed',finished_at=utc_now(),
-                      recovery_required=recovery,error=diagnostic_from_error(error) or
+                      recovery_required=recovery,
+                      disposition='MEASUREMENT_REJECTED' if rejected else 'EQUIPMENT_FAULT',
+                      error=diagnostic_from_error(error) or
                       {'code':type(error).__name__,'message':detail})
         if step and step['state']=='running':step.update(state=report['state'],error=detail)
         if child:
@@ -304,10 +276,24 @@ def execute_sequence(workflow,plan,output,confirmed_start,session):
             persist()
             if parent:parent.finish(report['state'],recovery_required=recovery,stage=detail)
         except OSError:
-            recovery=True  # initial running status remains a durable lock
+            # Keep the fail-closed lock AND make the external report agree with it.
+            # Previously only the local variable changed, so image_root's copy
+            # could claim recovery_required=false while the centre stayed locked.
+            recovery=True
+            report['recovery_required']=True
+            report['disposition']='EQUIPMENT_FAULT'
+            try:persist()
+            except OSError:pass
         event()
         workflow._state('设备状态待确认' if recovery else '已中止',detail=detail)
     finally:
+        if device is not None and parent:
+            try:
+                write_json(parent.path/'command_log.json',
+                           {'kind':'command_log','run_id':parent.path.name,
+                            'snapshot_sha256':snapshot_id,
+                            'commands':device.command_log_snapshot()})
+            except OSError:pass
         if hasattr(workflow.device,'rpc_trace'):
             report['rpc_trace']=workflow.device.rpc_trace()
             try:persist()
