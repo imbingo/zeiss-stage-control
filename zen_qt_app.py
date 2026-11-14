@@ -11,7 +11,7 @@ def main():
     from zen_qt.app import WorkbenchWindow
 
     app = QApplication(sys.argv)
-    app.setApplicationName("ZEN Surface Tilt Workbench")
+    app.setApplicationName("LSM测量工作站")
     root = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "ZENSurfaceTilt"
     window = WorkbenchWindow(root)
     window.show()

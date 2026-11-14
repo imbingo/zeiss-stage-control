@@ -333,7 +333,11 @@ class RecipeLibrary:
         if identity.get("execution_scope"):
             raise ValueError("单步试运行不能放行完整配方")
         fingerprints = report.get("experiment_fingerprints", {})
-        if not fingerprints:
+        required_experiments = True
+        if "program_steps" in version["body"]:
+            from zen_steps import flatten
+            required_experiments = any(n["kind"] in ("load_experiment", "measure_angle", "autofocus", "zstack", "capture_upper", "capture_lower") for _, n in flatten(version["body"]["program_steps"]))
+        if required_experiments and not fingerprints:
             raise ValueError("试运行没有完整实验指纹")
         version["validation"] = {
             "state": "field_trial_passed",

@@ -489,3 +489,43 @@ class Workflow:
         signed=list(attestations or [])
         self._launch(lambda:execute_sequence(self,snapshot,output,start,info,
                                              preflight=record,attestations=signed))
+
+    def start_program(self, plan, output, *, session, preflight, confirmed=False):
+        from copy import deepcopy
+        from pathlib import Path
+        from zen_program import execute_program
+        from zen_steps import capability_issues, validate_program
+
+        plan = validate_program(
+            {
+                "program_steps": list(plan.steps),
+                "common_params": plan.common,
+                "coordinate_system": "设备绝对坐标（装夹基准须人工核对）",
+                "product_family": plan.name,
+                "example": plan.simulated_configuration,
+            },
+            plan.recipe_identity,
+            scope=plan.execution_scope,
+        )
+        if not confirmed:
+            raise ValueError("请确认本次运动路径与实验行为")
+        if self.state not in {"就绪", "完成", "已中止"} or pending_recovery(
+            self.root, simulated=self.simulated
+        ):
+            raise RuntimeError("设备未就绪或存在待恢复记录")
+        issues = capability_issues(plan, self.device)
+        if issues:
+            raise ValueError("\n".join(issues))
+        if not self.simulated and plan.simulated_configuration:
+            raise ValueError("演示配置不可用于真实设备")
+        target = Path(output).expanduser().resolve()
+        if (
+            not str(output).strip()
+            or not Path(output).is_absolute()
+            or target.is_relative_to(self.root.resolve())
+        ):
+            raise ValueError("请选择运行记录目录之外的图像绝对路径")
+        snapshot = deepcopy(plan)
+        info = deepcopy(session)
+        checked = deepcopy(preflight)
+        self._launch(lambda: execute_program(self, snapshot, target, info, checked))

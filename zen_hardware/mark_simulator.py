@@ -91,6 +91,15 @@ class SimulatedMarkDevice(SimulatedDevice):
             frame = replace(frame, scale_x_m=.4e-6)
         return frame
 
+    def capture_stack(self,first,last,interval,timeout,stop,output_name):
+        count=round(abs(last-first)/interval)+1
+        frames=[]
+        for i in range(count):
+            if stop.is_set():raise InterruptedError('已停止模拟 Z-stack')
+            self.z=first+(1 if last>first else -1)*interval*i
+            frames.append(self.capture_frame(timeout,stop,output_name,kind='confocal'))
+        return frames
+
     def inspect_mark_experiments(self, names):
         return {"kind": "read_only_experiment_check", "device_actions_performed": False,
                 "available_experiments": ["Demo upper", "Demo lower"],

@@ -71,7 +71,7 @@ def scan_runs(data_root):
                 'capture_complete': kind == 'mark' and status.get('state') == 'complete',
                 'pair_complete': bool(capture.get('status', {}).get('pair_complete')),
                 "stage": status.get("failure_stage", ""), "recipe": recipe, "result": result,
-                "session": session, "n_images": (sum(len(_load_json(Path(c['record_path'])/'capture.json').get('images',{})) for c in sequence.get('captures',[]) if c.get('record_path'))
+                "session": session, "n_images": (len(sequence.get('images',[])) + sum(s.get('planes',0) for s in sequence.get('stacks',[])) + sum(len(_load_json(Path(c['record_path'])/'capture.json').get('images',{})) for c in sequence.get('captures',[]) if c.get('record_path'))
                                                   if kind=='sequence' else len(capture.get('images', {}))),
                 'sequence':sequence,
                 'capture': capture,
@@ -323,11 +323,16 @@ class RecordsPage(QWidget):
             if self._preview_run_id!=run['run_id']:
                 self.capture_selector.blockSignals(True);self.capture_selector.clear()
                 for capture in captures:self.capture_selector.addItem(capture['station'],capture['output_directory'])
+                pairs={}
+                for image in run.get('sequence',{}).get('images',[]):
+                    key=image.get('context','')+image.get('pair_id','mark')
+                    pairs.setdefault(key,{})[image['layer']]=image['path']
+                for key,paths in pairs.items():self.capture_selector.addItem(key,paths)
                 self.capture_selector.blockSignals(False);self._preview_run_id=run['run_id']
             selected_output=self.capture_selector.currentData()
-            output=Path(selected_output) if selected_output else Path(run.get('capture',{}).get('status',{}).get('output_directory',str(run['path'])))
+            output=Path(selected_output) if selected_output and not isinstance(selected_output,dict) else Path(run.get('capture',{}).get('status',{}).get('output_directory',str(run['path'])))
             for view,name in zip(self.image_labels,('upper.tif','lower.tif')):
-                file=output/name
+                file=Path(selected_output.get(name.split('.')[0],str(output/'missing'))) if isinstance(selected_output,dict) else output/name
                 try:
                     import numpy as np
                     import tifffile

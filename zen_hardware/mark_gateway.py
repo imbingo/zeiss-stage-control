@@ -658,6 +658,10 @@ class GatewayMarkMixin:
             stream.cancel()
             reader.join(timeout=1)
 
+    def capture_stack(self,first,last,interval,timeout,stop,output_name):
+        from .stack_capture import capture_stack
+        return capture_stack(self,first,last,interval,timeout,stop,output_name)
+
     def inspect_mark_experiments(self, names):
         """Read names and positions only: NEVER Load/Clone/Export an experiment."""
         from zen_api.acquisition.v1beta.experiment_service_pb2 import ExperimentServiceGetAvailableExperimentsRequest

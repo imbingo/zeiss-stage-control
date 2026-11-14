@@ -69,8 +69,8 @@ class MarkGatewayTest(unittest.TestCase):
                             while ctx.is_active() and not ready.wait(.01):pass
                             if not ctx.is_active():return
                             if not self.missing_frame:
-                                frame = self.frame(req.experiment_id)
-                                yield response(frame_data=frame)
+                                for frame in self.frames_for(req.experiment_id):
+                                    yield response(frame_data=frame)
                             while ctx.is_active():time.sleep(.01)
                         handlers[method.name] = grpc.unary_stream_rpc_method_handler(
                             stream, request_deserializer=request.FromString,
@@ -236,6 +236,9 @@ class MarkGatewayTest(unittest.TestCase):
             return response(output_name=req.output_name)
         if method == 'Stop':self.stops += 1;return response()
         ctx.abort(grpc.StatusCode.UNIMPLEMENTED, 'not part of this test')
+
+    def frames_for(self, identity):
+        return [self.frame(identity)]
 
     def frame(self, identity):
         frame = FrameData(experiment_id='old-experiment' if self.stale else identity, frame_number=1)

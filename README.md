@@ -1,4 +1,7 @@
-# ZEN AF 表面测角工作台
+# LSM测量工作站
+
+V2.8 工程步骤编排、测角路径与实测 Z 散点、上下 mark 图像 Tab：[设计与操作说明](docs/lsm-v2.8/README.md)。
+
 
 V2.6.0 新增：[自动任务 / Sequence 使用说明、运行截图和验证范围](docs/sequence/README.md)。
 
