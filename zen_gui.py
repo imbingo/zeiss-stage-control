@@ -76,7 +76,7 @@ class Workbench:
         self.point_status = {}
         self.recovery_runs = pending_recovery(data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(data_root, simulated=False)
-        root.title("ZEN AF 表面测角 2.5.1")
+        root.title("ZEN AF 表面测角 2.6.0")
         root.geometry("1440x900")
         root.minsize(1120, 700)
         root.option_add("*Font", "{Microsoft YaHei UI} 10")

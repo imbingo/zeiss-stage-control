@@ -15,7 +15,7 @@ from .. import theme
 from ..widgets import Card, hbox, label, vbox
 from .device import _page
 
-KIND_NAMES = {"tilt": "测角", "mark": "采图", "hardware": "硬件单步", "unknown": "记录"}
+KIND_NAMES = {"tilt": "测角", "mark": "采图", "hardware": "硬件单步", "sequence": "自动任务", "unknown": "记录"}
 STATE_PILLS = {"complete": ("ok", "有效"), "stopped": ("warn", "中止"),
                "failed": ("bad", "失败"), "running": ("accent", "运行中")}
 
@@ -43,6 +43,7 @@ def scan_runs(data_root):
             result = _load_json(run / "result.json")
             session = _load_json(run / 'session.json')
             capture = _load_json(run / 'capture.json')
+            sequence = _load_json(run / 'sequence.json')
             recovery = _load_json(run / 'recovery.json')
             confirmed = (recovery.get('source') == 'operator_external_check'
                          and recovery.get('xy_confirmed') is True
@@ -55,6 +56,9 @@ def scan_runs(data_root):
                                           else "hardware" if status.get("kind") == "hardware_test"
                                           else "tilt" if recipe.get("point_order") is not None
                                           or "af_timeout_s" in recipe else "unknown")
+            if recipe.get('kind') == 'sequence':
+                kind='sequence'
+                if not result:result=_load_json(run/'angle_result.json')
             if kind == "mark_capture":
                 kind = "mark"
             elif kind == "hardware_test":
@@ -66,7 +70,9 @@ def scan_runs(data_root):
                 'capture_complete': kind == 'mark' and status.get('state') == 'complete',
                 'pair_complete': bool(capture.get('status', {}).get('pair_complete')),
                 "stage": status.get("failure_stage", ""), "recipe": recipe, "result": result,
-                "session": session, "n_images": len(capture.get('images', {})),
+                "session": session, "n_images": (sum(len(_load_json(Path(c['record_path'])/'capture.json').get('images',{})) for c in sequence.get('captures',[]) if c.get('record_path'))
+                                                  if kind=='sequence' else len(capture.get('images', {}))),
+                'sequence':sequence,
                 'capture': capture,
             })
     return runs
@@ -111,7 +117,7 @@ class RecordsPage(QWidget):
         filters.setObjectName("bar")
         fl = hbox(filters, spacing=9, margins=(12, 8, 12, 8))
         self.kind_combo = QComboBox()
-        self.kind_combo.addItems(["全部", "测角", "采图", "硬件单步"])
+        self.kind_combo.addItems(["全部", "测角", "采图", "硬件单步", "自动任务"])
         self.kind_combo.setFixedWidth(96)
         fl.addWidget(self.kind_combo)
         self.state_combo = QComboBox()
@@ -186,7 +192,7 @@ class RecordsPage(QWidget):
         self.reload()
 
     def _filtered(self):
-        kind_map = {1: "tilt", 2: "mark", 3: "hardware"}
+        kind_map = {1: "tilt", 2: "mark", 3: "hardware", 4: "sequence"}
         kind = kind_map.get(self.kind_combo.currentIndex())
         state_idx = self.state_combo.currentIndex()
         real = self.real_only.currentIndex()
@@ -268,6 +274,11 @@ class RecordsPage(QWidget):
         if run['kind'] == 'mark':
             lines.append(f"图像 {run['n_images']} 张 · 保存完成 {run['capture_complete']} · 图片对完整 {run['pair_complete']}")
             lines.append('图像内容/清晰度/标定需另行核验；不等同于对位分析通过。')
+        elif run['kind'] == 'sequence':
+            sequence=run['sequence']
+            lines.append(f"孔位采图完成 {sum(c.get('state')=='complete' for c in sequence.get('captures',[]))} 组")
+            lines.append('图像目录 '+sequence.get('output_directory',''))
+            lines.append('自动任务完成不等于 SOMA 对位分析通过。')
         elif run['kind'] == 'tilt':
             lines.append(f"测角结果有效 {run['valid']}")
         if recipe.get("recipe_name"):

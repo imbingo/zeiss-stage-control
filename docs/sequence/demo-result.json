@@ -1,0 +1,11 @@
+{
+  "state": "complete",
+  "captures": 2,
+  "steps": 9,
+  "final_xy_m": [
+    0.0025,
+    0.0015
+  ],
+  "final_z_m": 1.9999999999999998e-05,
+  "simulated": true
+}

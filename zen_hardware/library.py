@@ -165,7 +165,7 @@ class HardwareTestSession:
         identity=uuid4().hex;self.running_id=identity;started=monotonic()
         operation=OPERATIONS.get(key)
         allowed={} if operation is None else {f.name:(parameters or {}).get(f.name,'') for f in operation.fields} if isinstance(parameters,dict) else {}
-        report={'schema_version':1,'software_version':'2.5.1','session_id':self.session_id,
+        report={'schema_version':1,'software_version':'2.6.0','session_id':self.session_id,
                 'operation_id':identity,'operation':key if operation else 'unknown','title':operation.title if operation else '未知操作',
                 'started_at':utc_now(),'simulated':self.simulated,'parameters':safe(allowed),'timeout_s':safe(timeout_s),
                 'parameter_labels':{f.name:f.label for f in operation.fields} if operation else {},

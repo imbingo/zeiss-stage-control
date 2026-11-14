@@ -69,6 +69,41 @@ def sanitize(value):
     if isinstance(hardware, dict):
         allowed = ("experiment_name", "camera_id", "z_um", "x_um", "y_um", "low_um", "high_um", "first_um", "last_um", "interval_um", "af_timeout_s", "exposure_value", "output_name", "rpc_timeout_s")
         result["hardware_test"] = {k: v for k in allowed if (v := text(hardware.get(k))) is not None}
+    sequence = value.get('sequence')
+    if isinstance(sequence, dict):
+        if sequence.get('entry_unit', 'um') != 'um':
+            raise ValueError('unsupported sequence preference unit')
+        keys=('name','safe_z_um','tilt_z_um','z_min_um','z_max_um','max_angle_urad','max_rms_um',
+              'upper_experiment','lower_experiment','upper_half_um','lower_half_um',
+              'z_tolerance_um','settle_s','capture_timeout_s','output')
+        fields=sequence.get('fields',{})
+        rows=sequence.get('rows',[])
+        if not isinstance(fields,dict) or not isinstance(rows,list) or len(rows)>1000:
+            raise ValueError('invalid sequence preferences')
+        saved={'entry_unit':'um','fields':{k:v for k in keys if (v:=entry(fields.get(k))) is not None},'rows':[]}
+        for row in rows:
+            if not isinstance(row,list) or len(row)!=6 or any(text(v) is None for v in row):
+                raise ValueError('invalid sequence station row')
+            saved['rows'].append(list(row))
+        for key in ('use_autofocus','simulated_configuration'):
+            if type(sequence.get(key)) is bool:saved[key]=sequence[key]
+        if sequence.get('capture_kind') in ('confocal','camera_snap'):
+            saved['capture_kind']=sequence['capture_kind']
+        tilt=sequence.get('tilt')
+        if tilt is not None:
+            keys=('name','experiment','targets','tolerance_m','af_timeout','arrival_timeout','sign_convention')
+            if sequence.get('tilt_coordinate_unit')!='m' or not isinstance(tilt,dict) or set(tilt)!=set(keys):
+                raise ValueError('invalid sequence tilt schema/unit')
+            if any(text(tilt.get(k)) is None for k in ('name','experiment','sign_convention')):
+                raise ValueError('invalid sequence tilt strings')
+            if any(type(tilt.get(k)) not in (int,float) or not isfinite(tilt[k]) for k in ('tolerance_m','af_timeout','arrival_timeout')):
+                raise ValueError('invalid sequence tilt parameters')
+            targets=tilt['targets']
+            if not isinstance(targets,(list,tuple)) or len(targets)>1000 or any(
+                not isinstance(p,(list,tuple)) or len(p)!=2 or any(type(v) not in (int,float) or not isfinite(v) for v in p) for p in targets):
+                raise ValueError('invalid sequence tilt points')
+            saved['tilt_coordinate_unit']='m';saved['tilt']={k:tilt[k] for k in keys}
+        result['sequence']=saved
     session = value.get('session', {})
     if isinstance(session, dict):
         result['session'] = {k: v for k in ('sample', 'operator') if (v := text(session.get(k))) is not None}

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from zen_hardware.gateway import GatewayDevice, secure_channel
 from zen_hardware.local_config import gateway_settings
-from zen_hardware.mark_simulator import SimulatedMarkDevice
+from zen_hardware.mark_simulator import SimulatedMarkDevice, SimulatedSequenceDevice
 from zen_hardware.simulator import SimulatedDevice
 from zen_fit import fit_demo, fit_field, FIELD_CONVENTION, validate_recipe
 from zen_preferences import Preferences
@@ -58,7 +58,7 @@ class WorkbenchWindow(QMainWindow):
         self._live_z = None
         self._live_xy = None
 
-        self.setWindowTitle("ZEN 表面测角工作台 v2.5.1")
+        self.setWindowTitle("ZEN 表面测角工作台 v2.6.0")
         self.resize(1600, 980)
         self.setMinimumSize(1000, 620)
         self.setStyleSheet(theme.QSS)
@@ -119,7 +119,7 @@ class WorkbenchWindow(QMainWindow):
         brand.setObjectName("brand")
         brand.setStyleSheet(f"color:{theme.ACCENT}")
         lay.addWidget(brand)
-        lay.addWidget(label("v2.5.1", role="muted"))
+        lay.addWidget(label("v2.6.0", role="muted"))
         self.conn_chip = Chip("未连接")
         self.mode_chip = Chip("真实设备")
         self.mode_chip.set_kind("real")
@@ -183,7 +183,8 @@ class WorkbenchWindow(QMainWindow):
         self.nav_group.setExclusive(True)
         entries = (
             ("device", "1  设备与自检"), ("tilt", "2  表面测角"),
-            ("marks", "3  对位采图"), ("records", "4  记录与分析"),
+            ("marks", "3  对位采图"), ("sequence", "4  自动任务 / Sequence"),
+            ("records", "5  记录与分析"),
         )
         for key, text in entries:
             button = self._nav_button(key, text)
@@ -236,9 +237,10 @@ class WorkbenchWindow(QMainWindow):
         from .pages.records import RecordsPage
         from .pages.hardware import HardwarePage
         from .pages.settings import SettingsPage
+        from .pages.sequence import SequencePage
         self.page_containers = {}
         for key, cls in (("device", DevicePage), ("tilt", TiltPage),
-                         ("marks", MarksPage), ("records", RecordsPage),
+                         ("marks", MarksPage), ("sequence", SequencePage), ("records", RecordsPage),
                          ("hardware", HardwarePage), ("settings", SettingsPage)):
             page = cls(self)
             self.pages[key] = page
@@ -277,7 +279,7 @@ class WorkbenchWindow(QMainWindow):
     def export_diagnostic_bundle(self):
         from PySide6.QtWidgets import QFileDialog
         bundle = {"kind": "diagnostic_bundle", "exported_at": utc_now(),
-                  "software": "ZEN 表面测角工作台 v2.5.1 (Qt)",
+                  "software": "ZEN 表面测角工作台 v2.6.0 (Qt)",
                   "simulated": bool(self.workflow and self.workflow.simulated),
                   "xy_mode": self.xy_mode,
                   "rpc_trace": (self.workflow.device.rpc_trace()
@@ -364,7 +366,14 @@ class WorkbenchWindow(QMainWindow):
         if kind != 'marks' and self.xy_mode == 'no_xy':
             self.log('warn', '无 XY 模式仅支持单点采图。测角演示请先切换为有电动 XY。')
             return
-        if kind == "marks":
+        if kind == 'sequence':
+            self._replace_workflow(SimulatedSequenceDevice(), simulated=True,
+                                   validate=validate_recipe, fit=fit_demo)
+            self.pages['tilt'].apply_recipe(Recipe('演示测角配方','Demo AF',DEMO_POINTS,1e-6,3,2,DEMO_CONVENTION))
+            self.pages['sequence'].load_demo_defaults()
+            self.workflow.connect()
+            self.navigate('sequence')
+        elif kind == "marks":
             self._replace_workflow(SimulatedMarkDevice(xy_enabled=self.xy_mode != "no_xy"),
                                    simulated=True, validate=validate_recipe, fit=fit_demo)
             self.workflow.connect()
@@ -458,6 +467,7 @@ class WorkbenchWindow(QMainWindow):
         if self.workflow:
             self.workflow._state('通信就绪（硬件单步）', detail='恢复确认已记录；业务采集前请重新连接并校验')
         self.pages['marks'].invalidate_confirmation()
+        self.pages['sequence'].on_device_changed(self.workflow)
         self.log("ok", "恢复确认已记录；请重新连接并校验。")
         self.refresh_ui()
         return not self.locked()
@@ -496,6 +506,13 @@ class WorkbenchWindow(QMainWindow):
                 else:
                     self.field_verified = False
                     self.field_recovery_runs = pending_recovery(self.data_root, simulated=False)
+        elif kind == 'sequence_progress':
+            report=data[0]
+            readback=next((s['readback'] for s in reversed(report.get('steps',[])) if s.get('readback')),None)
+            if readback:
+                self._live_xy=tuple(readback['xy_m']);self._live_z=readback['z_m']
+            if report.get('recovery_required'):
+                self._live_xy=self._live_z=None
         elif kind == "xy":
             self.current_xy = tuple(data[0])
             self._live_xy = self.current_xy
@@ -648,6 +665,7 @@ class WorkbenchWindow(QMainWindow):
         self._save_session()
         self.pages['marks'].persist()
         self.pages['hardware'].save_preferences()
+        self.pages['sequence'].persist()
         if self.workflow and isinstance(self.workflow.device, GatewayDevice):
             self.workflow.device.close()
         self.pump.timer.stop()

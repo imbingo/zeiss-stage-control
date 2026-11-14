@@ -178,8 +178,10 @@ class GatewayMarkMixin:
                 names = list_services(self._channel, timeout=self._timeout)
             except Exception:
                 names = ()
+        family=service_name.rsplit('.',2)[0]
         return [name for name in names
-                if name != service_name and name.endswith('.' + short)]
+                if name != service_name and name.endswith('.' + short)
+                and name.rsplit('.',2)[0] == family]
 
     def _versioned_rpc(self, service_name, method_name, request, timeout, primary_call, template=None):
         """Call `service.method`, retrying on registered package variants.
@@ -495,6 +497,8 @@ class GatewayMarkMixin:
                 last=DoubleValue(value=z_now), interval=DoubleValue(value=interval)),
                 self._timeout, stub.ModifyZStackFirstLast)
         except grpc.RpcError as error:
+            if error.code() not in (grpc.StatusCode.UNIMPLEMENTED, grpc.StatusCode.INVALID_ARGUMENT):
+                raise  # never issue another write after timeout/transport/auth failure
             try:
                 self._versioned_rpc(service, 'ModifyZStackCenterRange', ModifyCenterRange(
                     experiment_id=experiment_id, center=DoubleValue(value=z_now),

@@ -143,13 +143,35 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
         self.capabilities.note_services(names, candidates)
         return names
 
+    def _xy_rpc(self, method, request):
+        """Explicit equivalent metre-based Stage route for documented ZEN 3.12.
+
+        The generic hardware.v1.StageService is a different multi-axis API;
+        it is never selected as a substitute for this two-axis service.
+        """
+        import grpc
+        primary='zen_api.hardware.v1.SimpleStageService'
+        try:
+            return self._rpc(primary+'.'+method,getattr(self._xy,method),request,timeout=self._timeout)
+        except grpc.RpcError as error:
+            if error.code()!=grpc.StatusCode.UNIMPLEMENTED:raise
+            original=error
+        legacy='zen_api.lm.hardware.v2.StageService'
+        names=getattr(self.capabilities,'services',None)
+        if names is None:
+            from .reflection import list_services
+            names=list_services(self._channel,timeout=self._timeout)
+        if legacy in names:
+            reply=self._dyn_call(legacy,method,request,self._timeout)
+            if reply is not None:return reply
+        raise original
+
     def read_xy(self):
         if not self.xy_enabled:
             raise RuntimeError("无 XY 单点采图模式不提供 XY 操作")
         from zen_api.hardware.v1.simple_stage_service_pb2 import SimpleStageServiceGetPositionRequest
 
-        reply = self._rpc("zen_api.hardware.v1.SimpleStageService.GetPosition", self._xy.GetPosition,
-                          SimpleStageServiceGetPositionRequest(), timeout=self._timeout)
+        reply = self._xy_rpc("GetPosition", SimpleStageServiceGetPositionRequest())
         return reply.x, reply.y
 
     def motion_state(self):
@@ -173,10 +195,8 @@ class GatewayDevice(GatewayMarkMixin, GatewayControlsMixin, RpcDiagnosticsMixin)
         from google.protobuf.wrappers_pb2 import DoubleValue
         from zen_api.hardware.v1.simple_stage_service_pb2 import SimpleStageServiceMoveToRequest
 
-        self._rpc("zen_api.hardware.v1.SimpleStageService.MoveTo", self._xy.MoveTo,
-            SimpleStageServiceMoveToRequest(x=DoubleValue(value=x), y=DoubleValue(value=y)),
-            timeout=self._timeout,
-        )
+        self._xy_rpc("MoveTo", SimpleStageServiceMoveToRequest(
+            x=DoubleValue(value=x), y=DoubleValue(value=y)))
 
     def load_experiment(self, name):
         from zen_api.acquisition.v1beta.experiment_service_pb2 import ExperimentServiceLoadRequest

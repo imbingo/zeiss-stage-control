@@ -142,3 +142,14 @@ class SimulatedMarkDevice(SimulatedDevice):
             if not 1<=p['exposure_value']<=100:raise ValueError('模拟相机曝光范围为 1–100（原始单位）')
             self.lab_exposure=p['exposure_value'];return {}
         raise ValueError('未知模拟硬件操作')
+
+
+class SimulatedSequenceDevice(SimulatedMarkDevice):
+    """Combined tilt-plane and paired-frame demo; never accesses a microscope."""
+    def autofocus(self, timeout_seconds):
+        if self.experiment == 'Demo AF':
+            self._require_connection()
+            self.af_attempts += 1
+            self.z = 100e-6 + .002*self.xy[0] - .001*self.xy[1]
+            return self.z
+        return super().autofocus(timeout_seconds)

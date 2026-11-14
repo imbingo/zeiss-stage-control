@@ -412,3 +412,28 @@ class Workflow:
             else:
                 self.events.put(('read_only_result', tag, result))
         self._launch(action)
+
+    def start_sequence(self, plan, output, *, confirmed=False,
+                       experiment_loading_confirmed=False, confirmed_start=None, session=None):
+        from pathlib import Path
+        from zen_sequence import execute_sequence, validate_capabilities
+        from zen_fit import FIELD_CONVENTION
+        if not confirmed or not experiment_loading_confirmed:
+            raise ValueError('须确认全部路径/安全 Z 与实验不会改变物镜或恢复位置')
+        if not self.xy_enabled:
+            raise ValueError('Sequence 需要电动 XY，无 XY 模式不可执行')
+        if self.state not in {'就绪','完成','已中止'} or pending_recovery(self.root,simulated=self.simulated):
+            raise RuntimeError('设备未就绪或存在待恢复记录')
+        plan.validate(self.validate)
+        validate_capabilities(self.device)
+        if not self.simulated and (plan.simulated_configuration or plan.tilt.sign_convention != FIELD_CONVENTION):
+            raise ValueError('演示配置不能用于现场任务，请新建现场任务并核对测角配方')
+        if confirmed_start is None or len(confirmed_start)!=2 or not all(isfinite(v) for v in confirmed_start):
+            raise ValueError('请先完成执行前起点检查')
+        if Path(output).expanduser().resolve().is_relative_to(self.root.resolve()):
+            raise ValueError('Sequence 图像目录请选择运行记录目录之外的位置')
+        # Freeze a snapshot before starting the worker; edits cannot affect an active run.
+        from copy import deepcopy
+        snapshot=deepcopy(plan);start=tuple(confirmed_start)
+        info={k:str((session or {}).get(k,''))[:512] for k in ('sample','operator')}
+        self._launch(lambda:execute_sequence(self,snapshot,output,start,info))

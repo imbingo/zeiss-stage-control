@@ -87,11 +87,12 @@ class MarkGatewayTest(unittest.TestCase):
         from google.protobuf import descriptor_pb2
         from grpc_reflection.v1alpha import reflection_pb2
         self._variant_fds = {}
-        def register_twin(module_name, new_package):
+        def register_twin(module_name, new_package, rename=None):
             module = importlib.import_module('zen_api.'+module_name+'_pb2')
             old_package = module.DESCRIPTOR.package
             for service in module.DESCRIPTOR.services_by_name.values():
                 twin = service.full_name.replace(old_package, new_package)
+                if rename:twin=twin.rsplit('.',1)[0]+'.'+rename
                 handlers = {}
                 for method in service.methods:
                     request = GetMessageClass(method.input_type)
@@ -108,6 +109,7 @@ class MarkGatewayTest(unittest.TestCase):
             twin_file.ParseFromString(module.DESCRIPTOR.serialized_pb)
             twin_file.package = new_package
             for service in twin_file.service:
+                if rename:service.name=rename
                 for method in service.method:
                     method.input_type = method.input_type.replace(old_package+'.', new_package+'.')
                     method.output_type = method.output_type.replace(old_package+'.', new_package+'.')
@@ -118,7 +120,9 @@ class MarkGatewayTest(unittest.TestCase):
                 fds.append(dep_file.SerializeToString())
             for service in module.DESCRIPTOR.services_by_name.values():
                 twin = service.full_name.replace(old_package, new_package)
+                if rename:twin=twin.rsplit('.',1)[0]+'.'+rename
                 self._variant_fds[twin] = fds
+        register_twin('hardware.v1.simple_stage_service','zen_api.lm.hardware.v2',rename='StageService')
         register_twin('lm.acquisition.v1.experiment_sw_autofocus_service',
                       'zen_api.lm.acquisition.v1beta')
         register_twin('lm.acquisition.v1.zstack_service',
@@ -161,8 +165,9 @@ class MarkGatewayTest(unittest.TestCase):
             ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "beta af absent")
         if self.xy_missing and service.endswith((".SimpleStageService", ".StageService")):
             ctx.abort(grpc.StatusCode.UNIMPLEMENTED, "No XY installed")
-        if service.endswith('.SimpleStageService') and method == 'GetPosition':
-            return response(x=self.xy[0], y=self.xy[1])
+        if service.endswith('.SimpleStageService') or service=='zen_api.lm.hardware.v2.StageService':
+            if method=='GetPosition':return response(x=self.xy[0], y=self.xy[1])
+            if method=='MoveTo':self.xy=(req.x.value,req.y.value);return response(position_changed=True)
         if method == 'GetStageMotionState':return response(state=3)
         if service.endswith('.FocusService'):
             v1 = '.v1.' in service  # v1 GetPosition/MoveTo use MICROMETRES; v2 uses metres.
@@ -499,3 +504,33 @@ class MarkGatewayTest(unittest.TestCase):
                 self.assertAlmostEqual(actual, expected)
             self.assertTrue(any(service=='zen_api.lm.acquisition.v1beta.ZStackService'
                                 for service,_ in self.calls))
+
+    def test_legacy_312_xy_route_uses_metres_and_records_real_path(self):
+        self.device._timeout=2
+        self._service_names.remove('zen_api.hardware.v1.SimpleStageService')
+        self.device.probe_services()
+        self.device.move_xy(.002,.003)
+        self.assertEqual(self.device.read_xy(),(.002,.003))
+        self.assertIn(('zen_api.lm.hardware.v2.StageService','MoveTo'),self.calls)
+        self.assertIn(('zen_api.lm.hardware.v2.StageService','GetPosition'),self.calls)
+
+    def test_zstack_deadline_never_attempts_another_write(self):
+        self.zstack_enabled=True
+        original=self.device._versioned_rpc
+        writes=[]
+        def rpc(service,method,request,timeout,primary_call,template=None):
+            if method.startswith('Modify'):
+                writes.append(method)
+                raise GatewayCallError(service+'.'+method,grpc.StatusCode.DEADLINE_EXCEEDED)
+            return original(service,method,request,timeout,primary_call,template=template)
+        self.device._versioned_rpc=rpc
+        self.device.load_experiment('Upper')
+        with self.assertRaises(grpc.RpcError):self.device._collapse_zstack(self.device._experiment_id)
+        self.assertEqual(writes,['ModifyZStackFirstLast'])
+
+    def test_version_fallback_never_crosses_lm_em_service_families(self):
+        self.device.capabilities.services=('zen_api.em.hardware.v1.CameraService',
+            'zen_api.lm.hardware.v1.CameraService','zen_api.lm.lls.acquisition.v1beta.ExperimentService')
+        self.assertEqual(self.device._service_variants('zen_api.lm.hardware.v2.CameraService'),
+                         ['zen_api.lm.hardware.v1.CameraService'])
+        self.assertEqual(self.device._service_variants('zen_api.acquisition.v1beta.ExperimentService'),[])

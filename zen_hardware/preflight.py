@@ -24,7 +24,9 @@ def _report_services(channel, report, xy_enabled):
         report("services", "✕ 失败", "Gateway 未注册任何服务。请确认 ZEN/ZEN core 正在运行并连接 Gateway、ZEN API toolkit 已激活。")
         return
     mode = "motorized" if xy_enabled else "no_xy"
-    missing = [short_name(s) for s in REQUIRED_SERVICES[mode] if s not in names]
+    missing = [short_name(s) for s in REQUIRED_SERVICES[mode] if s not in names
+               and not (s == 'zen_api.hardware.v1.SimpleStageService'
+                        and 'zen_api.lm.hardware.v2.StageService' in names)]
     optional_missing = [short_name(s) for s in OPTIONAL_SERVICES if s not in names]
     if missing:
         report("services", "✕ 失败",
@@ -41,7 +43,7 @@ def _report_services(channel, report, xy_enabled):
                        "自动对焦步骤将失败。请在 ZEN 端核对 API toolkit 授权与 ZEN 版本，"
                        "或改用无 AF 手动示教。")
         elif af_missing:
-            detail += " 部分 AF 服务未注册，已自动降级到可用路径，不影响对焦。"
+            detail += " 已注册其他 AF 路径；是否可用须单步验证，Definite Focus 还需显式启用。"
         if optics_missing:
             detail += " 物镜/Optovar 读回不可用，仅影响光学参数核对，不影响运动。"
         report("services", "— 待确认", detail)

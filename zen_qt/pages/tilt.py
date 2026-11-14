@@ -174,6 +174,8 @@ class TiltPage(QWidget):
     def apply_recipe(self, recipe):
         self.app.field_recipe = recipe
         self.app.field_verified = False
+        sequence=self.app.pages.get('sequence')
+        if sequence:sequence.invalidate()
         workflow = self.app.workflow
         if workflow and not workflow.simulated:
             workflow.invalidate()
