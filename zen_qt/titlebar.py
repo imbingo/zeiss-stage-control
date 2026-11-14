@@ -79,7 +79,7 @@ def build_titlebar(window):
     title = QLabel("LSM测量工作站")
     title.setObjectName("brand")
     layout.addWidget(title)
-    version = QLabel("2.8")
+    version = QLabel("2.8.1")
     version.setObjectName("muted")
     layout.addWidget(version)
     window.conn_chip = StatusText("未连接")
@@ -96,6 +96,13 @@ def build_titlebar(window):
     ):
         item.set_kind(None)
         layout.addWidget(item)
+    window.exit_demo_button = QPushButton("退出离线演示")
+    window.exit_demo_button.clicked.connect(window.exit_demo)
+    window.exit_demo_button.setToolTip(
+        "结束模拟连接，返回设备页；不会自动连接或操作真实设备"
+    )
+    window.exit_demo_button.hide()
+    layout.addWidget(window.exit_demo_button)
     layout.addStretch(1)
     window.read_labels = {}
     for key in ("X", "Y", "Z", "物镜"):

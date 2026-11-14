@@ -3,6 +3,7 @@
 from copy import deepcopy
 import json
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QTabWidget,
     QTreeWidget,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QMessageBox,
     QLabel,
+    QMenu,
 )
 from .recipes import RecipesPage as VersionPage
 from ..widgets import label, hbox
@@ -77,6 +79,15 @@ class RecipesPage(VersionPage):
         self.test_step_button.parentWidget().layout().insertWidget(
             3, self.from_here_button
         )
+        self.add_catalog_button = QPushButton(
+            "添加所选步骤",
+            clicked=lambda: (
+                self.add_kind(self.catalog.currentItem().data(0, Qt.UserRole))
+                if self.catalog.currentItem()
+                else None
+            ),
+        )
+        layout.insertWidget(index + 1, self.add_catalog_button)
         self._points_target = None
 
     def refresh_all(self):
@@ -376,14 +387,36 @@ class RecipesPage(VersionPage):
             self.refresh_step_tree()
 
     def add_step(self):
-        if not self._read_only():
-            self.library_tabs.setCurrentIndex(1)
+        if not self.current_id:
+            self.new_recipe()
+            if not self.current_id:
+                return
+        if self._read_only():
             self.validation_hint.setText(
-                "双击步骤库动作添加到所选位置；选择循环节点时加入循环内。"
+                "正式版只读：先点击“复制为新草稿”，再添加步骤。"
             )
+            return
+        self.add_menu = QMenu(self)
+        groups = {}
+        self.add_actions = {}
+        self.add_groups = groups
+        for kind, (group, title, _) in CATALOG.items():
+            if group not in groups:
+                groups[group] = self.add_menu.addMenu(group)
+            action = groups[group].addAction(
+                title + (" · 待适配" if kind == "set_gain" else "")
+            )
+            action.setData(kind)
+            self.add_actions[kind] = action
+            action.triggered.connect(lambda checked=False, k=kind: self.add_kind(k))
+        self.add_group_actions = [menu.menuAction() for menu in groups.values()]
+        self.add_menu.popup(QCursor.pos())
 
     def add_kind(self, kind):
-        if not kind or self._read_only():
+        if not kind:
+            return
+        if self._read_only():
+            self.validation_hint.setText("正式版只读：先复制为新草稿，再添加步骤。")
             return
         n = make_step(kind)
         selected = self._find_step(self._selected_step_id)

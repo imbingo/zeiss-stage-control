@@ -325,6 +325,7 @@ class DevicePage(QWidget):
         self.connect_button.setEnabled(not busy)
         self.reconnect_button.setEnabled(not busy)
         self.disconnect_button.setEnabled(connected and not busy)
+        self.disconnect_button.setText("退出离线演示" if simulated else "断开")
         self.preflight_button.setEnabled(not busy and connected and not simulated)
         self.scan_button.setEnabled(not busy and connected and not simulated)
         self.scan_all.setEnabled(self.scan_button.isEnabled())

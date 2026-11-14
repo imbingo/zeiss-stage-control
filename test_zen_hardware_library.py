@@ -29,8 +29,9 @@ class HardwareLibraryTests(unittest.TestCase):
         self.assertFalse(self.device.lab_calls)
         r=self.run_op('move_z',{'z_um':'101'},confirmed=True)
         self.assertEqual(r['status'],'success');self.assertAlmostEqual(self.device.z,101e-6)
-        self.assertTrue(pending_recovery(self.root,simulated=True))
-        self.assertEqual(self.run_op('move_z',{'z_um':102},confirmed=True)['status'],'failed')
+        self.assertFalse(pending_recovery(self.root,simulated=True))
+        self.assertTrue(r['completion']['verified'])
+        self.assertEqual(self.run_op('move_z',{'z_um':102},confirmed=True)['status'],'success')
         self.assertEqual(self.run_op('read_z')['status'],'success')
         self.assertEqual(self.run_op('stop_z')['status'],'success')
 
@@ -56,6 +57,7 @@ class HardwareLibraryTests(unittest.TestCase):
         r=self.run_op('snap',{'experiment_id':'test','output_name':'mark'},confirmed=True)
         self.assertEqual(r['status'],'success');self.assertEqual(self.device.capture_count,1)
         self.assertEqual(self.device.z_moves,[]);self.assertEqual(self.device.prepared,[])
-        self.assertEqual(len(self.device.lab_calls),1)
+        self.assertEqual(self.device.lab_calls.count('snap'),1)
+        self.assertTrue(all(op in ('snap','experiment_status') for op in self.device.lab_calls))
 
 if __name__=='__main__':unittest.main()

@@ -1,7 +1,7 @@
 [Setup]
 AppId=ZEN.SurfaceTilt.Workbench
 AppName=LSM测量工作站
-AppVersion=2.8.0
+AppVersion=2.8.1
 DefaultDirName={localappdata}\Programs\ZEN Surface Tilt
 DefaultGroupName=LSM测量工作站
 PrivilegesRequired=lowest
@@ -11,7 +11,7 @@ DisableDirPage=yes
 DisableProgramGroupPage=yes
 WizardStyle=modern
 OutputDir=.
-OutputBaseFilename=LSM_Measurement_Setup_V2.8.0
+OutputBaseFilename=LSM_Measurement_Setup_V2.8.1
 Compression=lzma2
 SolidCompression=yes
 UninstallDisplayName=LSM测量工作站

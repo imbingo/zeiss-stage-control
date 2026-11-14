@@ -10,7 +10,7 @@ import os
 import traceback
 from uuid import uuid4
 
-from zen_records import pending_recovery, utc_now, write_json
+from zen_records import pending_recovery, utc_now, write_json, software_version
 from .rpc_diagnostics import diagnostic_from_error
 
 
@@ -44,14 +44,14 @@ OPERATIONS = {op.key:op for op in (
     Operation('disconnect','断开通信','连接',help='只关闭客户端通道，不等于设备停止。'),
     Operation('list_services','列出已注册 gRPC 服务','连接',help='只读 reflection 服务清单，用于核对本机 ZEN 注册的服务命名空间（v1/v1beta 等）。'),
     Operation('read_z','读取 Z','位置',help='Focus v2 GetPosition，返回单位 m。'),
-    Operation('move_z','Z MoveTo','位置',(Field('z_um','目标绝对 Z (µm)',True),),True,True,help='只发送一次 Z MoveTo。不会自动 AF、拍照或回读；RPC 返回不证明轴已静止。'),
+    Operation('move_z','Z MoveTo','位置',(Field('z_um','目标绝对 Z (µm)',True),),True,True,help='只发送一次 Z MoveTo，随后只读检查目标到位和稳定；不重发，不自动 AF 或拍照。无法确认完成时保留恢复锁。'),
     Operation('stop_z','请求 Z Stop','位置',writes=True,may_move=True,is_stop=True,help='只请求 Focus.Stop，不代表 AF 或采集已结束；不能当硬件急停。'),
     Operation('read_xy','读取 XY','位置',xy_required=True),
     Operation('read_xy_motion','读取 XY 运动状态','位置',xy_required=True),
-    Operation('move_xy','XY MoveTo','位置',(Field('x_um','目标绝对 X (µm)',True),Field('y_um','目标绝对 Y (µm)',True)),True,True,True,help='只发送一次 XY MoveTo，不等待到位；无 XY 模式禁止。'),
+    Operation('move_xy','XY MoveTo','位置',(Field('x_um','目标绝对 X (µm)',True),Field('y_um','目标绝对 Y (µm)',True)),True,True,True,help='只发送一次 XY MoveTo，随后只读检查空闲、目标到位和稳定；不重发。无 XY 模式禁止。'),
     Operation('read_optics','读取转盘/倍率位置','位置',help='仅 GetPosition，不提供转动物镜的按钮。null 表示未提供，位置读到也不代表已锁定。'),
     Operation('list_experiments','列出实验名称','实验'),
-    Operation('load_experiment','加载实验 Load','实验',(NAME,),True,True,help='只调用 Load，不自动 Clone/AF/MoveTo/采集。加载实验本身可能应用硬件设置或换物镜，须先在 ZEN 确认安全。'),
+    Operation('load_experiment','加载实验 Load','实验',(NAME,),True,True,help='执行一次 Load，随后只读检查轴稳定和实验空闲；不自动 Clone/AF/MoveTo/采集。加载实验本身可能应用硬件设置或换物镜，须先在 ZEN 确认安全。'),
     Operation('clone_experiment','克隆实验 Clone','实验',(EXP,),True,help='只调用 Clone，成功后显示新的实验 ID；不自动加载其他实验或启动动作。'),
     Operation('export_experiment','读取实验 XML 摘要','实验',(EXP,),help='只验证 Export，显示长度和 SHA-256；原始 XML 不进入共享日志。'),
     Operation('get_af','读取 AF 参数','AF',(EXP,)),
@@ -60,8 +60,8 @@ OPERATIONS = {op.key:op for op in (
     Operation('is_zstack','检查 Z-stack 是否启用','Z-stack',(EXP,)),
     Operation('get_zstack','读取 Z-stack 参数','Z-stack',(EXP,)),
     Operation('set_zstack','设置 Z-stack 起止/步距','Z-stack',(EXP,Field('first_um','首层绝对 Z (µm)',True),Field('last_um','末层绝对 Z (µm)',True),Field('interval_um','层间距 (µm)',True)),True,help='只修改当前实例的 Z-stack 范围，不自动启用维度、不执行扫描、不 Save。'),
-    Operation('snap','执行一次 SNAP（相机）','采集',(EXP,OUT),True,True,help='只调用 RunSnap，不 Clone/AF/MoveTo/接收像素流；原始文件由 ZEN 保存。不是共聚焦采集的替代。'),
-    Operation('run_experiment','运行当前实验（共焦/Z-stack）','采集',(EXP,OUT),True,True,help='只调用 RunExperiment，按 ZEN 已配置的实验运行，包括可能的 Z-stack/多通道与硬件动作，不自动修改维度。'),
+    Operation('snap','执行一次 SNAP（相机）','采集',(EXP,OUT),True,True,help='执行一次 RunSnap，随后只读检查完成；不 Clone/AF/MoveTo/接收像素流；原始文件由 ZEN 保存。不是共聚焦采集的替代。'),
+    Operation('run_experiment','运行当前实验（共焦/Z-stack）','采集',(EXP,OUT),True,True,help='执行一次 RunExperiment，随后只读检查完成；按 ZEN 已配置的实验运行，包括可能的 Z-stack/多通道与硬件动作，不自动修改维度。'),
     Operation('stop_experiment','请求停止指定实验','采集',(EXP,),True,True,is_stop=True,help='只对填写的实验 ID 调用 Stop，不使用空 ID 停止未知实验；返回不证明所有物理动作已结束。'),
     Operation('experiment_status','读取实验执行状态','采集',(EXP,)),
     Operation('image_output_path','读取 ZEN 图像保存目录','采集',help='只查询路径，不浏览、不删除文件；单步采集不自动转换为 TIFF。'),
@@ -165,7 +165,7 @@ class HardwareTestSession:
         identity=uuid4().hex;self.running_id=identity;started=monotonic()
         operation=OPERATIONS.get(key)
         allowed={} if operation is None else {f.name:(parameters or {}).get(f.name,'') for f in operation.fields} if isinstance(parameters,dict) else {}
-        report={'schema_version':1,'software_version':'2.7.0','session_id':self.session_id,
+        report={'schema_version':1,'software_version':software_version(),'session_id':self.session_id,
                 'operation_id':identity,'operation':key if operation else 'unknown','title':operation.title if operation else '未知操作',
                 'started_at':utc_now(),'simulated':self.simulated,'parameters':safe(allowed),'timeout_s':safe(timeout_s),
                 'parameter_labels':{f.name:f.label for f in operation.fields} if operation else {},
@@ -197,6 +197,17 @@ class HardwareTestSession:
             report['result']=safe(self.library.execute(operation,p))
             report['status']='success'
             report['note']='RPC/逻辑操作已返回，不等于物理动作完成；不会自动执行下一步'
+            if operation.may_move and not operation.is_stop:
+                from .completion import verify_completion
+                try:
+                    report['completion']=verify_completion(device,key,p,max(.01,timeout-(monotonic()-started)),stop)
+                except Exception as error:
+                    report['completion']={'verified':False,'error':diagnostic_from_error(error) or {'code':type(error).__name__,'message':str(error)}}
+                    report['note']='调用已返回，但完成检查未通过；须现场恢复确认'
+                else:
+                    report['recovery_required']=False
+                    report['note']='调用成功，已通过只读完成检查；不自动执行下一步'
+
         except Exception as error:
             report['status']='failed'
             diagnostic=diagnostic_from_error(error)
@@ -214,11 +225,12 @@ class HardwareTestSession:
                 if run is not None:
                     write_json(run/'hardware_operation.json',report)
                     write_json(run/'status.json',{'kind':'hardware_test','state':'complete' if report['status']=='success' else 'failed',
-                        'recovery_required':True,'result_valid':False,'started_at':report['started_at'],
-                        'failure_stage':report['title'],'operation_id':identity})
+                        'recovery_required':report['recovery_required'],'result_valid':False,'started_at':report['started_at'],
+                        'failure_stage':report['title'] if report['recovery_required'] else '', 'operation_id':identity})
                 self.append({**report,'event':'result'})
             except (OSError,ValueError):
                 report['log_error']='日志写入失败；若设备调用已发生，请现场确认状态并保留界面结果'
                 report['status']='failed'
+                if run is not None:report['recovery_required']=True
             self.running_id=None;self._gate.release()
         return report

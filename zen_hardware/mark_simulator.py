@@ -149,7 +149,7 @@ class SimulatedMarkDevice(SimulatedDevice):
         if operation in ('snap','run_experiment'):
             self.capture_count+=1;return {'output_name':p['output_name'] or 'simulated-image','simulated':True}
         if operation == 'stop_experiment':return {}
-        if operation == 'experiment_status':return {'is_experiment_running':False,'images_count':self.capture_count}
+        if operation == 'experiment_status':return {'is_experiment_running':False,'is_acquisition_running':False,'images_count':self.capture_count}
         if operation == 'image_output_path':return {'image_output_path':'SIMULATED-NOT-A-REAL-FOLDER'}
         if operation == 'list_cameras':return {'cameras':[{'id':'demo-camera','name':'模拟相机'}]}
         if operation == 'get_camera':return {'id':p['camera_id'],'exposure_time':self.lab_exposure,'min_exposure_time':1,'max_exposure_time':100,'exposure_unit':'API raw'}

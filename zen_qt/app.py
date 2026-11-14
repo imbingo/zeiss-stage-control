@@ -59,7 +59,7 @@ class WorkbenchWindow(QMainWindow):
         self._live_z = None
         self._live_xy = None
 
-        self.setWindowTitle("LSM测量工作站 v2.8.0")
+        self.setWindowTitle("LSM测量工作站 v2.8.1")
         self.resize(1600, 980)
         self.setMinimumSize(1000, 620)
         self.setStyleSheet(theme.QSS)
@@ -222,11 +222,17 @@ class WorkbenchWindow(QMainWindow):
             if key in self.page_containers:self.page_containers[key].takeWidget()
             tab_scroll=QScrollArea();tab_scroll.setWidgetResizable(True);tab_scroll.setFrameShape(QFrame.NoFrame);tab_scroll.setWidget(self.pages[key])
             self.equipment_tabs.addTab(tab_scroll,title)
+        self.equipment_tabs.currentChanged.connect(self._equipment_changed)
         self.page_containers['device'].setWidget(self.equipment_tabs)
         for key in ('hardware','tilt','marks'):self.nav_buttons[key].hide()
         self.navigate("sequence")
 
     # ---------- navigation / logging ----------
+
+    def _equipment_changed(self,index):
+        key=['device','manual','hardware','tilt','marks'][index]
+        page=self.pages[key]
+        if hasattr(page,'on_show'):page.on_show()
 
     def navigate(self, key):
         original=key
@@ -256,7 +262,7 @@ class WorkbenchWindow(QMainWindow):
     def export_diagnostic_bundle(self):
         from PySide6.QtWidgets import QFileDialog
         bundle = {"kind": "diagnostic_bundle", "exported_at": utc_now(),
-                  "software": "LSM测量工作站 v2.8.0 (Qt)",
+                  "software": "LSM测量工作站 v2.8.1 (Qt)",
                   "simulated": bool(self.workflow and self.workflow.simulated),
                   "xy_mode": self.xy_mode,
                   "rpc_trace": (self.workflow.device.rpc_trace()
@@ -367,6 +373,12 @@ class WorkbenchWindow(QMainWindow):
             self.workflow.connect()
             self.navigate("tilt")
         self.refresh_ui()
+
+    def exit_demo(self):
+        if self.workflow and self.workflow.simulated and not self.workflow.busy:
+            self.disconnect()
+            self.navigate('device')
+            self.log('info','已退出离线演示；请点击连接现场设备。')
 
     def disconnect(self):
         if self.workflow is None or self.workflow.busy:
@@ -643,6 +655,8 @@ class WorkbenchWindow(QMainWindow):
         else:
             self.conn_chip.setText(("离线演示" if workflow.simulated else "Gateway") + f" · {workflow.state}")
             self.conn_chip.set_kind("bad" if workflow.state == RECOVERY_STATE else "ok" if workflow.state in READY_STATES else "warn")
+        self.exit_demo_button.setVisible(bool(workflow and workflow.simulated))
+        self.exit_demo_button.setEnabled(not busy)
         self.mode_chip.setText("离线演示" if (workflow and workflow.simulated) else "真实设备")
         self.mode_chip.set_kind("warn" if (workflow and workflow.simulated) else "real")
         runs = self.pending_runs()
