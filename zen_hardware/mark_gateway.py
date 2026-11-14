@@ -343,7 +343,7 @@ class GatewayMarkMixin:
             self._rpc('zen_api.lm.hardware.v1.FocusService.MoveTo', v1_stub.MoveTo,
                       pb2.FocusServiceMoveToRequest(value=z_m * 1e6), timeout=self._timeout)  # metres -> µm
 
-    def prepare_mark_experiment(self, name, low_m, high_m, *, use_autofocus=True):
+    def prepare_mark_experiment(self, name, low_m, high_m, *, use_autofocus=True, reuse_loaded=False):
         from google.protobuf.wrappers_pb2 import BoolValue, DoubleValue
         from zen_api.acquisition.v1beta.experiment_service_pb2 import ExperimentServiceCloneRequest
         from zen_api.lm.acquisition.v1.experiment_sw_autofocus_service_pb2 import (
@@ -352,7 +352,10 @@ class GatewayMarkMixin:
         )
         if not all(map(isfinite, (low_m, high_m))) or low_m >= high_m:
             raise ValueError("AF 范围无效")
-        self.load_experiment(name)
+        if not reuse_loaded:
+            self.load_experiment(name)
+        if not self._experiment_id:
+            raise ValueError('请先加载实验')
         clone = self._rpc("zen_api.acquisition.v1beta.ExperimentService.Clone", self._experiments.Clone, ExperimentServiceCloneRequest(experiment_id=self._experiment_id), timeout=self._timeout)
         if not clone.experiment_id or clone.experiment_id == self._experiment_id:
             raise ValueError("未能取得独立的临时实验，拒绝修改原实验")
@@ -448,6 +451,10 @@ class GatewayMarkMixin:
         return {"experiment_id": self._experiment_id, "lower_m": actual.lower_limit,
                 "upper_m": actual.upper_limit, "mode": actual.auto_focus_mode,
                 "search_strategy": actual.search_strategy}
+
+    def prepare_loaded_autofocus(self, low_m, high_m):
+        """Bound AF on an isolated clone of the explicitly loaded experiment."""
+        return self.prepare_mark_experiment('', low_m, high_m, reuse_loaded=True)
 
     def _collapse_zstack(self, experiment_id):
         """Ensure the capture clone yields exactly one slice at the stage's

@@ -84,3 +84,11 @@ class StackGatewayTests(unittest.TestCase):
         frames = self.run_stack()
         self.assertEqual(frames[0].xyz_m[:2], (None, None))
         self.assertFalse(frames[0].xy_verified)
+
+    def test_loaded_af_clones_current_experiment_without_loading_again(self):
+        self.device.load_experiment("Upper")
+        before = sum(method == "Load" for _, method in self.calls)
+        result = self.device.prepare_loaded_autofocus(95e-6, 105e-6)
+        self.assertEqual(sum(method == "Load" for _, method in self.calls), before)
+        self.assertAlmostEqual(result["lower_m"], 95e-6)
+        self.assertNotEqual(self.device._experiment_id, "original:Upper")

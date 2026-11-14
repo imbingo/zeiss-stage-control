@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:PAYLOAD
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence','test_zen_audit','test_zen_recipe_store','test_zen_recipe_execution','test_zen_program','test_zen_stack_gateway']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 115 or bool(result.skipped))"
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence','test_zen_audit','test_zen_recipe_store','test_zen_recipe_execution','test_zen_program','test_zen_stack_gateway']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 117 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
       - name: GUI regression tests
         shell: pwsh

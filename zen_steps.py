@@ -450,6 +450,16 @@ def validate_program(body, identity=None, scope=None):
                     ]
                 elif k == "zstack":
                     values = [p.get("first_um"), p.get("last_um")]
+                elif (
+                    k == "autofocus"
+                    and p.get("center_um") not in ("", None)
+                    and not isinstance(p.get("center_um"), str)
+                    and not isinstance(p.get("half_um"), str)
+                ):
+                    values = [
+                        p["center_um"] - p["half_um"],
+                        p["center_um"] + p["half_um"],
+                    ]
                 for v in values:
                     if isinstance(v, str) and v.startswith("@"):
                         continue

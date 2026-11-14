@@ -284,3 +284,15 @@ class ProgramTests(unittest.TestCase):
             device.autofocus("Upper", 299, 5, 1)
         self.assertEqual(self.d.z_moves, [])
         self.assertEqual(self.d.af_attempts, 0)
+
+    def test_af_uses_explicit_loaded_experiment_without_hidden_load(self):
+        r = self.execute(
+            body(
+                [
+                    make_step("load_experiment", experiment="Upper"),
+                    make_step("autofocus", center_um=100, half_um=5),
+                ]
+            )
+        )
+        self.assertEqual(r["state"], "complete", r.get("error"))
+        self.assertEqual(self.d.lab_calls.count("load_experiment"), 1)

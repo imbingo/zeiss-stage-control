@@ -59,6 +59,12 @@ class SimulatedMarkDevice(SimulatedDevice):
             self.optics = (2, 1)
         return {"lower_m": low, "upper_m": high, "experiment_id": f"demo-{len(self.prepared)}"}
 
+    def prepare_loaded_autofocus(self, low, high):
+        if not self._experiment_id:raise ValueError('请先加载实验')
+        self.bounds=(low,high)
+        if self.mark_fault=='optics':self.optics=(2,1)
+        return {'lower_m':low,'upper_m':high,'experiment_id':self._experiment_id}
+
     def autofocus(self, timeout_seconds):
         self._require_connection()
         self.af_attempts += 1

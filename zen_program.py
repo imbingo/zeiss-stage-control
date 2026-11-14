@@ -171,7 +171,7 @@ class ProgramDevice:
         result = self.action(
             "prepare_af",
             {"experiment": name, "low_m": low, "high_m": high},
-            lambda: self.d.prepare_mark_experiment(name, low, high, use_autofocus=True),
+            lambda: self.d.prepare_loaded_autofocus(low, high),
             settings=True,
         )
         if (
