@@ -82,7 +82,7 @@ class ProgramTests(unittest.TestCase):
 
         self.assertEqual(scan_runs(self.w.root)[0]["n_images"], 2)
         self.assertEqual(
-            json.loads((self.w.sequence_run_path / "snapshot.json").read_text())[
+            json.loads((self.w.sequence_run_path / "snapshot.json").read_text(encoding="utf-8"))[
                 "session"
             ]["operator"],
             "E1",
@@ -139,7 +139,7 @@ class ProgramTests(unittest.TestCase):
         )
         self.assertEqual(r["state"], "complete", r.get("error"))
         folder = Path(r["steps"][-1]["output"]["path"])
-        meta = json.loads((folder / "stack.json").read_text())
+        meta = json.loads((folder / "stack.json").read_text(encoding="utf-8"))
         self.assertEqual(meta["axes"], "ZYX")
         self.assertEqual(len(list(folder.glob("*.tif"))), 3)
         self.assertEqual(
@@ -266,11 +266,11 @@ class ProgramTests(unittest.TestCase):
                 }
             },
         }
-        (run / "sequence.json").write_text(json.dumps(r))
+        (run / "sequence.json").write_text(json.dumps(r),encoding="utf-8")
         with self.assertRaises(ValueError):
             lib.record_trial(rid, rev, run, by="E1")
         r["simulated"] = False
-        (run / "sequence.json").write_text(json.dumps(r))
+        (run / "sequence.json").write_text(json.dumps(r),encoding="utf-8")
         lib.check(rid, rev)
         lib.record_trial(rid, rev, run, by="E1")
         lib.release(rid, rev, by="E1")
