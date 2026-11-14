@@ -195,7 +195,8 @@ class QtRegressionTests(unittest.TestCase):
         self.assertIsNone(h.session.library)
 
     def test_actual_recovery_dialog_and_archive_attestation(self):
-        h = self.load()
+        with patch('zen_hardware.completion.verify_completion',side_effect=TimeoutError('synthetic incomplete motion')):
+            h = self.load()
         self.assertTrue(self.w.locked())
         self.confirm()
         runs = scan_runs(self.root)

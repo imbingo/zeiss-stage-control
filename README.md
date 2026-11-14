@@ -1,4 +1,9 @@
-# ZEN AF 表面测角工作台
+# LSM测量工作站
+
+V2.8.1 修复：[连接就绪、步骤添加、重复恢复确认与退出演示](docs/lsm-v2.8/V2.8.1修复说明.md)。
+
+V2.8 工程步骤编排、测角路径与实测 Z 散点、上下 mark 图像 Tab：[设计与操作说明](docs/lsm-v2.8/README.md)。
+
 
 V2.6.0 新增：[自动任务 / Sequence 使用说明、运行截图和验证范围](docs/sequence/README.md)。
 
@@ -10,13 +15,13 @@ API 兼容性核查：[ZEN 3.12 / 3.14 / 3.15 全功能清单与适配缺口](do
 
 Qt 重构审查：[V2.5.0 实际运行截图与功能回归报告](docs/ui-reviews/v2.5.0/README.md)。
 
-当前为 V2.6.0 联调预览，支持独立测角、上下孔采图及固定 Sequence 自动任务。已进行模拟与本机 gRPC 回环验证，完整实机流程及与 V1.1 的兼容性仍待确认。
+当前为 V2.8 工程联调预览，支持可编排步骤、独立测角及上下 mark 采图。已进行模拟与本地 gRPC 接口验证，完整实机流程仍需现场确认。
 
 ## 启动
 
 Windows x64 便携包已包含运行时和 Gateway 存根。解压后双击 `start_gui.bat`，现场操作见[首次上机指南](首次上机.md)。下面的 Python 安装和存根生成步骤适用于源码包。
 
-安装含 Tcl/Tk 的 Windows Python 3.12。源码运行请先安装 `requirements-gateway.txt`；便携包已含依赖。双击 `start_gui.bat`，或执行 `python zen_gui.py`。也可通过环境变量 `ZEN_PYTHON` 指定 Python 可执行文件的完整路径。
+安装含 Tcl/Tk 的 Windows Python 3.12。源码运行请先安装 `requirements-gateway.txt`；便携包已含依赖。双击 `start_gui.bat`，或执行 `python zen_qt_app.py`。`zen_gui.py` 保留为旧版 Tk 入口。也可通过环境变量 `ZEN_PYTHON` 指定 Python 可执行文件的完整路径。
 
 选择「正常演示」运行四点采集。完成后可导出 JSON。选择「第 3 点 AF 超时演示」复核部分采集记录和启动锁定。使用「确认演示恢复」记录模拟确认，再启动下一轮。
 

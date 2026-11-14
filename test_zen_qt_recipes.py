@@ -23,6 +23,12 @@ class TestRecipesPage(unittest.TestCase):
         self.w = WorkbenchWindow(Path(self.tmp.name) / "data")
         self.p = self.w.pages["recipes"]
         self.p.seed_demo()
+        self.angle = next(
+            n for n in self.p._body["program_steps"] if n["kind"] == "measure_angle"
+        )
+        self.xy = next(
+            n for n in self.p._body["program_steps"] if n["kind"] == "move_xy"
+        )
         self.addCleanup(self.cleanup)
 
     def cleanup(self):
@@ -49,60 +55,72 @@ class TestRecipesPage(unittest.TestCase):
         _app().processEvents()
 
     def test_change_save_reload_preserves_coordinate_and_revision(self):
-        self.select("H01")
+        self.select(self.xy["step_id"])
         self.p.param_edits["x_um"].setText("4321")
         self.assertTrue(self.p.save_new_version())
         v = RecipeLibrary(self.p.library.path).get(self.p.current_id, 1)
         self.assertEqual(
-            v["body"]["step_tree"][4]["children"][0]["params"]["x_um"], 4321
+            next(n for n in v["body"]["program_steps"] if n["kind"] == "move_xy")[
+                "params"
+            ]["x_um"],
+            4321,
         )
 
     def test_switch_step_preserves_edit_and_displays_correct_fields(self):
-        self.select("H01")
+        self.select(self.xy["step_id"])
         self.p.param_edits["x_um"].setText("8765")
-        self.select("S1")
-        self.assertIn("af_half_um", self.p.param_edits)
+        self.select(self.angle["step_id"])
+        self.assertIn("half_um", self.p.param_edits)
         self.assertNotIn("upper_z_um", self.p.param_edits)
-        self.select("H01")
+        self.select(self.xy["step_id"])
         self.assertEqual(self.p.param_edits["x_um"].text(), "8765")
         self.w.connect_demo("sequence")
         self.assertTrue(_wait(lambda: not self.w.workflow.busy))
-        self.select("S1")
+        self.select(self.angle["step_id"])
         self.p.point_table.selectRow(0)
         self.p.teach_tilt()
-        self.assertTrue(_wait(lambda: len(self.p._body["tilt"]["points_um"][0]) == 3))
-        self.assertEqual(self.p._body["tilt"]["points_um"][0], [0.0, 0.0, 100.0])
+        self.assertTrue(_wait(lambda: len(self.angle["params"]["points_um"][0]) == 3))
+        self.assertEqual(self.angle["params"]["points_um"][0], [0.0, 0.0, 100.0])
 
     def test_check_saves_current_edits_and_never_fakes_qualification(self):
-        self.select("H01")
+        self.select(self.xy["step_id"])
         self.p.param_edits["x_um"].setText("7654")
         self.p.check_recipe()
         v = self.p.library.get(self.p.current_id, 1)
         self.assertEqual(
-            v["body"]["step_tree"][4]["children"][0]["params"]["x_um"], 7654
+            next(n for n in v["body"]["program_steps"] if n["kind"] == "move_xy")[
+                "params"
+            ]["x_um"],
+            7654,
         )
         self.assertFalse(self.p.release_button.isEnabled())
 
     def test_invalid_numeric_save_reports_and_keeps_last_saved_value(self):
-        self.select("H01")
+        self.select(self.xy["step_id"])
         self.p.param_edits["x_um"].setText("invalid")
         with patch("zen_qt.pages.recipes.QMessageBox.warning") as warning:
             self.assertFalse(self.p.save_new_version())
             warning.assert_called_once()
         self.assertEqual(
-            self.p.library.get(self.p.current_id, 1)["body"]["step_tree"][4][
-                "children"
-            ][0]["params"]["x_um"],
+            next(
+                n
+                for n in self.p.library.get(self.p.current_id, 1)["body"][
+                    "program_steps"
+                ]
+                if n["kind"] == "move_xy"
+            )["params"]["x_um"],
             4000,
         )
 
-    def test_template_updates_step_dependencies(self):
-        self.p.template.setCurrentText("仅上下孔采图")
-        self.assertNotIn("tilt", [n["kind"] for n in self.p._body["step_tree"]])
-        self.p.check_recipe()
-        self.assertEqual(
-            self.p.library.get(self.p.current_id, 1)["checks"]["result"], "passed"
-        )
+    def test_step_library_and_legacy_import(self):
+        from zen_steps import CATALOG
+
+        before = len(self.p._body["program_steps"])
+        self.p.add_kind("autofocus")
+        self.assertEqual(len(self.p._body["program_steps"]), before + 1)
+        self.assertEqual(self.p._body["program_steps"][-1]["kind"], "autofocus")
+        self.assertGreaterEqual(len(CATALOG), 12)
+        self.assertTrue(self.p.save_new_version())
         self.w.preferences.update(
             sequence={
                 "entry_unit": "um",
@@ -121,11 +139,14 @@ class TestRecipesPage(unittest.TestCase):
         self.assertEqual(self.p._body["common_params"]["safe_z_um"], "25")
         self.assertEqual(self.p._body["common_params"]["max_rx_urad"], "123")
         self.assertEqual(
-            self.p._body["step_tree"][4]["children"][0]["params"]["x_um"], "4321"
+            next(n for n in self.p._body["program_steps"] if n["kind"] == "move_xy")[
+                "params"
+            ]["x_um"],
+            "4321",
         )
 
     def test_cancel_switch_and_close_retains_unsaved_draft(self):
-        self.select("H01")
+        self.select(self.xy["step_id"])
         self.p.param_edits["x_um"].setText("999")
         with patch(
             "zen_qt.pages.recipes.QMessageBox.question", return_value=QMessageBox.Cancel
@@ -143,9 +164,9 @@ class TestRecipesPage(unittest.TestCase):
         )
 
     def test_add_reorder_delete_holes_keeps_protected_steps(self):
-        before = [n["kind"] for n in self.p._body["step_tree"]]
+        before = [n["kind"] for n in self.p._body["program_steps"]]
         self.p.add_hole()
         self.p.move_hole(-1)
         self.p.delete_hole()
-        self.assertEqual(before, [n["kind"] for n in self.p._body["step_tree"]])
-        self.assertEqual(len(self.p._body["step_tree"][4]["children"]), 1)
+        self.assertEqual(before, [n["kind"] for n in self.p._body["program_steps"]])
+        self.assertIn("measure_angle", before)

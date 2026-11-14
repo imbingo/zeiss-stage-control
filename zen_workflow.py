@@ -167,6 +167,26 @@ class Workflow:
 
         self._launch(action)
 
+    def verify_ready(self):
+        """Authenticate/read actual readiness without reconnecting or loading."""
+        def action():
+            self._state('就绪校验')
+            try:
+                if pending_recovery(self.root,simulated=self.simulated):
+                    self._state('设备状态待确认',detail='存在待恢复记录');return
+                z=self.device.read_z()
+                if not isfinite(z):raise ValueError('Z 读回无效')
+                self.events.put(('z_only',z))
+                if self.xy_enabled:
+                    if self.device.motion_state() is not Motion.IDLE:raise ValueError('XY 未空闲')
+                    xy=self.device.read_xy()
+                    if not all(map(isfinite,xy)):raise ValueError('XY 读回无效')
+                    self.events.put(('xy',xy))
+            except Exception as error:
+                self._state('通信就绪（硬件单步）',detail='就绪校验失败：'+self._mark_hint(error))
+            else:self._state('就绪',detail='只读位置与空闲检查通过，未重新加载实验')
+        self._launch(action)
+
     def start(self, recipe, *, path_confirmed, single_point=False, confirmed_start=None):
         if not self.xy_enabled:
             raise RuntimeError("无 XY 模式仅支持单点采图，不支持角度扫描或角度单点 AF")
@@ -444,8 +464,10 @@ class Workflow:
                 self._state("未连接",detail="客户端通道已断开，不代表物理动作已停止")
             elif operation=='connect' and report['status']=='success':
                 self._state("通信就绪（硬件单步）",detail="仅通道已连接；认证/位置/业务就绪须分别验证")
-            elif report['writes']:
-                self._state("通信就绪（硬件单步）",detail="参数已操作；业务采集前请重新连接并校验")
+            elif report.get('completion',{}).get('verified'):
+                self._state('就绪',detail='硬件操作已通过只读完成检查')
+            elif report['writes'] and self.state not in ('就绪','完成','已中止'):
+                self._state('通信就绪（硬件单步）',detail='通道已连接；请执行只读就绪校验')
             self._save_capabilities()
             self.events.put(("hardware_result",report))
         self._launch(action)
@@ -489,3 +511,43 @@ class Workflow:
         signed=list(attestations or [])
         self._launch(lambda:execute_sequence(self,snapshot,output,start,info,
                                              preflight=record,attestations=signed))
+
+    def start_program(self, plan, output, *, session, preflight, confirmed=False):
+        from copy import deepcopy
+        from pathlib import Path
+        from zen_program import execute_program
+        from zen_steps import capability_issues, validate_program
+
+        plan = validate_program(
+            {
+                "program_steps": list(plan.steps),
+                "common_params": plan.common,
+                "coordinate_system": "设备绝对坐标（装夹基准须人工核对）",
+                "product_family": plan.name,
+                "example": plan.simulated_configuration,
+            },
+            plan.recipe_identity,
+            scope=plan.execution_scope,
+        )
+        if not confirmed:
+            raise ValueError("请确认本次运动路径与实验行为")
+        if self.state not in {"就绪", "完成", "已中止"} or pending_recovery(
+            self.root, simulated=self.simulated
+        ):
+            raise RuntimeError("设备未就绪或存在待恢复记录")
+        issues = capability_issues(plan, self.device)
+        if issues:
+            raise ValueError("\n".join(issues))
+        if not self.simulated and plan.simulated_configuration:
+            raise ValueError("演示配置不可用于真实设备")
+        target = Path(output).expanduser().resolve()
+        if (
+            not str(output).strip()
+            or not Path(output).is_absolute()
+            or target.is_relative_to(self.root.resolve())
+        ):
+            raise ValueError("请选择运行记录目录之外的图像绝对路径")
+        snapshot = deepcopy(plan)
+        info = deepcopy(session)
+        checked = deepcopy(preflight)
+        self._launch(lambda: execute_program(self, snapshot, target, info, checked))

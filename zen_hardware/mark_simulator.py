@@ -59,6 +59,12 @@ class SimulatedMarkDevice(SimulatedDevice):
             self.optics = (2, 1)
         return {"lower_m": low, "upper_m": high, "experiment_id": f"demo-{len(self.prepared)}"}
 
+    def prepare_loaded_autofocus(self, low, high):
+        if not self._experiment_id:raise ValueError('请先加载实验')
+        self.bounds=(low,high)
+        if self.mark_fault=='optics':self.optics=(2,1)
+        return {'lower_m':low,'upper_m':high,'experiment_id':self._experiment_id}
+
     def autofocus(self, timeout_seconds):
         self._require_connection()
         self.af_attempts += 1
@@ -90,6 +96,15 @@ class SimulatedMarkDevice(SimulatedDevice):
         if self.mark_fault == 'scale' and self.capture_count == 2:
             frame = replace(frame, scale_x_m=.4e-6)
         return frame
+
+    def capture_stack(self,first,last,interval,timeout,stop,output_name):
+        count=round(abs(last-first)/interval)+1
+        frames=[]
+        for i in range(count):
+            if stop.is_set():raise InterruptedError('已停止模拟 Z-stack')
+            self.z=first+(1 if last>first else -1)*interval*i
+            frames.append(self.capture_frame(timeout,stop,output_name,kind='confocal'))
+        return frames
 
     def inspect_mark_experiments(self, names):
         return {"kind": "read_only_experiment_check", "device_actions_performed": False,
@@ -134,7 +149,7 @@ class SimulatedMarkDevice(SimulatedDevice):
         if operation in ('snap','run_experiment'):
             self.capture_count+=1;return {'output_name':p['output_name'] or 'simulated-image','simulated':True}
         if operation == 'stop_experiment':return {}
-        if operation == 'experiment_status':return {'is_experiment_running':False,'images_count':self.capture_count}
+        if operation == 'experiment_status':return {'is_experiment_running':False,'is_acquisition_running':False,'images_count':self.capture_count}
         if operation == 'image_output_path':return {'image_output_path':'SIMULATED-NOT-A-REAL-FOLDER'}
         if operation == 'list_cameras':return {'cameras':[{'id':'demo-camera','name':'模拟相机'}]}
         if operation == 'get_camera':return {'id':p['camera_id'],'exposure_time':self.lab_exposure,'min_exposure_time':1,'max_exposure_time':100,'exposure_unit':'API raw'}

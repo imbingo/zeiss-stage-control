@@ -49,7 +49,9 @@ class QtSequenceTests(unittest.TestCase):
 
     def test_changed_recipe_controls_move_and_records_same_revision(self):
         b = self.p._body
-        b["step_tree"][4]["children"][0]["params"]["x_um"] = 4321
+        next(n for n in b["program_steps"] if n["kind"] == "move_xy")["params"][
+            "x_um"
+        ] = 4321
         self.p.mark_dirty()
         self.assertTrue(self.p.save_new_version())
         self.c.select_recipe(self.p.current_id, 1, mode="simulation")
@@ -69,24 +71,33 @@ class QtSequenceTests(unittest.TestCase):
     def test_revisiting_center_keeps_execution_progress(self):
         self.start()
         before = [
-            self.c.steps.item(r, 1).text() for r in range(self.c.steps.rowCount())
+            self.c.steps.topLevelItem(r).text(1)
+            for r in range(self.c.steps.topLevelItemCount())
         ]
         self.w.navigate("recipes")
         self.w.navigate("sequence")
         self.assertEqual(
             before,
-            [self.c.steps.item(r, 1).text() for r in range(self.c.steps.rowCount())],
+            [
+                self.c.steps.topLevelItem(r).text(1)
+                for r in range(self.c.steps.topLevelItemCount())
+            ],
         )
         self.assertIn("完成", before)
 
     def test_capture_only_no_af_calls(self):
-        self.p.template.setCurrentText("仅上下孔采图")
+        self.p._body["program_steps"] = [
+            n
+            for n in self.p._body["program_steps"]
+            if n["kind"] not in ("measure_angle", "angle_gate")
+        ]
+        self.p.mark_dirty()
         self.p.save_new_version()
         self.c.select_recipe(self.p.current_id, 1, mode="simulation")
         self.start()
         self.assertEqual(self.w.workflow.device.af_attempts, 0)
         self.assertEqual(self.w.workflow.sequence_report["state"], "complete")
-        self.assertIsNone(self.w.workflow.sequence_report["result"])
+        self.assertIsNone(self.w.workflow.sequence_report.get("result"))
 
     def test_edit_sample_invalidates_readonly_check(self):
         self.c.preflight()
@@ -103,7 +114,7 @@ class QtSequenceTests(unittest.TestCase):
         self.assertIn("已放行", self.c.status.text())
         self.c.mode.setCurrentIndex(1)
         self.c.preflight()
-        self.assertIn("模拟设备", self.c.status.text())
+        self.assertIn("真实设备", self.c.status.text())
 
     def test_frozen_plan_survives_library_edits_after_start(self):
         self.c.preflight()
@@ -112,7 +123,9 @@ class QtSequenceTests(unittest.TestCase):
         self.c.load_confirm.setChecked(True)
         self.c.start()
         b = self.p._body
-        b["step_tree"][4]["children"][0]["params"]["x_um"] = 9876
+        next(n for n in b["program_steps"] if n["kind"] == "move_xy")["params"][
+            "x_um"
+        ] = 9876
         self.p.library.save_draft(self.p.current_id, 1, b, by="tester", note="next run")
         self.assertTrue(_wait(lambda: not self.w.workflow.busy, 30))
         self.assertAlmostEqual(self.w.workflow.device.xy[0], 0.004)

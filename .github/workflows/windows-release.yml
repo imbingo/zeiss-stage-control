@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:PAYLOAD
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence','test_zen_audit','test_zen_recipe_store','test_zen_recipe_execution']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 94 or bool(result.skipped))"
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence','test_zen_audit','test_zen_recipe_store','test_zen_recipe_execution','test_zen_program','test_zen_stack_gateway','test_zen_completion']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != 126 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
       - name: GUI regression tests
         shell: pwsh
@@ -77,15 +77,15 @@ jobs:
           @'
           import sys, unittest
           sys.path.insert(0, '.')
-          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence','test_zen_qt_recipes','test_zen_qt_manual'])
+          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence','test_zen_qt_recipes','test_zen_qt_manual','test_zen_qt_program','test_zen_qt_hotfix'])
           result = unittest.TextTestRunner(verbosity=2).run(suite)
-          sys.exit(not result.wasSuccessful() or result.testsRun != 36 or bool(result.skipped))
+          sys.exit(not result.wasSuccessful() or result.testsRun != 49 or bool(result.skipped))
           '@ | Set-Content -Encoding utf8 qt-smoke-runner.py
           $proc = Start-Process -FilePath ./runtime/python.exe -ArgumentList '-u','-I','-B','qt-smoke-runner.py' -NoNewWindow -PassThru -RedirectStandardOutput qt-smoke.out.txt -RedirectStandardError qt-smoke.err.txt
-          if (-not $proc.WaitForExit(180000)) {
+          if (-not $proc.WaitForExit(300000)) {
               Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
               Get-Content qt-smoke.out.txt, qt-smoke.err.txt -ErrorAction SilentlyContinue
-              throw 'Qt offscreen smoke tests timed out after 180s (platform dialog may be blocking)'
+              throw 'Qt offscreen smoke tests timed out after 300s (platform dialog may be blocking)'
           }
           Get-Content qt-smoke.out.txt, qt-smoke.err.txt -ErrorAction SilentlyContinue
           Remove-Item qt-smoke-runner.py, qt-smoke.out.txt, qt-smoke.err.txt -ErrorAction SilentlyContinue
@@ -108,7 +108,7 @@ jobs:
           foreach ($scale in @('1', '1.25', '1.5')) {
               $env:QT_SCALE_FACTOR = $scale
               $env:ZEN_CAPTURE_DIR = Join-Path $env:RUNNER_TEMP "zen-windows-ui/$scale/screenshots"
-              & ./runtime/python.exe -B docs/workbench-v2.7/capture.py
+              & ./runtime/python.exe -B docs/lsm-v2.8/capture.py
               if ($LASTEXITCODE) { throw "Workbench capture failed at scale $scale" }
           }
           Remove-Item Env:QT_SCALE_FACTOR, Env:ZEN_CAPTURE_DIR, Env:ZEN_CAPTURE_FONT, Env:QT_QPA_FONTDIR -ErrorAction SilentlyContinue
@@ -157,13 +157,13 @@ jobs:
           & $iscc "/DPayload=$env:PAYLOAD" "/O$pwd/release" ZEN_Surface_Tilt.iss
           if ($LASTEXITCODE) { throw 'Installer compilation failed' }
           $install = Join-Path $env:RUNNER_TEMP 'zen-installed'
-          $process = Start-Process -FilePath ./release/ZEN_Surface_Tilt_Setup_V2.7.0.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
+          $process = Start-Process -FilePath ./release/LSM_Measurement_Setup_V2.8.1.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$install`"") -Wait -PassThru
           if ($process.ExitCode) { throw "Installer failed: $($process.ExitCode)" }
           Push-Location $install
           cmd /c 'check_windows.bat --no-pause'
           if ($LASTEXITCODE) { throw 'Installed runtime check failed' }
           Pop-Location
-          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/ZEN_Surface_Tilt_Portable_V2.7.0.zip
+          Compress-Archive -Path "$env:PAYLOAD/*" -DestinationPath release/LSM_Measurement_Portable_V2.8.1.zip
           Get-ChildItem release -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:

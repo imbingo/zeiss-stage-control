@@ -77,6 +77,8 @@ class MarksPage(QWidget):
                        "arrival_timeout_s": 5.0, "capture_timeout_s": 60.0, "settle_s": 0.2}
         lay, head = _page(self, "对位采图",
                           "在当前 XY 位置 → 分别到上、下 mark 示教 Z 拍一张 → 保存 TIFF + JSON 元数据")
+        self.ready_button=QPushButton('检查设备就绪',clicked=self.check_device_ready)
+        head.addWidget(self.ready_button)
         self.steps = StepStrip(["设备就绪", "示教 Z", "检查", "采集", "结果"])
         head.addWidget(self.steps)
 
@@ -408,7 +410,7 @@ class MarksPage(QWidget):
             if not self._configuration_simulated:
                 self._field_preferences = deepcopy(self._serialize())
             self.load_demo_defaults()
-        elif workflow and self._configuration_simulated:
+        elif (workflow is None or not workflow.simulated) and self._configuration_simulated:
             self.restore(self._field_preferences or {})
             self._configuration_simulated = False
             self.persist()
@@ -618,6 +620,15 @@ class MarksPage(QWidget):
         self._update_derived()
         self.refresh_enabled()
 
+    def check_device_ready(self):
+        w=self.app.workflow
+        if w and not w.busy:
+            w.verify_ready()
+
+    def on_show(self):
+        w=self.app.workflow
+        if w and not w.busy and w.state=='通信就绪（硬件单步）':self.check_device_ready()
+
     def on_workflow_event(self, kind, data, workflow):
         if kind == "state":
             state, _point, detail = data
@@ -730,13 +741,14 @@ class MarksPage(QWidget):
             button.setEnabled(ready and manual and error is None)
             button.setToolTip(error or "")
         self.inspect_button.setEnabled(bool(workflow and workflow.device is not None and not busy))
+        self.ready_button.setEnabled(bool(workflow and not busy and not app.locked()))
         manual = (self.check_items["zpath"].check.isChecked()
                   and self.check_items["loading"].check.isChecked())
         # checks
         connected = bool(workflow and workflow.device is not None)
         self.check_items["connected"].set_state(
             "ok" if workflow and workflow.state in ("就绪", "完成", "已中止") else "todo",
-            "自动" if connected else "未连接")
+            ('正在校验' if workflow and workflow.state=='就绪校验' else workflow.state+' · 可点击检查设备就绪' if connected else '未连接'))
         if both_error is None:
             self.check_items["recipe"].set_state("ok", "两层配方有效")
         else:
