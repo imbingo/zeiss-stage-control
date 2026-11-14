@@ -73,6 +73,15 @@ class ProgramUiTests(unittest.TestCase):
             ["load_experiment", "capture_upper"],
         )
         self.assertEqual(self.c.steps.topLevelItemCount(), 2)
+        load = next(
+            n
+            for n in reversed(self.p._body["program_steps"])
+            if n["kind"] == "load_experiment"
+        )
+        self.select(step=load["step_id"], from_here=True)
+        plan = self.c.build_plan()
+        self.assertEqual(plan.steps[0]["step_id"], load["step_id"])
+        self.assertEqual(sum(n["kind"] == "load_experiment" for n in plan.steps), 1)
 
     def test_from_here_revalidates_missing_results_and_shows_actual_scope(self):
         target = next(

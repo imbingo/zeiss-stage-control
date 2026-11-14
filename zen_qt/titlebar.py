@@ -42,9 +42,9 @@ class WindowChrome(QObject):
         return edges
 
     def eventFilter(self, target, event):
-        if not isinstance(target, QWidget) or target.window() is not self.window:
-            return False
         if event.type() not in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+            return False
+        if not isinstance(target, QWidget) or target.window() is not self.window:
             return False
         if event.button() != Qt.LeftButton:
             return False

@@ -684,4 +684,9 @@ class WorkbenchWindow(QMainWindow):
             self.workflow.device.close()
         self.pump.timer.stop()
         self.z_timer.stop()
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().removeEventFilter(self.chrome)
+        channel=worker.bridge(self)
+        for signal,slot in ((channel.done,self._rpc_done),(channel.fail,self._rpc_fail),(channel.progress,self._rpc_progress)):
+            signal.disconnect(slot)
         event.accept()

@@ -420,7 +420,7 @@ class RunCenter(QWidget):
             + ("仅测试选中步骤/起点" if self._scope else "完整流程")
             + "\n设备绝对坐标 · XY/Z µm · Rx/Ry µrad"
         )
-        self.measure.configure(self._body)
+        self.measure.configure(display)
 
     def clear_scope(self):
         self._scope = None
@@ -458,14 +458,22 @@ class RunCenter(QWidget):
                 )
                 if index is None:
                     raise ValueError("循环内动作不可作为中途起点，请选择整个循环")
-                b["program_steps"] = previous + nodes[index:]
+                segment = nodes[index:]
             else:
-                b["program_steps"] = (
-                    previous
-                    if selected["kind"]
-                    in ("autofocus", "capture_upper", "capture_lower", "zstack")
-                    else []
-                ) + [selected]
+                segment = [selected]
+            needs_load = False
+            for _, action in flatten(segment):
+                if action["kind"] in ("load_experiment", "measure_angle"):
+                    break
+                if action["kind"] in (
+                    "autofocus",
+                    "capture_upper",
+                    "capture_lower",
+                    "zstack",
+                ):
+                    needs_load = True
+                    break
+            b["program_steps"] = (previous if needs_load else []) + segment
         return b, v
 
     def build_plan(self):
