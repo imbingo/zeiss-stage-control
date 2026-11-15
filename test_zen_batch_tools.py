@@ -160,3 +160,10 @@ class BatchToolsTests(unittest.TestCase):
         report = self.run_batch([row("stop_z"), row("read_z")])
         self.assertEqual([r["result"] for r in report["items"]], ["OK", "OK"])
         self.assertFalse(self.s.uncertain)
+
+    def test_success_without_position_evidence_is_not_falsely_ok(self):
+        self.d.optics = (None, None)
+        self.d.read_z = lambda: float("nan")
+        report = self.run_batch([row("read_optics"), row("read_z")])
+        self.assertEqual(report["counts"]["不OK"], 2)
+        self.assertIn("未完整核验", report["items"][0]["message"])

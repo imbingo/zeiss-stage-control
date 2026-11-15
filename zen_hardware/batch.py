@@ -169,6 +169,26 @@ def execute_batch(
             item["parameters"] = params
             error = raw.get("error") or raw.get("completion", {}).get("error") or {}
             ok = raw["status"] == "success" and not raw.get("recovery_required")
+            result = raw.get("result") or {}
+            if ok and key == "read_optics":
+                positions = result.get(
+                    "positions",
+                    [result.get("objective_position"), result.get("optovar_position")],
+                )
+                if len(positions) != 2 or any(v is None for v in positions):
+                    ok = False
+                    error = {
+                        "code": "UNIMPLEMENTED",
+                        "message": "转盘/倍率位置未完整核验；接口返回不等于实际位置已读取。",
+                    }
+            if ok and key == "read_z":
+                value = result.get("z_m")
+                if not isinstance(value, (int, float)) or not isfinite(value):
+                    ok = False
+                    error = {
+                        "code": "ValueError",
+                        "message": "Z 未返回有限位置，不能判为 OK。",
+                    }
             item["result"] = "OK" if ok else "不OK"
             if not ok:
                 item["message"] = error.get("message") or raw.get(
