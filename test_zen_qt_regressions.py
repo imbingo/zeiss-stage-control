@@ -196,16 +196,17 @@ class QtRegressionTests(unittest.TestCase):
 
     def test_actual_recovery_dialog_and_archive_attestation(self):
         with patch('zen_hardware.completion.verify_completion',side_effect=TimeoutError('synthetic incomplete motion')):
-            h = self.load()
+            h=self.load()
         self.assertTrue(self.w.locked())
-        self.confirm()
-        runs = scan_runs(self.root)
-        self.assertTrue(runs)
-        self.assertTrue(all(not r['recovery'] for r in runs))
-        self.select('read_z')
-        h.run()
-        self.assertTrue(_wait(lambda: h.latest.get('operation') == 'read_z' and not self.w.workflow.busy))
-        self.assertEqual(h.latest['status'], 'success')
+        with patch('zen_qt.app.RecoveryDialog') as dialog:
+            self.w.open_recovery()
+            self.assertTrue(_wait(lambda:not self.w.workflow.busy))
+            dialog.assert_not_called()
+        self.assertFalse(self.w.locked())
+        self.assertFalse(any((r['path']/'recovery.json').exists() for r in scan_runs(self.root)))
+        self.select('read_z');h.run()
+        self.assertTrue(_wait(lambda:h.latest.get('operation')=='read_z' and not self.w.workflow.busy))
+        self.assertEqual(h.latest['status'],'success')
 
     def test_capture_archive_and_preview_preserve_tiff(self):
         m = self.demo()

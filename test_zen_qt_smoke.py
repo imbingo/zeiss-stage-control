@@ -97,6 +97,8 @@ class TestQtWorkbench(unittest.TestCase):
         page = window.pages["marks"]
         # Simulate a pending-recovery record appearing after connect.
         from zen_records import pending_recovery, write_json, utc_now
+        # Explicitly test legacy policy compatibility; the current product uses live checks.
+        write_json(window.data_root/'device_policy.json',{'manual_recovery':True})
         run = Path(self.tmp.name) / "data" / "demo" / "stale-run"
         run.mkdir(parents=True)
         write_json(run / "status.json", {"state": "running", "recovery_required": True,

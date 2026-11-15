@@ -391,6 +391,10 @@ class RunCenter(QWidget):
             )
             self.measure.configure(self._body, reset=True)
             self.marks.clear()
+        else:
+            self.measure.configure({'program_steps':[]},reset=True)
+            self.marks.clear()
+            self.version_label.setText('请选择配方')
         self.preview()
         self.invalidate()
 

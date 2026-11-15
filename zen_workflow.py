@@ -177,6 +177,10 @@ class Workflow:
                 z=self.device.read_z()
                 if not isfinite(z):raise ValueError('Z 读回无效')
                 self.events.put(('z_only',z))
+                if getattr(self.device,'_experiment_id',None):
+                    reply=self.device.call_hardware_operation('experiment_status',{'experiment_id':self.device._experiment_id})
+                    status=reply.get('status',reply)
+                    if status.get('is_experiment_running') is not False or status.get('is_acquisition_running') is not False:raise ValueError('实验/采集未明确空闲')
                 if self.xy_enabled:
                     if self.device.motion_state() is not Motion.IDLE:raise ValueError('XY 未空闲')
                     xy=self.device.read_xy()
@@ -184,7 +188,9 @@ class Workflow:
                     self.events.put(('xy',xy))
             except Exception as error:
                 self._state('通信就绪（硬件单步）',detail='就绪校验失败：'+self._mark_hint(error))
-            else:self._state('就绪',detail='只读位置与空闲检查通过，未重新加载实验')
+            else:
+                self.device._actions_unverified=False
+                self._state('就绪',detail='只读位置与空闲检查通过，未重新加载实验')
         self._launch(action)
 
     def start(self, recipe, *, path_confirmed, single_point=False, confirmed_start=None):
@@ -309,21 +315,13 @@ class Workflow:
         self.result_path = None
 
     def read_mark_z(self, layer):
-        if layer not in ("upper", "lower"):
-            raise ValueError("未知的 mark 层")
-        if self.state not in {"就绪", "完成", "已中止"}:
-            raise RuntimeError("请先连接并确认设备就绪")
+        if layer not in ('upper','lower'):raise ValueError('未知的 mark 层')
         def action():
             try:
-                if pending_recovery(self.root, simulated=self.simulated):
-                    raise RuntimeError("设备状态待确认")
-                z = self.device.read_z()
-                xy = self.device.read_xy() if self.xy_enabled else None
-                if not isfinite(z) or (xy is not None and not all(map(isfinite, xy))):
-                    raise ValueError("无效的 XYZ 回读")
-                self.events.put(("mark_z", layer, z, xy))
-            except Exception as error:
-                self.events.put(("mark_error", self._mark_hint(error)))
+                z=self.device.read_z()
+                if not isfinite(z):raise ValueError('无效 Z 读回')
+                self.events.put(('mark_z',layer,z,None))
+            except Exception as error:self.events.put(('mark_error',self._mark_hint(error)))
         self._launch(action)
 
     @staticmethod
@@ -470,6 +468,24 @@ class Workflow:
                 self._state('通信就绪（硬件单步）',detail='通道已连接；请执行只读就绪校验')
             self._save_capabilities()
             self.events.put(("hardware_result",report))
+        self._launch(action)
+
+    def run_hardware_batch(self,session,plan,*,timeout_s,zero_z=False,zero_xy=False):
+        if session.library is None or session.library.device is not self.device:raise ValueError('请先绑定当前设备')
+        from copy import deepcopy
+        snapshot=deepcopy(plan)
+        def action():
+            from zen_hardware.batch import execute_batch
+            self._state('硬件批量测试')
+            try:
+                report=execute_batch(session,snapshot,timeout_s=timeout_s,stop=self._stop,zero_z=zero_z,zero_xy=zero_xy,progress=lambda r:self.events.put(('hardware_batch_progress',r)))
+                self.events.put(('hardware_batch_result',report))
+            except Exception as error:
+                self._state('设备状态待确认',detail='批量测试日志/执行异常：'+str(error));return
+            if session.uncertain:self._state('设备状态待确认',detail='测试已报告异常；请执行只读设备状态检查')
+            elif not getattr(self.device,'connected',False):self._state('未连接')
+            elif any(r.get('report',{}).get('completion',{}).get('verified') for r in report['items']):self._state('就绪',detail='批量测试结束，详见逐项报告')
+            else:self._state('通信就绪（硬件单步）',detail='批量测试结束，业务采集前执行只读就绪检查')
         self._launch(action)
 
     def read_only(self, tag, query):

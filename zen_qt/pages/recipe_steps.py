@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QMenu,
 )
 from .recipes import RecipesPage as VersionPage
+from .recipe_tools import RecipeTools
 from ..widgets import label, hbox
 from zen_steps import (
     CATALOG,
@@ -34,7 +35,7 @@ from zen_steps import (
 from zen_recipe_store import default_body, DRAFT
 
 
-class RecipesPage(VersionPage):
+class RecipesPage(RecipeTools, VersionPage):
     def _build(self):
         super()._build()
         self.template.hide()
@@ -89,8 +90,25 @@ class RecipesPage(VersionPage):
         )
         layout.insertWidget(index + 1, self.add_catalog_button)
         self._points_target = None
+        self.install_recipe_tools()
 
     def refresh_all(self):
+        if not self.current_id:
+            self._body = None
+            self._selected_step_id = None
+            self._loading = True
+            self.step_tree.clear()
+            self._loading = False
+            self.refresh_params()
+            self.meta_name.setText("请选择或新建配方")
+            self.meta_badge.setText("")
+            self.meta_parent.setText("")
+            self.step_title.setText("请选择步骤")
+            self.conditions.clear()
+            self.tests.clear()
+            for button in (self.save_button, self.check_button, self.release_button):
+                button.setEnabled(False)
+            return
         if self.current_id and self._body is None:
             v = self.library.get(self.current_id, self.current_rev)
             self._body = migrate_program(v["body"])
@@ -113,6 +131,8 @@ class RecipesPage(VersionPage):
             )
 
     def _find_step(self, sid, group_id=None):
+        if not self._body:
+            return None
         if sid == "__common":
             return {
                 "step_id": "__common",
@@ -133,6 +153,7 @@ class RecipesPage(VersionPage):
         self.step_tree.clear()
         common = QTreeWidgetItem(["公共参数"])
         common.setData(0, Qt.UserRole, ("__common", None))
+        common.setFlags(common.flags() & ~Qt.ItemIsDragEnabled & ~Qt.ItemIsDropEnabled)
         self.step_tree.addTopLevelItem(common)
 
         def add(nodes, parent=None):
@@ -267,9 +288,9 @@ class RecipesPage(VersionPage):
                 )
             if kind in ("move_z", "move_xy", "autofocus"):
                 self.form.addRow(QPushButton("读取当前位置示教…", clicked=self.teach))
-        self.conditions.setPlainText(
-            "每步按自身能力检查，不再要求所有配方都有 XY。\n加载实验、AF、采图和 Z-stack 的接口须现场支持。\n结果引用只能使用本次运行中此前步骤的结果；不能拿旧运行结果续跑。\n位置、超时或接口错误将停止后续动作，不自动跳过或重复动作。"
-        )
+        from zen_step_help import step_help
+
+        self.conditions.setPlainText(step_help(n))
         v = self.library.get(self.current_id, self.current_rev)
         self.tests.setPlainText(
             json.dumps(
@@ -369,22 +390,6 @@ class RecipesPage(VersionPage):
 
     def change_template(self, *_):
         pass
-
-    def choose_template(self):
-        if self._read_only():
-            return
-        choice, ok = QInputDialog.getItem(
-            self,
-            "插入模板",
-            "仅生成可继续编辑的步骤，不锁定执行器",
-            ["空白流程", "多点物料测角", "单点上下 mark"],
-            0,
-            False,
-        )
-        if ok:
-            self._body["program_steps"].extend(insert_template(choice, self._body))
-            self.mark_dirty()
-            self.refresh_step_tree()
 
     def add_step(self):
         if not self.current_id:

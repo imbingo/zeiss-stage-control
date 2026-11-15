@@ -42,6 +42,8 @@ class WorkbenchWindow(QMainWindow):
     def __init__(self, data_root):
         super().__init__()
         self.data_root = Path(data_root)
+        from zen_device_policy import use_live_checks
+        use_live_checks(self.data_root)
         self.preferences = Preferences(self.data_root / "preferences" / "ui.json")
         self.gateway_overrides = dict(self.preferences.data.get("connection", {}))
         self.session = dict(self.preferences.data.get("session", {}))
@@ -59,7 +61,7 @@ class WorkbenchWindow(QMainWindow):
         self._live_z = None
         self._live_xy = None
 
-        self.setWindowTitle("LSM测量工作站 v2.8.1")
+        self.setWindowTitle("LSM测量工作站 v2.9.0")
         self.resize(1600, 980)
         self.setMinimumSize(1000, 620)
         self.setStyleSheet(theme.QSS)
@@ -119,14 +121,14 @@ class WorkbenchWindow(QMainWindow):
         bar = QFrame()
         bar.setObjectName("lockbar")
         lay = hbox(bar, spacing=12, margins=(16, 8, 16, 8))
-        self.lock_title = label("⚠ 设备状态待确认 · 写入与运动已锁定")
+        self.lock_title = label("⚠ 设备状态未验证 · 请执行只读检查")
         self.lock_title.setStyleSheet(f"color:{theme.BAD}; font-size:14px; font-weight:700;")
         lay.addWidget(self.lock_title)
         self.lock_text = label("", wrap=True)
         self.lock_text.setStyleSheet("color:#6d2a22; font-size:12px;")
         lay.addWidget(self.lock_text, 1)
         view = QPushButton("查看运行记录", clicked=lambda: self.navigate("records"))
-        unlock = QPushButton("逐项确认并解锁…", clicked=self.open_recovery)
+        unlock = QPushButton("重新检查设备", clicked=self.open_recovery)
         unlock.setStyleSheet(f"border-color:{theme.BAD}; color:{theme.BAD}; font-weight:600;")
         lay.addWidget(view)
         lay.addWidget(unlock)
@@ -150,7 +152,7 @@ class WorkbenchWindow(QMainWindow):
             button = self._nav_button(key, text)
             lay.addWidget(button)
             self.nav_buttons[key] = button
-        lay.addWidget(label("工程", role="muted"))
+
         for key, text in (("hardware", "硬件通讯测试"),("tilt","独立测角测试"),("marks","单点采图测试")):
             button = self._nav_button(key, text)
             lay.addWidget(button)
@@ -262,7 +264,7 @@ class WorkbenchWindow(QMainWindow):
     def export_diagnostic_bundle(self):
         from PySide6.QtWidgets import QFileDialog
         bundle = {"kind": "diagnostic_bundle", "exported_at": utc_now(),
-                  "software": "LSM测量工作站 v2.8.1 (Qt)",
+                  "software": "LSM测量工作站 v2.9.0 (Qt)",
                   "simulated": bool(self.workflow and self.workflow.simulated),
                   "xy_mode": self.xy_mode,
                   "rpc_trace": (self.workflow.device.rpc_trace()
@@ -436,8 +438,7 @@ class WorkbenchWindow(QMainWindow):
     def open_recovery(self):
         if self.workflow and self.workflow.busy:
             return
-        dialog = RecoveryDialog(self)
-        dialog.exec()
+        if self.workflow:self.workflow.verify_ready()
 
     def _device_readback_for_attestation(self):
         """Best-effort readback evidence; a failed read is reported, not faked."""
@@ -565,6 +566,7 @@ class WorkbenchWindow(QMainWindow):
                      f"诊断报告已生成（{report.get('kind', '')}）；详见「诊断」页签")
         elif kind == "mark_z":
             layer, z, xy = data
+            self._live_z=z
             self.log("info", f"已读取 {'上' if layer == 'upper' else '下'} mark Z = {z*1e6:.6f} µm")
         elif kind == "mark_error":
             self.log("error", data[0])
@@ -670,10 +672,11 @@ class WorkbenchWindow(QMainWindow):
         self.read_labels["X"].setText("—" if self._live_xy is None else f"{self._live_xy[0]*1e6:.2f}")
         self.read_labels["Y"].setText("—" if self._live_xy is None else f"{self._live_xy[1]*1e6:.2f}")
         self.read_labels["Z"].setText("—" if self._live_z is None else f"{self._live_z*1e6:.2f}")
+        self.recovery_chip.hide()
         self.stop_button.setEnabled(busy)
         if locked:
             self.lock_text.setText(
-                "存在未确认的设备状态；请在 ZEN 现场确认 Z、AF 与采集均已停止。只读查询和「停止」仍可用。")
+                "设备动作结束状态尚未核验；可执行只读检查和停止请求，四项人工恢复确认已取消。")
             self.lockbar.show()
         else:
             self.lockbar.hide()

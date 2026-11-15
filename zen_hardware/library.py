@@ -142,11 +142,11 @@ class HardwareTestSession:
         self.log_path=self.directory/'session.log'
         self.jsonl_path=self.directory/'session.jsonl'
         self._gate=Lock();self._log_gate=Lock()
-        self.library=None;self.simulated=False;self.running_id=None
+        self.library=None;self.simulated=False;self.running_id=None;self.uncertain=False
 
     def bind(self, device, *, simulated):
         if not self._gate.acquire(blocking=False):raise RuntimeError('已有单步调用')
-        try:self.library=HardwareLibrary(device);self.simulated=simulated
+        try:self.library=HardwareLibrary(device);self.simulated=simulated;self.uncertain=bool(getattr(device,"_actions_unverified",False))
         finally:self._gate.release()
 
     def append(self, event):
@@ -187,6 +187,13 @@ class HardwareTestSession:
             if operation.writes and not operation.is_stop and pending_recovery(self.root,simulated=self.simulated):
                 raise RuntimeError('存在待确认动作；可继续只读检查或请求 Stop，确认设备结束后再执行写入')
             if stop and stop.is_set():raise InterruptedError('请求已取消，未发送设备请求')
+            from zen_device_policy import manual_recovery_enabled
+            self.uncertain=self.uncertain or bool(getattr(device,"_actions_unverified",False))
+            if self.uncertain and operation.writes and not operation.is_stop and not manual_recovery_enabled(self.root):
+                from .completion import verify_completion
+                report['pre_write_state']=verify_completion(device,'readiness',{},min(2,timeout),stop)
+                self.uncertain=False
+
             if operation.may_move:
                 run=self.root/('demo' if self.simulated else 'field')/identity
                 run.mkdir(parents=True)
@@ -197,13 +204,13 @@ class HardwareTestSession:
             report['result']=safe(self.library.execute(operation,p))
             report['status']='success'
             report['note']='RPC/逻辑操作已返回，不等于物理动作完成；不会自动执行下一步'
-            if operation.may_move and not operation.is_stop:
+            if operation.may_move and (not operation.is_stop or not manual_recovery_enabled(self.root)):
                 from .completion import verify_completion
                 try:
-                    report['completion']=verify_completion(device,key,p,max(.01,timeout-(monotonic()-started)),stop)
+                    report['completion']=verify_completion(device,'readiness' if operation.is_stop else key,p,max(.01,timeout-(monotonic()-started)),stop)
                 except Exception as error:
                     report['completion']={'verified':False,'error':diagnostic_from_error(error) or {'code':type(error).__name__,'message':str(error)}}
-                    report['note']='调用已返回，但完成检查未通过；须现场恢复确认'
+                    report['note']='调用已返回，但完成状态未核验；可执行设备状态检查'
                 else:
                     report['recovery_required']=False
                     report['note']='调用成功，已通过只读完成检查；不自动执行下一步'
@@ -232,5 +239,8 @@ class HardwareTestSession:
                 report['log_error']='日志写入失败；若设备调用已发生，请现场确认状态并保留界面结果'
                 report['status']='failed'
                 if run is not None:report['recovery_required']=True
+            if report.get('recovery_required'):self.uncertain=True
+            elif report.get('completion',{}).get('verified'):self.uncertain=False
+            if device is not None:device._actions_unverified=self.uncertain
             self.running_id=None;self._gate.release()
         return report

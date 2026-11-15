@@ -77,8 +77,20 @@ class MarksPage(QWidget):
                        "arrival_timeout_s": 5.0, "capture_timeout_s": 60.0, "settle_s": 0.2}
         lay, head = _page(self, "对位采图",
                           "在当前 XY 位置 → 分别到上、下 mark 示教 Z 拍一张 → 保存 TIFF + JSON 元数据")
+        axis_row=QWidget()
+        axis_lay=hbox(axis_row,margins=0)
+        axis_lay.addWidget(label('设备轴配置'))
+        lay.addWidget(axis_row)
+        self.stage_mode=QComboBox()
+        self.stage_mode.addItem('无电动 XY · 仅 Z','no_xy')
+        self.stage_mode.addItem('有电动 XY','motorized')
+        self.stage_mode.setCurrentIndex(self.stage_mode.findData(app.xy_mode))
+        self.stage_mode.currentIndexChanged.connect(lambda _:app.set_xy_mode(self.stage_mode.currentData()))
+        self.stage_mode.setToolTip('按实际设备选择；切换后重新连接。Z 示教始终只读取 Z。')
+        axis_lay.addWidget(self.stage_mode)
         self.ready_button=QPushButton('检查设备就绪',clicked=self.check_device_ready)
-        head.addWidget(self.ready_button)
+        axis_lay.addWidget(self.ready_button)
+        axis_lay.addStretch(1)
         self.steps = StepStrip(["设备就绪", "示教 Z", "检查", "采集", "结果"])
         head.addWidget(self.steps)
 
@@ -730,6 +742,11 @@ class MarksPage(QWidget):
         app = self.app
         workflow = app.workflow
         busy = bool(workflow and workflow.busy)
+        self.stage_mode.blockSignals(True)
+        self.stage_mode.setCurrentIndex(self.stage_mode.findData(app.xy_mode))
+        self.stage_mode.blockSignals(False)
+        self.stage_mode.setEnabled(not busy)
+        self.check_items['recovery'].hide()
         ready = bool(workflow and workflow.device is not None
                      and workflow.state in ("就绪", "完成", "已中止")
                      and not app.locked() and not busy)

@@ -201,7 +201,7 @@ class RecipeLibrary:
 
     # ---- queries -----------------------------------------------------
     def recipes(self):
-        return list(self._doc["recipes"])
+        return [r for r in self._doc["recipes"] if not r.get("deleted_at")]
 
     def find(self, recipe_id):
         return next(
@@ -406,6 +406,12 @@ class RecipeLibrary:
         version["status"] = ARCHIVED
         self.save()
         return version
+
+    def delete_recipe(self,recipe_id,*,by):
+        recipe=self.find(recipe_id)
+        if not recipe:raise ValueError('配方不存在')
+        recipe.update(deleted_at=utc_now(),deleted_by=by)
+        self.save()
 
     # ---- comparison --------------------------------------------------
     def compare(self, recipe_id, revision_a, revision_b):

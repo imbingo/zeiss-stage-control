@@ -13,7 +13,7 @@ def verify_completion(device, operation, parameters, timeout_s, stop):
     stable = 0
     observations = {}
     exp = parameters.get("experiment_id") or getattr(device, "_experiment_id", None)
-    needs_status = operation in ("load_experiment", "af", "snap", "run_experiment")
+    needs_status = operation in ("load_experiment", "af", "snap", "run_experiment") or (operation=="readiness" and bool(exp))
 
     def read(call, *args):
         remaining = deadline - monotonic()

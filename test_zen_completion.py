@@ -77,7 +77,7 @@ class CompletionTests(unittest.TestCase):
         self.wait(w)
         self.assertEqual(w.state, "就绪")
         self.assertEqual(self.d._experiment_id, "kept-id")
-        self.assertEqual(self.d.lab_calls, [])
+        self.assertEqual(self.d.lab_calls, ["experiment_status"])
 
     def test_failed_readiness_does_not_claim_ready(self):
         self.d.read_z = lambda: float("nan")

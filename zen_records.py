@@ -29,7 +29,7 @@ def software_version():
     try:
         return metadata.version("zeiss-stage-control")
     except metadata.PackageNotFoundError:
-        return "2.8.1+source"
+        return "2.9.0+source"
 
 
 def canonical_sha256(value):
@@ -142,6 +142,8 @@ class RunRecords:
 
 def pending_recovery(root: Path, *, simulated: bool):
     """Return run directories that require independent device confirmation."""
+    from zen_device_policy import manual_recovery_enabled
+    if not manual_recovery_enabled(root):return ()
     directory = root / ("demo" if simulated else "field")
     if not directory.exists():
         return ()

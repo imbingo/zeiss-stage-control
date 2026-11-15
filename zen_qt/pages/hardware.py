@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+    QHeaderView, QAbstractItemView, QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTreeWidget,
     QTreeWidgetItem, QWidget, QApplication,
 )
@@ -30,12 +30,23 @@ class HardwarePage(QWidget):
         lay, head = _page(self, "硬件单步调试",
                           "按目录逐项调用 Gateway 接口 · 写入前要求人工确认 · 全部调用记入持久日志")
 
+        self.batch_button=QPushButton('一键测试…',clicked=self.start_batch)
+        head.addWidget(self.batch_button)
+        self.batch_report_button=QPushButton('导出一键测试报告…',clicked=self.export_batch)
+        head.addWidget(self.batch_report_button)
+        self.batch_report=None
         split = QSplitter()
         lay.addWidget(split, 1)
 
         left = Card("操作目录")
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setTextElideMode(Qt.ElideNone)
+        self.tree.header().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tree.header().setStretchLastSection(False)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tree.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.tree.setMinimumWidth(240)
         self.tree.itemSelectionChanged.connect(self._select)
         left.add(self.tree)
         split.addWidget(left)
@@ -100,7 +111,7 @@ class HardwarePage(QWidget):
         buttons = QWidget()
         btl = hbox(buttons, spacing=6, margins=0)
         for text, fn in (("复制最新", self.copy_latest), ("复制全部", self.copy_all),
-                         ("导出日志…", self.export), ("恢复确认…", self.app.open_recovery)):
+                         ("导出日志…", self.export), ("检查设备状态", self.app.open_recovery)):
             btl.addWidget(QPushButton(text, clicked=fn))
         btl.addStretch(1)
         result_card.add(buttons)
@@ -257,6 +268,31 @@ class HardwarePage(QWidget):
             self.run_button.setEnabled(True)
             self.result_info.setText("未能提交单步：" + str(exc))
 
+    def start_batch(self):
+        w=self.app.workflow
+        if w is None or w.busy:return
+        if self.session.library is None or self.session.library.device is not w.device:self.bind_current()
+        if self.session.library is None:return
+        from .hardware_batch import BatchDialog
+        dialog=BatchDialog(self)
+        from PySide6.QtWidgets import QDialog
+        if dialog.exec()!=QDialog.Accepted:return
+        mode='motorized' if dialog.xy.isChecked() else 'no_xy'
+        w.device.xy_enabled=dialog.xy.isChecked()
+        self.app.xy_mode=self.app._connected_mode=mode
+        self.app.preferences.update(xy_mode=mode)
+        self.app.xy_chip.setText('有电动 XY' if dialog.xy.isChecked() else '无电动 XY · 仅 Z')
+        self.app._live_xy=None
+        w.run_hardware_batch(self.session,dialog.plan,timeout_s=self.timeout.value(),zero_z=dialog.zero_z.isChecked(),zero_xy=dialog.xy.isChecked() and dialog.zero_xy.isChecked())
+
+    def export_batch(self):
+        if not self.batch_report:return
+        name,_=QFileDialog.getSaveFileName(self,'导出一键测试报告','hardware-test-report.md','Markdown (*.md);;JSON (*.json)')
+        if not name:return
+        target=Path(name)
+        if target.suffix.lower()=='.json':target.write_text(json.dumps(self.batch_report,ensure_ascii=False,indent=2),encoding='utf-8')
+        else:target.write_text((Path(self.batch_report['directory'])/'report.md').read_text(encoding='utf-8'),encoding='utf-8')
+
     def request_stop(self):
         if self.app.workflow:
             self.app.workflow.stop()
@@ -264,6 +300,14 @@ class HardwarePage(QWidget):
         self.result_info.setText("已请求停止后续步骤；不能取消正在等待的同步 RPC，请在设备端确认停止。")
 
     def on_workflow_event(self, kind, data, workflow):
+        if kind in ('hardware_batch_progress','hardware_batch_result'):
+            report=data[0];self.batch_report=report;self.latest=report
+            self.current_experiment_id=getattr(workflow.device,'_experiment_id',None) or ''
+            counts=report.get('counts',{})
+            self.result_info.setText(('测试中' if report['state']=='running' else '测试结束')+' · '+str(counts)+' · '+report['directory'])
+            self.log_view.setPlainText('\n\n'.join('['+r.get('result','')+'] '+r['title']+'\n'+r.get('message','')+'\n建议：'+r.get('advice','—') for r in report['items']))
+            self.result_pill.set_kind('warn' if any(r.get('result')=='不OK' for r in report['items']) else 'ok',report['state'])
+            return
         if kind != "hardware_result":
             return
         report = data[0]
@@ -271,10 +315,10 @@ class HardwarePage(QWidget):
         self.run_button.setEnabled(True)
         status = report.get("status", "?")
         self.result_pill.set_kind("ok" if status == "success" else "bad",
-                                  status + (" · 须人工确认" if report.get("recovery_required") else ""))
+                                  status + (" · 状态未核验" if report.get("recovery_required") else ""))
         self.result_info.setText(
             f"{report.get('title', report.get('operation'))} · {status}"
-            + ("；设备状态须人工确认" if report.get("recovery_required") else "；详见日志"))
+            + ("；请检查设备当前状态" if report.get("recovery_required") else "；详见日志"))
         self.log_view.appendPlainText(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         if report['operation'] in ('connect', 'disconnect'):
             self.current_experiment_id = ''
@@ -314,5 +358,7 @@ class HardwarePage(QWidget):
         can_run = bool(self.app.workflow and not busy and self.session.library is not None
                        and self.op is not None)
         can_run = can_run and self.session.library.device is self.app.workflow.device
+        self.batch_button.setEnabled(bool(self.app.workflow and not busy))
+        self.batch_report_button.setEnabled(bool(self.batch_report) and not busy)
         self.run_button.setEnabled(can_run)
         self.stop_button.setEnabled(busy)
