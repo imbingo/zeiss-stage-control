@@ -53,7 +53,7 @@ class MeasurementView(QWidget):
         layout.addWidget(self.metrics)
         self.figure = Figure(figsize=(5, 6))
         self.canvas = FigureCanvasQTAgg(self.figure)
-        self.canvas.setMinimumHeight(420)
+        self.canvas.setMinimumHeight(480)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
@@ -96,8 +96,10 @@ class MeasurementView(QWidget):
 
     def redraw(self, *_):
         self.figure.clear()
-        path = self.figure.add_subplot(211)
-        scatter = self.figure.add_subplot(212, projection="3d")
+        # Fixed boxes: the 3D axes ignore tight layout and used to print their
+        # title over the XY plot's axis label on short windows.
+        path = self.figure.add_axes((0.14, 0.60, 0.80, 0.33))
+        scatter = self.figure.add_axes((0.10, 0.03, 0.80, 0.42), projection="3d")
         path.set_title("扫描路径 · XY", fontsize=11)
         path.set_xlabel("X · µm")
         path.set_ylabel("Y · µm")
@@ -150,9 +152,6 @@ class MeasurementView(QWidget):
         scatter.set_xlabel("X · µm")
         scatter.set_ylabel("Y · µm")
         scatter.set_zlabel("Z · µm")
-        self.figure.subplots_adjust(
-            left=0.13, right=0.93, top=0.93, bottom=0.10, hspace=0.38
-        )
         scatter.tick_params(labelsize=8)
         self.canvas.draw_idle()
 
@@ -289,8 +288,14 @@ class RunCenter(QWidget):
             )
         )
         self.output.textChanged.connect(self.invalidate)
-        self.identity = label("", wrap=True)
-        task.add(self.identity)
+        from PySide6.QtWidgets import QFormLayout
+
+        identity = QWidget()
+        form = QFormLayout(identity)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.addRow("样品 / 批次", app.sample_edit)
+        form.addRow("操作员", app.operator_edit)
+        task.add(identity)
         self.output.setToolTip("图像输出目录")
         output_row = QWidget()
         orow = hbox(output_row, margins=0)
@@ -321,7 +326,15 @@ class RunCenter(QWidget):
         check.add(self.start_button)
         ll.addWidget(check)
         ll.addStretch()
-        split.addWidget(left)
+        # Short windows scroll the task column instead of squashing the
+        # fields and pushing the start button off-screen.
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QScrollArea.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left)
+        left_scroll.setMinimumWidth(250)
+        split.addWidget(left_scroll)
         center = Card("测量与采集")
         self.verdict = QLabel()
         self.verdict.setWordWrap(True)
@@ -341,6 +354,8 @@ class RunCenter(QWidget):
         self.stop_button.setToolTip(
             "软件停止：不再下发后续步骤，当前设备动作会执行完。不是硬件急停。"
         )
+        self.stop_button.setObjectName("danger")
+        self.stop_button.setProperty("idle", True)
         right.add(self.stop_button)
         self.steps = QTreeWidget()
         self.steps.setHeaderLabels(["步骤 / 动作", "状态"])
@@ -400,7 +415,7 @@ class RunCenter(QWidget):
         hints = [
             "先到“设备与手动操作”连接设备，或点右上角“离线演示”。",
             "在左侧“本次任务”选择配方；还没有配方时到“配方管理”新建。",
-            "在左下角填写样品 / 批次和操作员。",
+            "在左侧“本次任务”填写样品 / 批次和操作员。",
             "在“执行前检查”勾选两项现场核对。",
         ]
         strip = " → ".join(
@@ -414,6 +429,7 @@ class RunCenter(QWidget):
         """Forget the previous run on screen; archived records are untouched."""
         self.result_label.setText(self.IDLE_RESULT)
         self.current_action.setText("当前动作：等待开始")
+        self.current_action.setToolTip("")
         self._verdict_kind = "idle"
         self._idle_note = note
         self.refresh_guide()
@@ -426,14 +442,10 @@ class RunCenter(QWidget):
         self.set_verdict("idle", "下一步：" + hint, strip + ("\n" + note if note else ""))
 
     def refresh_identity(self):
-        sample = self.app.sample_edit.text().strip()
-        operator = self.app.operator_edit.text().strip()
-        missing = not (sample and operator)
-        self.identity.setText(
-            f"样品 {sample or '未填写'} · 操作员 {operator or '未填写'}"
-            + ("（在左下角填写）" if missing else "")
-        )
-        self.identity.setStyleSheet(f"color:{theme.BAD};" if missing else "")
+        for edit in (self.app.sample_edit, self.app.operator_edit):
+            edit.setStyleSheet(
+                "" if edit.text().strip() else f"border:1px solid {theme.BAD};"
+            )
 
     def library(self):
         return self.app.pages["recipes"].library
@@ -990,7 +1002,8 @@ class RunCenter(QWidget):
                 self.status.setText(
                     report.get("error", {}).get("message", "步骤流程完成，结果已归档。")
                 )
-                self.current_action.setText("记录：" + str(w.sequence_run_path))
+                self.current_action.setText("记录已归档，可在“结果与追溯”查看。")
+                self.current_action.setToolTip(str(w.sequence_run_path))
                 identity = report["recipe_identity"]
                 if (
                     report["state"] == "complete"
@@ -1080,3 +1093,8 @@ class RunCenter(QWidget):
             or getattr(self, "_pending_click", None) is not None
             or getattr(self, "_auto_start_token", None) is not None
         )
+        idle = not self.stop_button.isEnabled()
+        if self.stop_button.property("idle") != idle:
+            self.stop_button.setProperty("idle", idle)
+            self.stop_button.style().unpolish(self.stop_button)
+            self.stop_button.style().polish(self.stop_button)

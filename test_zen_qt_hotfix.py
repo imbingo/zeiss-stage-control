@@ -37,12 +37,9 @@ class HotfixUiTests(unittest.TestCase):
         )
         button.click()
         self.assertTrue(p.add_menu.isVisible())
-        action = next(
-            a
-            for group in p.add_menu.actions()
-            for a in group.menu().actions()
-            if a.data() == "wait"
-        )
+        # Flat menu: every action is reachable without opening a submenu.
+        self.assertFalse(any(a.menu() for a in p.add_menu.actions()))
+        action = next(a for a in p.add_menu.actions() if a.data() == "wait")
         action.trigger()
         p.add_menu.close()
         self.assertEqual(len(p._body["program_steps"]), before + 1)

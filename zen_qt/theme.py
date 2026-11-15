@@ -59,6 +59,7 @@ QPushButton#moving {{ background: {WARN_SOFT}; border-color: #e5c27c; color: #7a
 QPushButton#danger {{ background: {BAD}; border-color: {BAD}; color: #ffffff; font-weight: 700; }}
 QPushButton#danger:disabled {{ background: #dd9c94; }}
 QPushButton#danger[idle="true"] {{ background: {CARD}; color: {BAD}; border-color: {BAD_LINE}; font-weight: 600; }}
+QPushButton#danger[idle="true"]:disabled {{ background: #f3f5f8; color: #9aa5b2; border-color: #cbd3dc; }}
 QPushButton#flat {{ border: none; background: transparent; color: {ACCENT_INK}; padding: 4px 8px; }}
 QPushButton#flat:hover:!disabled {{ text-decoration: underline; }}
 QToolButton#nav {{ border: none; border-radius: 8px; padding: 8px 10px; text-align: left; color: #354152; }}

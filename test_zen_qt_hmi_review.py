@@ -42,7 +42,11 @@ class HmiReviewTests(unittest.TestCase):
     def test_first_screen_names_the_next_step(self):
         self.assertEqual(self.c._verdict_kind, "idle")
         self.assertIn("连接设备", self.c.verdict.text())
-        self.assertIn("未填写", self.c.identity.text())
+        self.assertIn("未填写", self.w.session_summary.text())
+        self.assertTrue(self.c.isAncestorOf(self.w.sample_edit))
+        self.assertTrue(self.c.isAncestorOf(self.w.operator_edit))
+        self.w.sample_edit.setText("W1")
+        self.assertIn("W1", self.w.session_summary.text())
         self.assertEqual(self.w.conn_chip.text(), "未连接设备")
         self.assertFalse(self.w.mode_chip.isVisibleTo(self.w))
 
@@ -81,6 +85,129 @@ class HmiReviewTests(unittest.TestCase):
             self.assertIn("停止后续步骤", button.text())
             self.assertIn("不是硬件急停", button.toolTip())
         self.assertTrue(self.w.stop_button.property("idle"))
+
+
+class RecipeHmiTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _app()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.w = WorkbenchWindow(Path(self.tmp.name) / "data")
+        self.w.z_timer.stop()
+        self.p = self.w.pages["recipes"]
+        self.p.seed_demo()
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        self.p._dirty = False
+        self.w.close()
+
+    def select(self, sid):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QTreeWidgetItemIterator
+
+        it = QTreeWidgetItemIterator(self.p.step_tree)
+        while it.value():
+            if it.value().data(0, Qt.UserRole)[0] == sid:
+                self.p.step_tree.setCurrentItem(it.value())
+                return
+            it += 1
+        self.fail(sid)
+
+    def kinds(self):
+        return [n["kind"] for n in self.p._body["program_steps"]]
+
+    def test_editing_a_checked_recipe_withdraws_the_tick_until_saved(self):
+        self.p.check_recipe()
+        self.assertIn("参数检查 ✓", self.p.meta_parent.text())
+        self.assertIn("参数检查：通过", self.p.tests.toPlainText())
+        self.assertNotIn("{", self.p.tests.toPlainText())
+        # A note-only edit does not touch the checked content.
+        self.p.change_note.setText("仅改说明")
+        self.p.mark_dirty()
+        self.assertIn("参数检查 ✓", self.p.meta_parent.text())
+        xy = next(n for n in self.p._body["program_steps"] if n["kind"] == "move_xy")
+        self.select(xy["step_id"])
+        self.p.param_edits["x_um"].setText("4321")
+        self.assertNotIn("✓", self.p.meta_parent.text())
+        self.assertIn("需重做", self.p.meta_parent.text())
+        self.assertIn("重新检查", self.p.validation_hint.text())
+        self.assertTrue(self.p.save_new_version())
+        self.assertIn("参数检查 待完成", self.p.meta_parent.text())
+        self.assertIn("尚未检查", self.p.tests.toPlainText())
+
+    def test_deleted_step_can_be_restored_once_in_place(self):
+        before = self.kinds()
+        target = self.p._body["program_steps"][2]
+        self.select(target["step_id"])
+        self.assertFalse(self.p.undo_button.isEnabled())
+        self.p.delete_hole()
+        self.assertEqual(len(self.kinds()), len(before) - 1)
+        self.assertTrue(self.p.undo_button.isEnabled())
+        self.assertIn("撤销删除", self.p.validation_hint.text())
+        # Nothing selected any more: the old step's title must not linger.
+        self.select("__common")
+        self.p.undo_button.click()
+        self.assertEqual(self.kinds(), before)
+        self.assertEqual(self.p._body["program_steps"][2]["step_id"], target["step_id"])
+        self.assertFalse(self.p.undo_button.isEnabled())
+
+    def test_deleting_a_loop_with_children_asks_first(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        self.p.add_kind("point_loop")
+        loop = self.p._find_step(self.p._selected_step_id)
+        self.p.add_kind("wait")
+        self.assertEqual(len(loop["children"]), 1)
+        self.select(loop["step_id"])
+        count = len(self.kinds())
+        with patch(
+            "zen_qt.pages.recipe_steps.QMessageBox.question",
+            return_value=QMessageBox.Cancel,
+        ) as ask:
+            self.p.delete_hole()
+        ask.assert_called_once()
+        self.assertEqual(len(self.kinds()), count)
+        with patch(
+            "zen_qt.pages.recipe_steps.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ):
+            self.p.delete_hole()
+        self.assertEqual(len(self.kinds()), count - 1)
+        self.p.undo_delete()
+        self.assertEqual(len(self.p._find_step(loop["step_id"])["children"]), 1)
+
+    def test_param_panel_is_cleared_when_no_step_is_selected(self):
+        xy = next(n for n in self.p._body["program_steps"] if n["kind"] == "move_xy")
+        self.select(xy["step_id"])
+        self.assertEqual(self.p.step_title.text(), xy["label"])
+        self.p._selected_step_id = None
+        self.p.refresh_params()
+        self.assertEqual(self.p.step_title.text(), "请选择步骤")
+        self.assertEqual(self.p.tests.toPlainText(), "")
+
+    def test_device_driving_actions_are_grouped_and_styled_apart(self):
+        for button in (self.p.test_step_button, self.p.from_here_button, self.p.trial_button):
+            self.assertEqual(button.objectName(), "moving")
+            self.assertIn("现场设备", button.toolTip())
+        for button in (self.p.check_button, self.p.simulate_button):
+            self.assertNotEqual(button.objectName(), "moving")
+        bar = self.p.check_button.parentWidget().layout()
+        self.assertLess(bar.indexOf(self.p.simulate_button), bar.indexOf(self.p.device_group_label))
+        self.assertLess(bar.indexOf(self.p.device_group_label), bar.indexOf(self.p.test_step_button))
+
+    def test_standard_dialog_buttons_are_chinese(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self.w)
+        box.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        self.assertEqual(
+            {b.text() for b in box.buttons()}, {"保存", "不保存", "取消"}
+        )
 
 
 if __name__ == "__main__":

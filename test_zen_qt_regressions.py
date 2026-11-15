@@ -276,9 +276,16 @@ class QtRegressionTests(unittest.TestCase):
         self.assertTrue(_wait(lambda: scroll.verticalScrollBar().maximum() > 0))
         self.assertEqual(self.w.pages['marks']._layer_layout.direction(),
                          QBoxLayout.TopToBottom)
+        # Short windows start with the log folded; the newest line stays readable.
+        self.assertTrue(self.w.dock.collapsed)
+        self.w.log('warn', '折叠时仍可见')
+        self.assertIn('折叠时仍可见', self.w.dock.tabText(0))
         old = self.w.dock.height()
         self.w.dock.fold_button.click()
-        self.assertLess(self.w.dock.height(), old)
+        self.assertGreater(self.w.dock.height(), old)
+        self.assertEqual(self.w.dock.tabText(0), '事件日志')
+        self.w.dock.fold_button.click()
+        self.assertEqual(self.w.dock.height(), old)
 
     def test_session_card_and_identity_persist(self):
         self.w.show()
