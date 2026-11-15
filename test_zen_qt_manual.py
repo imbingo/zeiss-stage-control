@@ -54,6 +54,36 @@ class ManualTests(unittest.TestCase):
         self.assertEqual(self.w.workflow.device.moves,[])
         self.assertIn('确认',self.p.message.text())
 
+    def test_read_position_can_seed_target_and_previews_the_displacement(self):
+        self.p.nudge(1)
+        self.assertIn("读取当前位置", self.p.message.text())
+        self.p.read()
+        self.assertTrue(_wait(lambda: self.p._position is not None))
+        z = self.w.workflow.device.z * 1e6
+        self.p.fill_current()
+        self.assertEqual(self.p.fields["z"].text(), f"{z:.3f}")
+        self.p.step.setText("5")
+        self.p.nudge(1)
+        self.assertEqual(self.p.fields["z"].text(), f"{z + 5:.3f}")
+        self.assertIn("+5.000 µm", self.p.preview.text())
+        # Seeding and nudging the target never moves or confirms anything.
+        self.assertEqual(self.w.workflow.device.moves, [])
+        self.assertFalse(self.p.approved.isChecked())
+
+    def test_limits_are_remembered_but_confirmation_is_not(self):
+        self.fill()
+        self.p.move("z")
+        self.assertTrue(_wait(lambda: not self.w.workflow.busy))
+        self.w.close()
+        again = WorkbenchWindow(Path(self.tmp.name) / "data")
+        self.addCleanup(again.close)
+        p = again.pages["manual"]
+        self.assertEqual(
+            [p.fields[k].text() for k in ("safe", "low", "high")], ["20", "0", "300"]
+        )
+        self.assertEqual(p.fields["z"].text(), "")
+        self.assertFalse(p.approved.isChecked())
+
     def test_settings_save_updates_output_without_changing_recipe(self):
         settings = self.w.pages["settings"]
         settings.image_path.setText(str(Path(self.tmp.name) / "images"))

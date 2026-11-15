@@ -36,6 +36,35 @@ class ManualPage(QWidget):
                 )
             )
         motion.add_layout(form)
+        # Limits and transit height rarely change between moves: recall the
+        # last values that passed validation. The confirmation box is never
+        # remembered.
+        self._position = None
+        for key, value in (app.preferences.data.get("manual_limits") or {}).items():
+            if key in ("safe", "low", "high"):
+                self.fields[key].setText(str(value))
+        nudge = QWidget()
+        nl = hbox(nudge, margins=0)
+        nl.addWidget(label("目标 Z 微调", role="muted"))
+        self.step = QLineEdit("10")
+        self.step.setFixedWidth(70)
+        self.step.setToolTip("步进 · µm；只改上面的目标 Z，不会运动")
+        nl.addWidget(self.step)
+        nl.addWidget(label("µm", role="muted"))
+        for text, sign in (("−", -1), ("＋", 1)):
+            nl.addWidget(
+                QPushButton(
+                    text,
+                    clicked=lambda checked=False, s=sign: self.nudge(s),
+                    toolTip="按步进修改目标 Z（不运动）；目标为空时从当前位置起算",
+                )
+            )
+        nl.addStretch(1)
+        motion.add(nudge)
+        self.preview = label("位移预览：先“读取当前位置”。", wrap=True)
+        motion.add(self.preview)
+        for e in self.fields.values():
+            e.textChanged.connect(self.refresh_preview)
         self.approved = QCheckBox("已核对运动范围、转场路线与设备状态")
         motion.add(self.approved)
         row = QWidget()
@@ -45,7 +74,16 @@ class ManualPage(QWidget):
         rl.addWidget(self.xy)
         rl.addWidget(self.z)
         motion.add(row)
-        motion.add(QPushButton("读取当前位置", clicked=self.read))
+        reads = QWidget()
+        rr = hbox(reads, margins=0)
+        rr.addWidget(QPushButton("读取当前位置", clicked=self.read))
+        self.fill_button = QPushButton(
+            "当前位置填入目标",
+            clicked=self.fill_current,
+            toolTip="把读回的 X / Y / Z 填到目标栏，再按需修改；不会运动",
+        )
+        rr.addWidget(self.fill_button)
+        motion.add(reads)
         motion._lay.addStretch(1)
         lay.addWidget(motion, 2)
         state = Card("位置与操作反馈")
@@ -84,8 +122,63 @@ class ManualPage(QWidget):
         except RuntimeError as e:
             self.message.setText(str(e))
 
+    def fill_current(self):
+        if not self._position:
+            self.message.setText("尚无读回位置，请先点“读取当前位置”。")
+            return
+        xy, z = self._position["xy"], self._position["z"]
+        if xy is not None:
+            self.fields["x"].setText(f"{xy[0]*1e6:.3f}")
+            self.fields["y"].setText(f"{xy[1]*1e6:.3f}")
+        self.fields["z"].setText(f"{z*1e6:.3f}")
+        self.message.setText("已把读回位置填入目标栏；未发送任何运动。")
+
+    def nudge(self, sign):
+        try:
+            step = number(self.step.text(), "步进")
+            if step <= 0:
+                raise ValueError("步进必须大于 0")
+            text = self.fields["z"].text().strip()
+            if text:
+                base = number(text, "目标 Z")
+            elif self._position:
+                base = self._position["z"] * 1e6
+            else:
+                raise ValueError("目标 Z 为空且尚无读回位置，请先“读取当前位置”。")
+            self.fields["z"].setText(f"{base + sign * step:.3f}")
+        except ValueError as e:
+            self.message.setText(str(e))
+
+    def refresh_preview(self, *_):
+        if not self._position:
+            self.preview.setText("位移预览：先“读取当前位置”。")
+            return
+
+        def delta(key, current):
+            text = self.fields[key].text().strip()
+            if not text:
+                return None
+            try:
+                target = float(text)
+            except ValueError:
+                return f"{key.upper()} 目标不是数字"
+            return f"{key.upper()} {current*1e6:.3f} → {target:.3f}（{target - current*1e6:+.3f} µm）"
+
+        xy, z = self._position["xy"], self._position["z"]
+        parts = [delta("z", z)]
+        if xy is not None:
+            parts = [delta("x", xy[0]), delta("y", xy[1])] + parts
+        parts = [p for p in parts if p]
+        self.preview.setText(
+            "位移预览（按上次读回位置）：" + "；".join(parts)
+            if parts
+            else "位移预览：填写目标后显示将移动的距离。"
+        )
+
     def on_rpc_result(self, tag, value):
         if tag == "manual_position":
+            self._position = value
+            self.refresh_preview()
             xy = value["xy"]
             self.position.setText(
                 (
@@ -129,6 +222,16 @@ class ManualPage(QWidget):
             if kind == "xy" and not w.xy_enabled:
                 raise ValueError("当前无电动 XY")
             self.approved.setChecked(False)
+            self.app.preferences.update(
+                manual_limits={
+                    k: self.fields[k].text().strip()
+                    for k in ("safe", "low", "high")
+                    if self.fields[k].text().strip()
+                }
+            )
+            # The read-back is stale once a move is issued.
+            self._position = None
+            self.refresh_preview()
 
             def action():
                 records = None
@@ -215,6 +318,12 @@ class ManualPage(QWidget):
             self.message.setText("运动已提交，请观察设备；停止只阻止后续动作。")
         except (ValueError, RuntimeError) as e:
             self.message.setText(str(e))
+
+    def on_device_changed(self, w):
+        # A position read from the previous connection must not drive the preview.
+        self._position = None
+        self.position.setText("X：—\nY：—\nZ：—")
+        self.refresh_preview()
 
     def refresh_enabled(self):
         self.xy.setEnabled(True);self.z.setEnabled(True)
