@@ -165,7 +165,10 @@ class RecipesPage(QWidget):
             ("↓", lambda: self.move_hole(1), "下移选中步骤"),
             ("删除", self.delete_hole, "删除选中步骤；可用“撤销删除”恢复"),
         ]:
-            rl.addWidget(QPushButton(text, clicked=fn, toolTip=tip))
+            button = QPushButton(text, clicked=fn, toolTip=tip)
+            if text in "↑↓":
+                button.setFixedWidth(34)
+            rl.addWidget(button)
         self.undo_button = QPushButton("撤销删除", clicked=self.undo_delete)
         self.undo_button.setEnabled(False)
         rl.addWidget(self.undo_button)
