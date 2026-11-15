@@ -40,8 +40,11 @@ class BatchDialog(QDialog):
         self.table.setHorizontalHeaderLabels(
             ["项目（勾选执行）", "参数（双击编辑）", "说明"]
         )
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        # Parameters and help share the remaining width; full text is in the tooltip.
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
         self.plan = []
         for i, (key, op) in enumerate(OPERATIONS.items()):
             params = {
@@ -178,7 +181,7 @@ class BatchDialog(QDialog):
             for f in OPERATIONS[item["operation"]].fields
         ) or "无参数"
         if missing:
-            text = "缺少必填：" + "、".join(missing) + "（双击填写）"
+            text = ("缺少必填：" if checked else "勾选前需填写：") + "、".join(missing) + "（双击填写）"
         cell.setText(text)
         cell.setToolTip(text)
         cell.setForeground(

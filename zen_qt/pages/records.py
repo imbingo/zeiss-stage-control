@@ -176,7 +176,10 @@ class RecordsPage(QWidget):
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
             ("时间", "类型", "样品", "配方 / 实验", "Rx µrad", "Ry µrad", "RMS µm", "状态"))
-        self.table.horizontalHeader().setStretchLastSection(True)
+        from PySide6.QtWidgets import QHeaderView
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
