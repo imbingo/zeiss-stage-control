@@ -321,7 +321,7 @@ class SequencePage(QWidget):
         self.stop_button.setEnabled(busy)
         recipe=self.app.field_recipe
         self.recipe_label.setText('测角配方：'+(f'{recipe.name} · {recipe.experiment} · {len(recipe.targets)} 点（在表面测角页编辑）' if recipe else '尚未配置，请到表面测角页配置'))
-        self.source_label.setText('配置来源：演示数据，禁止用于真实设备' if self._source_demo else '配置来源：现场输入 / 历史输入，执行前须重新核对')
+        self.source_label.setText('配置来源：演示数据，禁止用于现场设备' if self._source_demo else '配置来源：现场输入 / 历史输入，执行前须重新核对')
 
     def save_file(self):
         if self.app.workflow and self.app.workflow.busy:return

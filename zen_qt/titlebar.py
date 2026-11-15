@@ -109,7 +109,7 @@ def build_titlebar(window):
     window.exit_demo_button = QPushButton("退出离线演示")
     window.exit_demo_button.clicked.connect(window.exit_demo)
     window.exit_demo_button.setToolTip(
-        "结束模拟连接，返回设备页；不会自动连接或操作真实设备"
+        "结束模拟连接，返回设备页；不会自动连接或操作现场设备"
     )
     window.exit_demo_button.hide()
     layout.addWidget(window.exit_demo_button)

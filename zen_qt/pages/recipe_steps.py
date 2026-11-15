@@ -162,7 +162,7 @@ class RecipesPage(RecipeTools, VersionPage):
                 self._forget_deleted()
             self.refresh_progress()
             self.release_hint.setText(
-                "放行条件：保存当前版本、检查通过、同版本完整现场试运行成功、工程师确认。模拟验证不放行现场配方。"
+                "放行条件：保存当前版本、检查通过、同版本完整工程试运行成功、工程师确认。模拟验证不放行现场配方。"
             )
 
     def body_changed(self):

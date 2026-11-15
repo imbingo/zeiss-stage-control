@@ -139,4 +139,21 @@ class EngineeringUiTests(unittest.TestCase):
         self.assertFalse(d.zero_xy.isChecked())
         self.assertTrue(hasattr(p, "batch_button"))
         self.assertTrue(hasattr(p, "stop_button"))
+        # A checked item with an empty required parameter is named up front.
+        from unittest.mock import patch
+        from PySide6.QtCore import Qt
+
+        row = next(i for i, r in enumerate(d.plan) if r["operation"] == "move_z")
+        d.plan[row]["parameters"]["z_um"] = ""
+        d.table.item(row, 0).setCheckState(Qt.Checked)
+        self.assertIn("缺少必填", d.table.item(row, 1).text())
+        self.assertIn("目标绝对 Z", d.table.item(row, 1).text())
+        d.empty.setChecked(True)
+        with patch("zen_qt.pages.hardware_batch.QMessageBox.information") as info:
+            d.start()
+        self.assertIn("Z MoveTo", info.call_args[0][2])
+        self.assertEqual(d.result(), 0)
+        d.plan[row]["parameters"]["z_um"] = "10"
+        d.refresh_row(row)
+        self.assertNotIn("缺少必填", d.table.item(row, 1).text())
         d.close()

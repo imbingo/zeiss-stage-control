@@ -271,7 +271,7 @@ class RunCenter(QWidget):
         self.mode = QComboBox()
         self.mode.addItem("正式运行", "production")
         self.mode.addItem("工程试运行", "engineering")
-        self.mode.addItem("离线模拟", "simulation")
+        self.mode.addItem("离线演示", "simulation")
         self.mode.currentIndexChanged.connect(
             lambda _: self.invalidate(clear_confirmations=True)
         )
@@ -620,7 +620,7 @@ class RunCenter(QWidget):
         if mode == "production" and "program_steps" not in v["body"]:
             raise ValueError("旧模板版本请复制为草稿并在新引擎重新验证")
         if w and not w.simulated and "program_steps" not in v["body"]:
-            raise ValueError("旧模板须先在配方管理保存为新步骤版本，再现场试运行")
+            raise ValueError("旧模板须先在配方管理保存为新步骤版本，再工程试运行")
         if w and not w.simulated and b.get("example"):
             raise ValueError("演示配方不能用于现场")
         identity = {
@@ -764,7 +764,7 @@ class RunCenter(QWidget):
                         self._tree_items[sid].setText(1, "不支持")
                 raise ValueError("\n".join(issues))
             if (self.mode.currentData() == "simulation") != w.simulated:
-                raise ValueError("离线模拟须使用模拟设备；现场运行须连接真实设备")
+                raise ValueError("离线演示须使用模拟设备；现场运行须连接现场设备")
             target = Path(self.output.text()).expanduser()
             if (
                 not self.output.text().strip()

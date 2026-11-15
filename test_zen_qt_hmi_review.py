@@ -87,6 +87,72 @@ class HmiReviewTests(unittest.TestCase):
         self.assertTrue(self.w.stop_button.property("idle"))
 
 
+class RecordsHmiTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _app()
+
+    def test_record_detail_leads_with_outcome_and_folds_paths_away(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        w = WorkbenchWindow(Path(tmp.name) / "data")
+        w.z_timer.stop()
+        recipes, c = w.pages["recipes"], w.pages["sequence"]
+
+        def cleanup():
+            recipes._dirty = False
+            w.close()
+
+        self.addCleanup(cleanup)
+        w.show()
+        recipes.seed_demo()
+        c.demo()
+        self.assertTrue(_wait(lambda: w.device_ready()))
+        w.sample_edit.setText("W1")
+        w.operator_edit.setText("E1")
+        c.path_confirm.setChecked(True)
+        c.load_confirm.setChecked(True)
+        c.start()
+        self.assertTrue(_wait(lambda: c._verdict_kind in ("ok", "bad", "warn"), timeout=30))
+        self.assertTrue(_wait(lambda: not w.workflow.busy))
+        w.navigate("records")
+        p = w.pages["records"]
+        self.assertEqual(p.table.item(0, 7).text(), "已完成·演示")
+        verdict = p.detail_verdict.text()
+        self.assertIn("离线演示结果 · 非现场数据", verdict)
+        self.assertIn("待 SOMA", verdict)
+        self.assertIn("Rx", p.detail_metrics.text())
+        self.assertIn("RMS", p.detail_metrics.text())
+        # Paths, ids and raw state names are one click away, not in the summary.
+        for noise in (str(w.data_root), "complete", "False", "simulation"):
+            self.assertNotIn(noise, p.detail.text())
+        self.assertFalse(p.detail_more.isVisible())
+        p.more_button.click()
+        self.assertTrue(p.detail_more.isVisible())
+        self.assertIn(str(w.data_root), p.detail_more.text())
+
+    def test_verdict_separates_rejected_failed_stopped_and_unjudged(self):
+        from zen_qt.pages.records import run_verdict
+
+        def run(**kw):
+            base = dict(state="complete", kind="tilt", valid=True, recovery=False,
+                        stage="", sequence={})
+            base.update(kw)
+            return base
+
+        self.assertEqual(run_verdict(run()), ("ok", "测角结果有效"))
+        self.assertEqual(run_verdict(run(valid=False))[0], "warn")
+        self.assertEqual(run_verdict(run(state="stopped"))[0], "warn")
+        self.assertEqual(run_verdict(run(recovery=True))[0], "warn")
+        self.assertEqual(
+            run_verdict(run(kind="sequence", sequence={"disposition": "MEASUREMENT_REJECTED"})),
+            ("bad", "角度不合格"),
+        )
+        kind, text = run_verdict(run(state="failed", stage="af"))
+        self.assertEqual(kind, "bad")
+        self.assertIn("af", text)
+
+
 class RecipeHmiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

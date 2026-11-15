@@ -592,7 +592,7 @@ class RecipesPage(QWidget):
             and v.get("validation", {}).get("state") == "field_trial_passed"
         )
         self.release_hint.setText(
-            "现场放行须关联本修订成功的真实设备试运行；模拟验证不会放行现场配方。"
+            "现场放行须关联本修订成功的现场设备试运行；模拟验证不会放行现场配方。"
         )
 
     def change_template(self, text):
@@ -833,7 +833,7 @@ class RecipesPage(QWidget):
             QMessageBox.question(
                 self,
                 "现场放行",
-                "已核对本版本现场试运行、运动路径与实验行为，确认放行？",
+                "已核对本版本工程试运行、运动路径与实验行为，确认放行？",
             )
             != QMessageBox.Yes
         ):

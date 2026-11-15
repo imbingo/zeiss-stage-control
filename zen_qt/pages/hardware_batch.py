@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -70,14 +71,18 @@ class BatchDialog(QDialog):
             item.setCheckState(Qt.Checked if row["selected"] else Qt.Unchecked)
             self.table.setItem(i, 0, item)
             for column, text in [
-                (1, self.summary(params)),
+                (1, ""),
                 (2, op.help or ("只读查询" if not op.writes else "修改参数/硬件")),
             ]:
                 cell = QTableWidgetItem(text)
                 cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
                 cell.setToolTip(text)
                 self.table.setItem(i, column, cell)
+            self.refresh_row(i)
         self.table.cellDoubleClicked.connect(self.edit)
+        self.table.itemChanged.connect(
+            lambda item: item.column() == 0 and self.refresh_row(item.row())
+        )
         lay.addWidget(self.table, 1)
         controls = QHBoxLayout()
         self.zero_z = QCheckBox("结束后 Z → 绝对坐标 0 µm")
@@ -152,6 +157,34 @@ class BatchDialog(QDialog):
     def summary(params):
         return "；".join(f"{k}={v}" for k, v in params.items()) or "无参数"
 
+    def missing(self, row):
+        """Labels of required parameters that are still empty for this row."""
+        item = self.plan[row]
+        return [
+            f.label
+            for f in OPERATIONS[item["operation"]].fields
+            if not f.optional and not str(item["parameters"].get(f.name, "")).strip()
+        ]
+
+    def refresh_row(self, row):
+        """Checked rows with empty required parameters must stand out before start."""
+        item, cell = self.plan[row], self.table.item(row, 1)
+        if cell is None:
+            return
+        missing = self.missing(row)
+        checked = self.table.item(row, 0).checkState() == Qt.Checked
+        text = "；".join(
+            f"{f.label} = {item['parameters'].get(f.name, '') or '（空）'}"
+            for f in OPERATIONS[item["operation"]].fields
+        ) or "无参数"
+        if missing:
+            text = "缺少必填：" + "、".join(missing) + "（双击填写）"
+        cell.setText(text)
+        cell.setToolTip(text)
+        cell.setForeground(
+            QColor("#bf3a2b" if missing and checked else "#6a7584" if missing else "#18222f")
+        )
+
     def edit(self, row, column):
         if column != 1:
             return
@@ -165,7 +198,8 @@ class BatchDialog(QDialog):
         edits = {}
         for field in op.fields:
             edit = QLineEdit(str(item["parameters"].get(field.name, "")))
-            form.addRow(field.label, edit)
+            edit.setPlaceholderText("可留空" if field.optional else "必填")
+            form.addRow(field.label + ("" if field.optional else " *"), edit)
             edits[field.name] = edit
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept)
@@ -173,7 +207,7 @@ class BatchDialog(QDialog):
         form.addRow(buttons)
         if dialog.exec() == QDialog.Accepted:
             item["parameters"] = {k: e.text() for k, e in edits.items()}
-            self.table.item(row, 1).setText(self.summary(item["parameters"]))
+            self.refresh_row(row)
 
     def start(self):
         if not self.empty.isChecked():
@@ -189,6 +223,22 @@ class BatchDialog(QDialog):
             and not (self.xy.isChecked() and self.zero_xy.isChecked())
         ):
             QMessageBox.information(self, "未选择项目", "请选择测试项目。")
+            return
+        gaps = [
+            f"{OPERATIONS[r['operation']].title}：{'、'.join(self.missing(i))}"
+            for i, r in enumerate(self.plan)
+            if r["selected"] and self.missing(i)
+        ]
+        if gaps:
+            first = next(i for i, r in enumerate(self.plan) if r["selected"] and self.missing(i))
+            self.table.selectRow(first)
+            self.table.scrollToItem(self.table.item(first, 1))
+            QMessageBox.information(
+                self,
+                "缺少必填参数",
+                "以下已勾选项目缺少必填参数，双击“参数”列填写，或取消勾选：\n"
+                + "\n".join(gaps),
+            )
             return
         w = self.page.app.workflow
         if self.xy.isChecked() != w.xy_enabled and not any(

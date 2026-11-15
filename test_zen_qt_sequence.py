@@ -117,7 +117,7 @@ class QtSequenceTests(unittest.TestCase):
         self.assertIn("已放行", self.c.status.text())
         self.c.mode.setCurrentIndex(1)
         self.c.preflight()
-        self.assertIn("真实设备", self.c.status.text())
+        self.assertIn("现场设备", self.c.status.text())
 
     def test_frozen_plan_survives_library_edits_after_start(self):
         self.c.preflight()
