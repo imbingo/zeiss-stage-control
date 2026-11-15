@@ -14,6 +14,16 @@ class StatusText(QLabel):
             "warn": theme.WARN,
             "demo": theme.WARN,
         }.get(kind, theme.MUTED)
+        if kind in ("demo", "bad", "offline"):
+            # States an operator must not miss get a filled pill, not grey text.
+            bg, ink, line = theme.PILL_STYLES[
+                {"demo": "warn", "bad": "bad", "offline": "mute"}[kind]
+            ]
+            self.setStyleSheet(
+                f"color:{ink}; background:{bg}; border:1px solid {line}; border-radius:9px;"
+                " font-size:12px; font-weight:700; padding:2px 8px;"
+            )
+            return
         self.setStyleSheet(
             f"color:{color}; font-size:11px; padding:0; background:transparent; border:none;"
         )
@@ -83,7 +93,7 @@ def build_titlebar(window):
     version.setObjectName("muted")
     layout.addWidget(version)
     window.conn_chip = StatusText("未连接")
-    window.mode_chip = StatusText("真实设备")
+    window.mode_chip = StatusText("")
     window.xy_chip = StatusText(
         "有电动 XY" if window.xy_mode == "motorized" else "无 XY · 单点"
     )
@@ -116,8 +126,11 @@ def build_titlebar(window):
     units = QLabel("µm")
     units.setObjectName("muted")
     layout.addWidget(units)
-    window.stop_button = QPushButton("■ 停止流程")
+    window.stop_button = QPushButton("■ 停止后续步骤")
     window.stop_button.setObjectName("danger")
+    window.stop_button.setToolTip(
+        "软件停止（Esc）：不再下发后续步骤，当前设备动作会执行完。不是硬件急停。"
+    )
     window.stop_button.setShortcut("Esc")
     window.stop_button.clicked.connect(window.stop)
     layout.addWidget(window.stop_button)

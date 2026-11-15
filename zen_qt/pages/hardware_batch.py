@@ -81,23 +81,72 @@ class BatchDialog(QDialog):
         lay.addWidget(self.table, 1)
         controls = QHBoxLayout()
         self.zero_z = QCheckBox("结束后 Z → 绝对坐标 0 µm")
-        self.zero_z.setChecked(True)
         self.zero_xy = QCheckBox("结束后 XY → 绝对坐标 0 µm")
-        self.zero_xy.setChecked(self.xy.isChecked())
         self.zero_xy.setEnabled(self.xy.isChecked())
-        self.xy.toggled.connect(self.zero_xy.setEnabled)
+        self.xy.toggled.connect(self._xy_toggled)
         controls.addWidget(self.zero_z)
         controls.addWidget(self.zero_xy)
         lay.addLayout(controls)
+        self.zero_hint = QLabel()
+        self.zero_hint.setWordWrap(True)
+        lay.addWidget(self.zero_hint)
         self.empty = QCheckBox(
             "我已确认载台空载、无物料，已核对各项参数及绝对零坐标的运动路径；该按钮不是急停。"
         )
         lay.addWidget(self.empty)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.buttons.button(QDialogButtonBox.Ok).setText("开始勾选项目测试")
+        self.buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        for box in (self.zero_z, self.zero_xy):
+            box.toggled.connect(self.refresh_zero_hint)
+        self.refresh_zero_hint()
         self.buttons.accepted.connect(self.start)
         self.buttons.rejected.connect(self.reject)
         lay.addWidget(self.buttons)
+
+    def _xy_toggled(self, enabled):
+        self.zero_xy.setEnabled(enabled)
+        if not enabled:
+            self.zero_xy.setChecked(False)
+        self.refresh_zero_hint()
+
+    def zero_moves(self):
+        """Axes that will be driven to absolute 0 after the checked items."""
+        moves = []
+        if self.zero_z.isChecked():
+            moves.append("Z")
+        if self.xy.isChecked() and self.zero_xy.isChecked():
+            moves.append("XY")
+        return moves
+
+    def refresh_zero_hint(self, *_):
+        moves = self.zero_moves()
+        ok = self.buttons.button(QDialogButtonBox.Ok)
+        if not moves:
+            self.zero_hint.setText("结束后不移动任何轴；需要回到绝对 0 µm 时再勾选上面的选项。")
+            self.zero_hint.setStyleSheet("")
+            ok.setText("开始勾选项目测试")
+            return
+        app = self.page.app
+        parts = []
+        if "Z" in moves:
+            z = getattr(app, "_live_z", None)
+            parts.append(
+                f"Z：{z * 1e6:.3f} → 0 µm（移动 {-z * 1e6:+.3f} µm）"
+                if z is not None
+                else "Z：当前位置未知 → 0 µm"
+            )
+        if "XY" in moves:
+            xy = getattr(app, "_live_xy", None)
+            parts.append(
+                f"XY：({xy[0] * 1e6:.3f}, {xy[1] * 1e6:.3f}) → (0, 0) µm"
+                if xy is not None
+                else "XY：当前位置未知 → (0, 0) µm"
+            )
+        self.zero_hint.setText(
+            "测试结束后设备会运动（只勾只读项目时也会执行）：" + "；".join(parts)
+        )
+        self.zero_hint.setStyleSheet("color:#b45309;font-weight:600;")
+        ok.setText("开始测试（结束后移动 " + " / ".join(moves) + " 到 0 µm）")
 
     @staticmethod
     def summary(params):

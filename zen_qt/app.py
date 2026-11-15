@@ -422,7 +422,7 @@ class WorkbenchWindow(QMainWindow):
         if self.workflow and self.workflow.busy:
             self.workflow.stop()
             self.log('warn','已请求停止后续动作；当前设备调用可能仍需等待返回，请在设备端核实停止状态。')
-        else:self.show_action_hint('当前没有运行流程，待执行请求已取消。“停止流程”不等于设备硬件急停。')
+        else:self.show_action_hint('当前没有运行流程，待执行请求已取消。“停止后续步骤”是软件停止，不等于设备硬件急停。')
 
     def set_xy_mode(self, mode):
         if mode not in ('motorized', 'no_xy'):
@@ -677,15 +677,18 @@ class WorkbenchWindow(QMainWindow):
         busy = bool(workflow and workflow.busy)
         locked = self.locked()
         if workflow is None:
-            self.conn_chip.setText("未连接")
-            self.conn_chip.set_kind(None)
+            self.conn_chip.setText("未连接设备")
+            self.conn_chip.set_kind("offline")
         else:
             self.conn_chip.setText(("离线演示" if workflow.simulated else "Gateway") + f" · {workflow.state}")
             self.conn_chip.set_kind("bad" if workflow.state == RECOVERY_STATE else "ok" if workflow.state in READY_STATES else "warn")
         self.exit_demo_button.setVisible(bool(workflow and workflow.simulated))
         self.exit_demo_button.setEnabled(True)
-        self.mode_chip.setText("离线演示" if (workflow and workflow.simulated) else "真实设备")
-        self.mode_chip.set_kind("warn" if (workflow and workflow.simulated) else "real")
+        # "真实设备" next to "未连接" read as if hardware were attached.
+        simulated = bool(workflow and workflow.simulated)
+        self.mode_chip.setText("离线演示 · 非现场数据" if simulated else "现场设备" if workflow else "")
+        self.mode_chip.setVisible(workflow is not None)
+        self.mode_chip.set_kind("demo" if simulated else "real")
         runs = self.pending_runs()
         if runs or (workflow and workflow.state == RECOVERY_STATE):
             self.recovery_chip.setText("⚠ 待恢复 · 已锁定" if runs else "⚠ 状态待确认")
@@ -698,6 +701,11 @@ class WorkbenchWindow(QMainWindow):
         self.read_labels["Z"].setText("—" if self._live_z is None else f"{self._live_z*1e6:.2f}")
         self.recovery_chip.hide()
         self.stop_button.setEnabled(True)
+        idle = not busy
+        if self.stop_button.property("idle") != idle:
+            self.stop_button.setProperty("idle", idle)
+            self.stop_button.style().unpolish(self.stop_button)
+            self.stop_button.style().polish(self.stop_button)
         if locked:
             self.lock_text.setText(
                 "设备动作结束状态尚未核验；可执行只读检查和停止请求，四项人工恢复确认已取消。")
