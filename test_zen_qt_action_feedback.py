@@ -3,7 +3,6 @@
 import tempfile, unittest
 from pathlib import Path
 from threading import Event
-from PySide6.QtTest import QTest
 from test_zen_qt_smoke import _app, _wait
 from zen_qt.app import WorkbenchWindow
 from zen_steps import make_step
@@ -110,7 +109,7 @@ class ActionFeedbackTests(unittest.TestCase):
         self.w.stop()
         release.set()
         self.assertTrue(_wait(lambda: not w.busy))
-        QTest.qWait(120)
+        _wait(lambda: False, timeout=0.12)
         self.assertIsNone(getattr(w, "sequence_report", None))
         self.assertEqual(w.device.z_moves, [])
 
@@ -121,7 +120,7 @@ class ActionFeedbackTests(unittest.TestCase):
         self.w.operator_edit.setText("E2")
         release.set()
         self.assertTrue(_wait(lambda: not w.busy))
-        QTest.qWait(120)
+        _wait(lambda: False, timeout=0.12)
         self.assertIsNone(getattr(w, "sequence_report", None))
         self.assertTrue(self.c.path_confirm.isChecked())
         self.assertTrue(self.c.load_confirm.isChecked())
@@ -160,7 +159,7 @@ class ActionFeedbackTests(unittest.TestCase):
         self.c.path_confirm.setChecked(False)
         release.set()
         self.assertTrue(_wait(lambda: not w.busy))
-        QTest.qWait(120)
+        _wait(lambda: False, timeout=0.12)
         self.assertIsNone(getattr(w, "sequence_report", None))
         self.assertIn("人工核对", self.c.status.text())
 
@@ -264,7 +263,7 @@ class ActionFeedbackTests(unittest.TestCase):
         self.w.navigate("recipes")
         release.set()
         self.assertTrue(_wait(lambda: not w.busy))
-        QTest.qWait(120)
+        _wait(lambda: False, timeout=0.12)
         self.assertIsNone(getattr(w, "sequence_report", None))
 
     def test_parameter_dialog_cancels_start_during_preflight(self):
@@ -291,6 +290,6 @@ class ActionFeedbackTests(unittest.TestCase):
         _app().processEvents()
         release.set()
         self.assertTrue(_wait(lambda: not w.busy))
-        QTest.qWait(120)
+        _wait(lambda: False, timeout=0.12)
         self.assertIsNone(getattr(w, "sequence_report", None))
         dialog.close()

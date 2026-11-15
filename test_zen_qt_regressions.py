@@ -298,7 +298,8 @@ class QtRegressionTests(unittest.TestCase):
             report('gateway', '✓ 通过', 'read-only checked')
         with patch('zen_qt.pages.device.preflight.check_gateway', side_effect=check):
             self.w.pages['device']._do_preflight()
-            self.assertTrue(_wait(lambda: not self.w.workflow.busy and bool(seen)))
+            self.assertTrue(_wait(lambda: not self.w.workflow.busy and bool(seen)
+                and self.w.pages['device']._last_preflight_data is not None))
         self.assertTrue(seen[0][1])
         self.assertIn('checks', self.w.pages['device']._last_preflight_data)
 
