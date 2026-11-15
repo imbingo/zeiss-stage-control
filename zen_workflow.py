@@ -48,9 +48,11 @@ class Workflow:
     def busy(self):
         return self._gate.locked()
 
-    def _launch(self, action):
+    def _launch(self, action, *, kind="action"):
         if not self._gate.acquire(blocking=False):
             raise RuntimeError("已有设备任务")
+        self.task_kind=kind
+        if kind!='read_only':self.action_generation=getattr(self,'action_generation',0)+1
         self._stop.clear()
 
         def worker():
@@ -191,7 +193,7 @@ class Workflow:
             else:
                 self.device._actions_unverified=False
                 self._state('就绪',detail='只读位置与空闲检查通过，未重新加载实验')
-        self._launch(action)
+        self._launch(action,kind="read_only")
 
     def start(self, recipe, *, path_confirmed, single_point=False, confirmed_start=None):
         if not self.xy_enabled:
@@ -322,7 +324,7 @@ class Workflow:
                 if not isfinite(z):raise ValueError('无效 Z 读回')
                 self.events.put(('mark_z',layer,z,None))
             except Exception as error:self.events.put(('mark_error',self._mark_hint(error)))
-        self._launch(action)
+        self._launch(action,kind="read_only")
 
     @staticmethod
     def _mark_hint(error):
@@ -439,7 +441,7 @@ class Workflow:
             self.mark_diagnostic_report = report
             self.events.put(("mark_diagnostic", report))
             self._save_capabilities()
-        self._launch(action)
+        self._launch(action,kind="read_only")
 
     def run_hardware_test(self, session, operation, parameters, *, confirmed=False, timeout_s=60):
         """Use the same device task gate as both production measurement flows."""
@@ -497,7 +499,7 @@ class Workflow:
                 self.events.put(('read_only_error', tag, error))
             else:
                 self.events.put(('read_only_result', tag, result))
-        self._launch(action)
+        self._launch(action,kind="read_only")
 
     def start_sequence(self, plan, output, *, confirmed=False,
                        experiment_loading_confirmed=False, confirmed_start=None,

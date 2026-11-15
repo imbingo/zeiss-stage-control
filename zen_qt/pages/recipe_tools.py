@@ -105,7 +105,7 @@ class RecipeTools:
         self.delete_menu.popup(self.recipe_tree.viewport().mapToGlobal(pos))
 
     def delete_recipe(self, rid):
-        if self.app.workflow and self.app.workflow.busy:
+        if self.app.action_busy():
             self.validation_hint.setText("任务执行中不能删除配方")
             return
         self.library.delete_recipe(rid, by=self._operator())

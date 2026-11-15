@@ -152,12 +152,14 @@ class QtRegressionTests(unittest.TestCase):
                  lambda: m.layers['upper']['half'].setValue(4),
                  lambda: m.layers['upper']['combo'].setCurrentText('another'),
                  lambda: m.use_af.setChecked(False),
-                 lambda: m.capture_kind.setCurrentIndex(1),
-                 lambda: m.output_edit.setText(str(self.base / 'other'))]
+                 lambda: m.capture_kind.setCurrentIndex(1)]
         for edit in edits:
             for k in ('zpath', 'loading'): m.check_items[k].check.setChecked(True)
             edit()
             for k in ('zpath', 'loading'): self.assertFalse(m.check_items[k].check.isChecked())
+        for k in ('zpath','loading'):m.check_items[k].check.setChecked(True)
+        m.output_edit.setText(str(self.base/'other'))
+        for k in ('zpath','loading'):self.assertTrue(m.check_items[k].check.isChecked())
 
     def test_demo_to_field_drops_demo_coordinates_and_approvals(self):
         m = self.demo()
@@ -233,7 +235,7 @@ class QtRegressionTests(unittest.TestCase):
         before = hashlib.sha256(tiff.read_bytes()).digest()
         self.assertFalse(m._preview(tiff).isNull())
         self.assertEqual(hashlib.sha256(tiff.read_bytes()).digest(), before)
-        self.assertFalse(m.check_items['zpath'].check.isChecked())
+        self.assertTrue(m.check_items['zpath'].check.isChecked())
 
     def test_experiment_refresh_is_read_only_and_gated(self):
         m = self.demo()

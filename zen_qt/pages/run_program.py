@@ -266,7 +266,9 @@ class RunCenter(QWidget):
         self.mode.addItem("正式运行", "production")
         self.mode.addItem("工程试运行", "engineering")
         self.mode.addItem("离线模拟", "simulation")
-        self.mode.currentIndexChanged.connect(self.invalidate)
+        self.mode.currentIndexChanged.connect(
+            lambda _: self.invalidate(clear_confirmations=True)
+        )
         task.add(self.mode)
         self.version_label = label("请选择配方", wrap=True)
         task.add(self.version_label)
@@ -292,6 +294,13 @@ class RunCenter(QWidget):
             check.add(c)
         self.status = label("请选择配方，查看完整步骤。", wrap=True)
         check.add(self.status)
+        self._next_action_cb = None
+        self.next_action = QPushButton()
+        self.next_action.clicked.connect(
+            lambda: self._next_action_cb() if self._next_action_cb else None
+        )
+        self.next_action.hide()
+        check.add(self.next_action)
         self.check_button = QPushButton("执行前检查", clicked=self.preflight)
         self.start_button = QPushButton("启动任务", clicked=self.start)
         self.start_button.setObjectName("primary")
@@ -323,7 +332,9 @@ class RunCenter(QWidget):
         right.add(self.stop_button)
         split.addWidget(right)
         split.setSizes([290, 540, 380])
-        app.sample_edit.textChanged.connect(self.invalidate)
+        app.sample_edit.textChanged.connect(
+            lambda _: self.invalidate(clear_confirmations="path")
+        )
         app.operator_edit.textChanged.connect(self.invalidate)
 
     def library(self):
@@ -374,6 +385,7 @@ class RunCenter(QWidget):
         self._from_here = from_here
         self._checked = None
         self.preview()
+        self.invalidate(clear_confirmations=True)
 
     def selection_changed(self, *_):
         self._selection = self.recipes.currentData()
@@ -385,6 +397,10 @@ class RunCenter(QWidget):
             v = self.library().get(*self._selection)
             self._body = migrate_program(v["body"])
             self._display_hash = v["content_sha256"]
+            if v["status"] == "draft" and self.mode.currentData() == "production":
+                self.mode.blockSignals(True)
+                self.mode.setCurrentIndex(self.mode.findData("engineering"))
+                self.mode.blockSignals(False)
             self.version_label.setText(
                 f"Rev.{v['revision']:03d} · "
                 + ("正式版" if v["status"] == "released" else "草稿（可工程试运行）")
@@ -392,11 +408,11 @@ class RunCenter(QWidget):
             self.measure.configure(self._body, reset=True)
             self.marks.clear()
         else:
-            self.measure.configure({'program_steps':[]},reset=True)
+            self.measure.configure({"program_steps": []}, reset=True)
             self.marks.clear()
-            self.version_label.setText('请选择配方')
+            self.version_label.setText("请选择配方")
         self.preview()
-        self.invalidate()
+        self.invalidate(clear_confirmations=True)
 
     def preview(self):
         self.steps.clear()
@@ -430,7 +446,7 @@ class RunCenter(QWidget):
         self._scope = None
         self._from_here = False
         self.preview()
-        self.invalidate()
+        self.invalidate(clear_confirmations=True)
 
     def _snapshot_body(self):
         if not self._selection:
@@ -522,20 +538,113 @@ class RunCenter(QWidget):
             }
         )
 
-    def invalidate(self, *_):
+    def notice(self, text, action=None, caption=None):
+        self.status.setText(text)
+        self._next_action_cb = action
+        self.next_action.setVisible(action is not None)
+        if caption:
+            self.next_action.setText(caption)
+
+    def edit_selected(self):
+        page = self.app.pages["recipes"]
+        if self._selection:
+            if not page._resolve_dirty():
+                return
+            page.current_id, page.current_rev = self._selection
+            page._body = None
+            page._dirty = False
+            page._selected_step_id = None
+            page.refresh()
+        self.app.navigate("recipes")
+
+    def explain(self, error):
+        text = str(error)
+        if "样品" in text or "操作员" in text:
+            control = (
+                self.app.sample_edit
+                if not self.app.sample_edit.text().strip()
+                else self.app.operator_edit
+            )
+            self.notice(text, control.setFocus, "填写样品 / 操作员")
+        elif "目录" in text:
+            self.notice(text, self.choose_output, "选择图像目录")
+        elif "已放行" in text or "正式版本" in text or "正式运行" in text:
+            self.notice(
+                text,
+                lambda: self.mode.setCurrentIndex(self.mode.findData("engineering")),
+                "切换工程试运行",
+            )
+        elif any(
+            word in text for word in ("连接", "服务", "模拟设备", "接口", "不支持")
+        ):
+            self.notice(text, lambda: self.app.navigate("device"), "打开设备与手动操作")
+        else:
+            self.notice(text, self.edit_selected, "编辑当前配方参数")
+
+    def invalidate(self, *_, clear_confirmations=False):
+        from ..action_feedback import cancel_pending
+
+        cancel_pending(self)
         self._checked = None
         if hasattr(self, "path_confirm"):
-            self.path_confirm.setChecked(False)
-            self.load_confirm.setChecked(False)
+            if clear_confirmations:
+                self.path_confirm.setChecked(False)
+            if clear_confirmations is True:
+                self.load_confirm.setChecked(False)
         if hasattr(self, "status"):
-            self.status.setText("流程已显示；请完成参数检查和设备检查。")
+            self.notice(
+                "可先勾选人工确认；点击“启动任务”会检查尚缺条件，不会盲目发送动作。"
+            )
         self.refresh_enabled()
+
+    def _ready_then(self, callback):
+        w = self.app.workflow
+        if self.app.device_ready():
+            return True
+        self.notice("正在只读检查设备就绪；不移动设备、不重新加载实验。")
+        w.verify_ready()
+        from ..action_feedback import defer_read
+
+        def after():
+            if self.app.device_ready():
+                callback()
+            else:
+                self._auto_start_token = None
+                self.notice(
+                    "设备状态尚未通过检查。请查看事件日志；无 XY 的设备请在设备页选择仅 Z 模式。",
+                    lambda: self.app.navigate("device"),
+                    "检查设备连接与轴配置",
+                )
+
+        if not defer_read(self.app, self, after, self.fingerprint, self.notice):
+            after()
+        return False
 
     def preflight(self):
         try:
             w = self.app.workflow
-            if not w or w.busy or not self.app.device_ready():
-                raise ValueError("设备未连接或存在待恢复状态；仍可预览流程")
+            if not self._selection:
+                self._auto_start_token = None
+                self.notice(
+                    "尚未选择配方。请先新建或选择配方。",
+                    self.edit_selected,
+                    "打开配方管理",
+                )
+                return
+            if not w:
+                self._auto_start_token = None
+                self.notice(
+                    "尚未连接设备。人工确认可先填写，执行检查需要连接。",
+                    lambda: self.app.navigate("device"),
+                    "连接设备 / 选择离线演示",
+                )
+                return
+            from ..action_feedback import defer_read
+
+            if defer_read(
+                self.app, self, self.preflight, self.fingerprint, self.notice
+            ):
+                return
             p = self.build_plan()
             issues = capability_issues(p, w.device)
             if issues:
@@ -546,11 +655,6 @@ class RunCenter(QWidget):
                 raise ValueError("\n".join(issues))
             if (self.mode.currentData() == "simulation") != w.simulated:
                 raise ValueError("离线模拟须使用模拟设备；现场运行须连接真实设备")
-            if (
-                not self.app.sample_edit.text().strip()
-                or not self.app.operator_edit.text().strip()
-            ):
-                raise ValueError("请填写样品编号和工程师/操作员")
             target = Path(self.output.text()).expanduser()
             if (
                 not self.output.text().strip()
@@ -558,7 +662,10 @@ class RunCenter(QWidget):
                 or target.resolve().is_relative_to(self.app.data_root.resolve())
             ):
                 raise ValueError("图像目录须为运行记录目录之外的绝对路径")
+            if not self._ready_then(self.preflight):
+                return
             token = self.fingerprint()
+            self.notice("正在执行只读检查，请稍候。")
 
             def read(d):
                 from math import isfinite
@@ -582,6 +689,7 @@ class RunCenter(QWidget):
                 return {
                     "token": token,
                     "device": id(d),
+                    "generation": getattr(w, "action_generation", 0),
                     "xy": xy,
                     "z_m": z,
                     "optics": d.read_optics(),
@@ -589,32 +697,101 @@ class RunCenter(QWidget):
 
             w.read_only("program_preflight", read)
         except (ValueError, RuntimeError, TypeError) as e:
-            self.status.setText(str(e))
+            self._auto_start_token = None
+            self.explain(e)
 
     def on_rpc_result(self, tag, value):
         if (
             tag == "program_preflight"
+            and self._selection is not None
+            and self.app.workflow is not None
             and value["token"] == self.fingerprint()
             and value["device"] == id(self.app.workflow.device)
         ):
             self._checked = value
-            self.status.setText("设备检查通过；请核对路线与实验行为后明确启动。")
+            self.notice("设备检查通过；完成两项人工确认后即可启动。")
             self.refresh_enabled()
+            if getattr(self, "_auto_start_token", None) == value["token"]:
+                from PySide6.QtWidgets import QApplication
+
+                self._auto_start_token = None
+                if QApplication.activeModalWidget() is not None:
+                    self.notice(
+                        "正在编辑对话框参数，已取消自动启动；编辑完成后请重新点击。"
+                    )
+                    return
+                if getattr(self, "_auto_start_visible", False) and not self.isVisible():
+                    self.notice("已离开运行中心，未启动任务。")
+                    return
+                self.start()
 
     def on_rpc_error(self, tag, error):
         if tag == "program_preflight":
             self._checked = None
-            self.status.setText(str(error))
+            self._auto_start_token = None
+            self.explain(error)
 
     def start(self):
         try:
             w = self.app.workflow
-            c = self._checked
-            if not c or c["token"] != self.fingerprint() or c["device"] != id(w.device):
-                raise ValueError("请重新检查")
-            if not self.path_confirm.isChecked() or not self.load_confirm.isChecked():
-                raise ValueError("请确认装夹、路径及实验")
+            if not self._selection:
+                self.notice("请先选择或新建配方。", self.edit_selected, "打开配方管理")
+                return
             p = self.build_plan()
+            missing = []
+            if not w:
+                missing.append("设备尚未连接")
+            if not self.app.sample_edit.text().strip():
+                missing.append("填写样品 / 批次编号")
+            if not self.app.operator_edit.text().strip():
+                missing.append("填写操作员")
+            if not self.path_confirm.isChecked():
+                missing.append("人工核对装夹、运动路径及允许 Z 范围")
+            if not self.load_confirm.isChecked():
+                missing.append("人工核对实验不会换物镜或恢复未知位置")
+            if missing:
+                if not w:
+                    action = lambda: self.app.navigate("device")
+                    caption = "连接设备 / 选择离线演示"
+                elif not self.app.sample_edit.text().strip():
+                    action = self.app.sample_edit.setFocus
+                    caption = "填写样品 / 批次"
+                elif not self.app.operator_edit.text().strip():
+                    action = self.app.operator_edit.setFocus
+                    caption = "填写操作员"
+                else:
+                    target = (
+                        self.path_confirm
+                        if not self.path_confirm.isChecked()
+                        else self.load_confirm
+                    )
+                    action = target.setFocus
+                    caption = "定位待确认项"
+                self.notice(
+                    "启动条件尚未齐备："
+                    + chr(10)
+                    + "• "
+                    + (chr(10) + "• ").join(missing),
+                    action,
+                    caption,
+                )
+                return
+            from ..action_feedback import defer_read
+
+            if defer_read(self.app, self, self.start, self.fingerprint, self.notice):
+                return
+            c = self._checked
+            if (
+                not c
+                or c["token"] != self.fingerprint()
+                or c["device"] != id(w.device)
+                or c.get("generation") != getattr(w, "action_generation", 0)
+                or not self.app.device_ready()
+            ):
+                self._auto_start_token = self.fingerprint()
+                self._auto_start_visible = self.isVisible()
+                self.preflight()
+                return
             self.measure.configure(self._body, reset=True)
             self.marks.clear()
             self.preview()
@@ -631,11 +808,11 @@ class RunCenter(QWidget):
                 confirmed=True,
             )
             self._checked = None
-            self.path_confirm.setChecked(False)
-            self.load_confirm.setChecked(False)
+            self.notice("任务已启动；参数与本次检查已冻结，正在按执行计划运行。")
             self.persist()
         except (ValueError, RuntimeError) as e:
-            self.status.setText(str(e))
+            self._auto_start_token = None
+            self.explain(e)
 
     def on_workflow_event(self, kind, data, w):
         if kind == "measurement_begin":
@@ -703,7 +880,7 @@ class RunCenter(QWidget):
                         self.status.setText("验证证据未关联：" + str(e))
 
     def on_device_changed(self, w):
-        self.invalidate()
+        self.invalidate(clear_confirmations=True)
 
     def choose_output(self):
         path = QFileDialog.getExistingDirectory(self, "图像目录")
@@ -717,6 +894,9 @@ class RunCenter(QWidget):
         pass
 
     def demo(self):
+        if self.app.action_busy():
+            self.notice("当前任务执行中，请先等待结束或停止。")
+            return
         p = self.app.pages["recipes"]
         old = p.current_id
         p.seed_demo()
@@ -729,20 +909,22 @@ class RunCenter(QWidget):
     def refresh_enabled(self):
         if not hasattr(self, "start_button"):
             return
-        w = self.app.workflow
-        busy = bool(w and w.busy)
-        ready = bool(w and not busy and self.app.device_ready())
-        self.recipes.setEnabled(not busy)
-        self.mode.setEnabled(not busy)
-        self.output.setEnabled(not busy)
-        self.check_button.setEnabled(ready)
-        self.path_confirm.setEnabled(ready)
-        self.load_confirm.setEnabled(ready)
-        self.stop_button.setEnabled(busy)
-        self.start_button.setEnabled(
-            ready
-            and self._checked is not None
-            and self.path_confirm.isChecked()
-            and self.load_confirm.isChecked()
+        busy = self.app.action_busy()
+        for control in (self.recipes, self.mode, self.output):
+            control.setEnabled(not busy)
+            control.setToolTip(
+                "设备任务执行中，当前运行已冻结；结束后可切换。" if busy else ""
+            )
+        self.check_button.setEnabled(True)
+        self.path_confirm.setEnabled(True)
+        self.load_confirm.setEnabled(True)
+        self.start_button.setEnabled(True)
+        self.start_button.setToolTip(
+            "点击后列出尚缺条件；条件齐备时自动做只读检查，再启动。"
         )
-        self.start_button.setToolTip("检查通过且已确认本次路线与实验后可启动")
+        w = self.app.workflow
+        self.stop_button.setEnabled(
+            bool(w and w.busy)
+            or getattr(self, "_pending_click", None) is not None
+            or getattr(self, "_auto_start_token", None) is not None
+        )

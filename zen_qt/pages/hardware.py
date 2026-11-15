@@ -124,8 +124,8 @@ class HardwarePage(QWidget):
     # ---- session / binding ----
 
     def new_session(self):
-        if self.app.workflow and self.app.workflow.busy:
-            return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.new_session,lambda:id(self.app.workflow),self.result_info.setText):return
         bound = self.session.library.device if self.session.library else None
         self.session = HardwareTestSession(self.app.data_root)
         self.latest = None
@@ -142,7 +142,7 @@ class HardwarePage(QWidget):
             self.bind_info.setText("尚无设备；请先在「设备与自检」连接或载入离线演示。")
             return
         if workflow.busy:
-            return
+            self.bind_info.setText('当前设备任务正在进行，请稍后绑定；不会新建另一条设备连接。');return
         if not hasattr(workflow.device, 'call_hardware_operation'):
             self.bind_info.setText('当前模拟器不支持硬件单步，请载入采图演示或连接真实设备。')
             return
@@ -245,9 +245,14 @@ class HardwarePage(QWidget):
 
     def run(self):
         workflow = self.app.workflow
-        if workflow is None or workflow.busy or self.session.library is None:
-            self.result_info.setText("请先绑定设备，或等待当前任务结束。")
-            return
+        if workflow is None:
+            self.result_info.setText('尚未连接设备。请到“设备概览”连接真实设备或载入演示，再执行。');return
+        from ..action_feedback import defer_read
+        token=lambda:(self.op.key if self.op else None,tuple((k,e.text()) for k,e in self.values.items()),self.approved.isChecked(),self.timeout.value())
+        if defer_read(self.app,self,self.run,token,self.result_info.setText):return
+        if self.session.library is None or self.session.library.device is not workflow.device:self.bind_current()
+        if self.session.library is None:
+            self.result_info.setText('当前设备不支持本测试入口；请连接 Gateway 或选择采图演示。');return
         if self.op is None:
             self.result_info.setText("请先在左侧选择一个具体操作。")
             return
@@ -258,6 +263,9 @@ class HardwarePage(QWidget):
         timeout = float(self.timeout.value())
         params = {name: entry.text() for name, entry in self.values.items()}
         confirmed = self.approved.isChecked()
+        if self.op.writes and not self.op.is_stop and not confirmed:
+            self.result_info.setText('此操作将写入参数或移动设备，请先勾选本行的操作确认。')
+            self.approved.setFocus();return
         self.approved.setChecked(False)
         self.result_info.setText(f"正在执行 {self.op.title}；同步 RPC 可能持续至超时。")
         self.run_button.setEnabled(False)
@@ -270,7 +278,9 @@ class HardwarePage(QWidget):
 
     def start_batch(self):
         w=self.app.workflow
-        if w is None or w.busy:return
+        if w is None:self.result_info.setText('请先在“设备概览”连接或载入演示，再选择测试项目。');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.start_batch,lambda:id(self.app.workflow),self.result_info.setText):return
         if self.session.library is None or self.session.library.device is not w.device:self.bind_current()
         if self.session.library is None:return
         from .hardware_batch import BatchDialog
@@ -286,7 +296,7 @@ class HardwarePage(QWidget):
         w.run_hardware_batch(self.session,dialog.plan,timeout_s=self.timeout.value(),zero_z=dialog.zero_z.isChecked(),zero_xy=dialog.xy.isChecked() and dialog.zero_xy.isChecked())
 
     def export_batch(self):
-        if not self.batch_report:return
+        if not self.batch_report:self.result_info.setText('尚无一键测试报告，请先运行“一键测试”。');return
         name,_=QFileDialog.getSaveFileName(self,'导出一键测试报告','hardware-test-report.md','Markdown (*.md);;JSON (*.json)')
         if not name:return
         target=Path(name)
@@ -294,10 +304,12 @@ class HardwarePage(QWidget):
         else:target.write_text((Path(self.batch_report['directory'])/'report.md').read_text(encoding='utf-8'),encoding='utf-8')
 
     def request_stop(self):
-        if self.app.workflow:
-            self.app.workflow.stop()
-        self.session.note_stop_request()
-        self.result_info.setText("已请求停止后续步骤；不能取消正在等待的同步 RPC，请在设备端确认停止。")
+        busy=bool(self.app.workflow and self.app.workflow.busy)
+        self.app.stop()
+        if busy:
+            self.session.note_stop_request()
+            self.result_info.setText('已请求停止后续测试；当前设备调用可能仍需等待返回或超时。')
+        else:self.result_info.setText('当前没有测试正在运行，待执行请求已取消。')
 
     def on_workflow_event(self, kind, data, workflow):
         if kind in ('hardware_batch_progress','hardware_batch_result'):
@@ -358,7 +370,7 @@ class HardwarePage(QWidget):
         can_run = bool(self.app.workflow and not busy and self.session.library is not None
                        and self.op is not None)
         can_run = can_run and self.session.library.device is self.app.workflow.device
-        self.batch_button.setEnabled(bool(self.app.workflow and not busy))
-        self.batch_report_button.setEnabled(bool(self.batch_report) and not busy)
-        self.run_button.setEnabled(can_run)
-        self.stop_button.setEnabled(busy)
+        self.batch_button.setEnabled(True)
+        self.batch_report_button.setEnabled(True)
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(True)

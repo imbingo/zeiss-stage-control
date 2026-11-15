@@ -192,8 +192,7 @@ class TiltPage(QWidget):
         self.refresh_enabled()
 
     def choose_recipe(self):
-        if self.app.workflow and self.app.workflow.busy:
-            return
+        if self.app.action_busy():self.notice('当前任务执行中，请等待结束或停止。');return
         path, _ = QFileDialog.getOpenFileName(self, "加载现场配方", "", "配方 JSON (*.json)")
         if not path:
             return
@@ -206,8 +205,8 @@ class TiltPage(QWidget):
 
     def save_recipe(self):
         recipe = self.app.field_recipe
-        if recipe is None or (self.app.workflow and self.app.workflow.busy):
-            return
+        if recipe is None:self.notice('尚无测角配方，请先新建或加载。');return
+        if self.app.action_busy():self.notice('当前任务执行中，请结束后修改点位或保存。');return
         path, _ = QFileDialog.getSaveFileName(self, "保存现场配方", "", "现场配方 (*.json)")
         if not path:
             return
@@ -228,8 +227,7 @@ class TiltPage(QWidget):
             self.app.log("ok", "现场配方已保存，下次可直接加载。")
 
     def edit_recipe(self):
-        if self.app.workflow and self.app.workflow.busy:
-            return
+        if self.app.action_busy():self.notice('当前任务执行中，请等待结束或停止。');return
         old = self.app.field_recipe
         dialog = RecipeDialog(self, old, FIELD_CONVENTION)
         if dialog.exec() and dialog.recipe:
@@ -259,7 +257,15 @@ class TiltPage(QWidget):
         self.apply_recipe(replace(self.app.field_recipe, targets=targets))
         self.app.log("ok", f"已导入 {len(targets)} 个点，请保存配方并重新验证。")
 
+    def notice(self,text):
+        self.recipe_info.setText(text);self.app.show_action_hint(text)
+
     def teach(self):
+        if not self.app.workflow:self.notice('请先连接设备，再示教当前 XY。');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.teach,lambda:id(self.app.field_recipe),self.notice):return
+        if not self.app.workflow.xy_enabled:self.notice('本机无电动 XY，不能示教 XY；Z 示教请打开单点采图测试。');return
+        if not self.app.field_recipe:self.notice('请先新建或加载测角配方，再添加示教点。');return
         try:
             self.app.workflow.teach_xy()
         except (AttributeError, ValueError, RuntimeError) as exc:
@@ -274,8 +280,8 @@ class TiltPage(QWidget):
 
     def delete_point(self):
         recipe = self.app.field_recipe
-        if recipe is None or (self.app.workflow and self.app.workflow.busy):
-            return
+        if recipe is None:self.notice('尚无测角配方，请先新建或加载。');return
+        if self.app.action_busy():self.notice('当前任务执行中，请结束后修改点位或保存。');return
         index = self.points_list.currentRow()
         if not 0 <= index < len(recipe.targets):
             self.app.log("info", "请先在点位列表中选中要删除的点。")
@@ -292,8 +298,11 @@ class TiltPage(QWidget):
 
     def run_single_af(self):
         recipe = self.app.field_recipe
-        if not recipe or not self.field_ready():
-            return
+        if not recipe:self.notice('请先新建或加载测角配方。');return
+        if not self.app.workflow:self.notice('请先在设备概览连接设备。');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.run_single_af,lambda:id(self.app.field_recipe),self.notice):return
+        if not self.field_ready():self.notice('需要有电动 XY 且设备业务就绪。无 XY 设备请使用单点采图中的 Z / AF 步骤。');return
         try:
             self.app.workflow.start(recipe, path_confirmed=True, single_point=True)
         except (RuntimeError, ValueError) as exc:
@@ -305,8 +314,9 @@ class TiltPage(QWidget):
 
     def export(self):
         workflow = self.app.workflow
-        if not workflow or workflow.busy or workflow.result_path is None:
-            return
+        if not workflow or workflow.result_path is None:self.notice('尚无完成的测角结果，请先完成测量后导出。');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.export,lambda:str(workflow.result_path),self.notice):return
         path, _ = QFileDialog.getSaveFileName(self, "导出结果", "", "JSON (*.json)")
         if not path:
             return
@@ -382,12 +392,12 @@ class TiltPage(QWidget):
         ready = self.field_ready()
         recipe = app.field_recipe
         self.no_xy_note.setVisible(app.xy_mode == 'no_xy')
-        self.start_button.setEnabled(not bool(app.workflow and app.workflow.busy))
+        self.start_button.setEnabled(True)
         self.stop_button.setEnabled(busy)
-        self.teach_button.setEnabled(ready and recipe is not None)
-        self.delete_button.setEnabled(ready and recipe is not None)
-        self.af_button.setEnabled(ready and recipe is not None)
-        self.export_button.setEnabled(bool(workflow and workflow.result is not None and not busy))
+        self.teach_button.setEnabled(True)
+        self.delete_button.setEnabled(True)
+        self.af_button.setEnabled(True)
+        self.export_button.setEnabled(True)
         self.run_pill.set_kind(
             "accent" if busy else "ok" if workflow and workflow.state in ("就绪", "完成") else "mute",
             "运行中" if busy else (workflow.state if workflow else "未运行"))

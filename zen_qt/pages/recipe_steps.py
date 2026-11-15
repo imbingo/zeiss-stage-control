@@ -107,7 +107,7 @@ class RecipesPage(RecipeTools, VersionPage):
             self.conditions.clear()
             self.tests.clear()
             for button in (self.save_button, self.check_button, self.release_button):
-                button.setEnabled(False)
+                button.setEnabled(True)
             return
         if self.current_id and self._body is None:
             v = self.library.get(self.current_id, self.current_rev)
@@ -347,8 +347,12 @@ class RecipesPage(RecipeTools, VersionPage):
 
     def save_new_version(self):
         if not self.current_id:
+            self.validation_hint.setText("尚无配方，请点击“新建配方”后设置步骤。")
             return False
         if self._read_only():
+            self.validation_hint.setText(
+                "该版本只读。请先点击左侧“复制为新草稿”，再修改和保存。"
+            )
             return False
         try:
             b = self._collect_body()
@@ -579,11 +583,13 @@ class RecipesPage(RecipeTools, VersionPage):
         super().on_rpc_result(tag, value)
 
     def run_from_here(self):
-        if self.app.workflow and self.app.workflow.busy:
+        if self.app.action_busy():
+            self.validation_hint.setText("设备任务正在执行，请等待结束或停止后测试。")
             return
         if self._dirty and not self.save_new_version():
             return
         if not self.current_id or self._selected_step_id in (None, "__common"):
+            self.validation_hint.setText("请先选择具体执行步骤，公共参数不是执行起点。")
             return
         center = self.app.pages["sequence"]
         center.select_recipe(
@@ -599,10 +605,109 @@ class RecipesPage(RecipeTools, VersionPage):
         )
         self.app.navigate("sequence")
 
-    def refresh_enabled(self):
-        super().refresh_enabled()
-        if hasattr(self, "from_here_button"):
-            self.from_here_button.setEnabled(
-                bool(self.current_id)
-                and not (self.app.workflow and self.app.workflow.busy)
+    def update_enabled(self, v):
+        super().update_enabled(v)
+        self.check_button.setEnabled(True)
+        self.save_button.setEnabled(True)
+        self.release_button.setEnabled(True)
+        self.release_button.setToolTip(
+            "点击查看尚缺的放行条件；满足后才会进入人工放行。"
+        )
+
+    def mark_dirty(self, *args):
+        super().mark_dirty(*args)
+        if hasattr(self, "release_button"):
+            self.release_button.setEnabled(True)
+
+    def check_recipe(self):
+        if not self.current_id:
+            self.validation_hint.setText("请先新建或选择配方，再检查参数。")
+            return
+        if self._read_only():
+            self.validation_hint.setText(
+                "该版本只读，检查记录在“验证与测试记录”中；要修改请复制草稿。"
             )
+            self.tabs.setCurrentIndex(2)
+            return
+        super().check_recipe()
+
+    def release_recipe(self):
+        if not self.current_id:
+            self.validation_hint.setText("请先选择需要放行的草稿。")
+            return
+        v = self.library.get(self.current_id, self.current_rev)
+        if v["status"] != "draft":
+            self.validation_hint.setText(
+                "当前版本已放行或归档，为只读版本，无需再次放行；要变更请复制为新草稿。"
+            )
+            self.tabs.setCurrentIndex(2)
+            return
+        missing = []
+        if self._dirty:
+            missing.append("保存当前草稿")
+        if v["body"].get("example"):
+            missing.append("演示配方不能放行现场；请新建现场配方并设置真实参数")
+        if (v.get("checks") or {}).get("result") != "passed":
+            missing.append("通过“检查配方”")
+        if v.get("validation", {}).get("state") != "field_trial_passed":
+            missing.append("完成同版本、完整流程的“现场工程试运行”")
+        if not self._operator():
+            missing.append("填写工程师 / 操作员")
+        if missing:
+            self.validation_hint.setText("放行尚缺条件：\n• " + "\n• ".join(missing))
+            self.tabs.setCurrentIndex(2)
+            return
+        super().release_recipe()
+
+    def _run(self, mode, step=None):
+        if not self.current_id:
+            self.validation_hint.setText("请先新建或选择配方。")
+            return
+        if self.app.action_busy():
+            self.validation_hint.setText("设备任务正在执行；请先等待结束或停止。")
+            return
+        super()._run(mode, step)
+
+    def simulate(self):
+        from ..action_feedback import defer_read
+
+        token = lambda: (self.current_id, self.current_rev, self._selected_step_id)
+        if defer_read(
+            self.app, self, self.simulate, token, self.validation_hint.setText
+        ):
+            return
+        if not self.current_id:
+            self.validation_hint.setText("请先新建或选择配方，再模拟当前流程。")
+            return
+        super().simulate()
+
+    def field_trial(self):
+        self._run("engineering")
+
+    def test_step(self):
+        if self._selected_step_id in (None, "__common"):
+            self.validation_hint.setText(
+                "请选择中间执行流程中的具体动作，公共参数本身不执行。"
+            )
+            return
+        self._run(
+            (
+                "simulation"
+                if self.app.workflow and self.app.workflow.simulated
+                else "engineering"
+            ),
+            self._selected_step_id,
+        )
+
+    def refresh_enabled(self):
+        for name in (
+            "simulate_button",
+            "trial_button",
+            "test_step_button",
+            "from_here_button",
+            "release_button",
+            "check_button",
+            "save_button",
+        ):
+            if hasattr(self, name):
+                getattr(self, name).setEnabled(True)

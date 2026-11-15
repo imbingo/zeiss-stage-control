@@ -56,6 +56,7 @@ class ManualPage(QWidget):
             "手动运动不会自动回原点。所有动作独立记录，异常后需确认恢复。", wrap=True
         )
         state.add(self.message)
+        state.add(QPushButton('设备连接与状态检查',clicked=lambda:app.navigate('device')))
         state.add(
             label(
                 "无电动 XY：只开放 Z；读数中 XY 明确标为不适用。\n生产任务运行时，手动动作禁用。",
@@ -69,8 +70,9 @@ class ManualPage(QWidget):
 
     def read(self):
         w = self.app.workflow
-        if not w:
-            return
+        if not w:self.message.setText('尚未连接设备，请打开“设备连接与状态检查”。');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.read,lambda:id(self.app.workflow),self.message.setText):return
         try:
             w.read_only(
                 "manual_position",
@@ -101,13 +103,14 @@ class ManualPage(QWidget):
     def move(self, kind):
         w = self.app.workflow
         try:
-            if (
-                not w
-                or w.busy
-                or not self.app.device_ready()
-                or not self.approved.isChecked()
-            ):
-                raise ValueError("设备未就绪或尚未确认运动")
+            if not w:raise ValueError('尚未连接设备，请先打开“设备连接与状态检查”。')
+            from ..action_feedback import defer_read
+            token=lambda:(kind,tuple(e.text() for e in self.fields.values()),self.approved.isChecked())
+            if defer_read(self.app,self,lambda:self.move(kind),token,self.message.setText):return
+            if kind=='xy' and not w.xy_enabled:raise ValueError('本机无电动 XY；请使用 Z MoveTo，未发送 XY 请求。')
+            if not self.app.device_ready():raise ValueError('设备尚未业务就绪。请打开“设备连接与状态检查”核验状态。')
+            if not self.approved.isChecked():
+                self.approved.setFocus();raise ValueError('还未核对运动范围和路径，请先勾选上方的动作确认。')
             low = number(self.fields["low"].text(), "Z 下限") * 1e-6
             high = number(self.fields["high"].text(), "Z 上限") * 1e-6
             if low >= high:
@@ -214,7 +217,7 @@ class ManualPage(QWidget):
             self.message.setText(str(e))
 
     def refresh_enabled(self):
-        w = self.app.workflow
-        ready = bool(w and not w.busy and self.app.device_ready())
-        self.xy.setEnabled(ready and w.xy_enabled and self.approved.isChecked())
-        self.z.setEnabled(ready and self.approved.isChecked())
+        self.xy.setEnabled(True);self.z.setEnabled(True)
+        self.approved.setEnabled(True)
+        self.xy.setToolTip('点击后检查设备、XY 配置、参数及动作确认；不满足时说明原因。')
+        self.z.setToolTip('点击后检查设备、目标范围及动作确认；不满足时说明原因。')

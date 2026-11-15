@@ -105,7 +105,10 @@ class QtSequenceTests(unittest.TestCase):
         self.assertIsNotNone(self.c._checked)
         self.w.sample_edit.setText("W-002")
         self.assertIsNone(self.c._checked)
-        self.assertFalse(self.c.start_button.isEnabled())
+        self.assertTrue(self.c.start_button.isEnabled())
+        self.c.start()
+        self.assertIn('人工核对',self.c.status.text())
+        self.assertIsNone(getattr(self.w.workflow,'sequence_report',None))
 
     def test_production_rejects_draft_and_real_mode_rejects_simulator(self):
         self.c.mode.setCurrentIndex(0)

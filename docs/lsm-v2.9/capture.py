@@ -70,6 +70,8 @@ def main():
     center.select_recipe(p.current_id, 1, mode="simulation")
     if not window.dock.collapsed:
         window.dock.toggle_fold()
+    center.start()
+    snap("13-click-explains-missing-checks.png")
     snap("01-run-center-ready.png")
     center.preflight()
     wait(lambda: not window.workflow.busy)

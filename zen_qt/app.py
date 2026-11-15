@@ -61,7 +61,7 @@ class WorkbenchWindow(QMainWindow):
         self._live_z = None
         self._live_xy = None
 
-        self.setWindowTitle("LSM测量工作站 v2.9.0")
+        self.setWindowTitle("LSM测量工作站 v2.9.1")
         self.resize(1600, 980)
         self.setMinimumSize(1000, 620)
         self.setStyleSheet(theme.QSS)
@@ -72,6 +72,12 @@ class WorkbenchWindow(QMainWindow):
         outer = vbox(root, spacing=0, margins=0)
 
         outer.addWidget(self._build_topbar())
+        self.action_bar=QFrame()
+        action_lay=hbox(self.action_bar,margins=(16,6,16,6))
+        self.action_text=label('',wrap=True)
+        action_lay.addWidget(self.action_text,1)
+        action_lay.addWidget(QPushButton('关闭提示',clicked=self.action_bar.hide))
+        outer.addWidget(self.action_bar);self.action_bar.hide()
         self.lockbar = self._build_lockbar()
         outer.addWidget(self.lockbar)
         self.lockbar.hide()
@@ -237,6 +243,9 @@ class WorkbenchWindow(QMainWindow):
         if hasattr(page,'on_show'):page.on_show()
 
     def navigate(self, key):
+        from .action_feedback import cancel_pending
+        for name,page in self.pages.items():
+            if name!=key:cancel_pending(page)
         original=key
         if hasattr(self,'equipment_tabs') and key in ('hardware','tilt','marks','manual'):
             self.equipment_tabs.setCurrentIndex(['device','manual','hardware','tilt','marks'].index(key));key='device'
@@ -264,7 +273,7 @@ class WorkbenchWindow(QMainWindow):
     def export_diagnostic_bundle(self):
         from PySide6.QtWidgets import QFileDialog
         bundle = {"kind": "diagnostic_bundle", "exported_at": utc_now(),
-                  "software": "LSM测量工作站 v2.9.0 (Qt)",
+                  "software": "LSM测量工作站 v2.9.1 (Qt)",
                   "simulated": bool(self.workflow and self.workflow.simulated),
                   "xy_mode": self.xy_mode,
                   "rpc_trace": (self.workflow.device.rpc_trace()
@@ -320,14 +329,16 @@ class WorkbenchWindow(QMainWindow):
             if hasattr(page, "clear_result"):
                 page.clear_result()
 
+    def show_action_hint(self,text):
+        self.action_text.setText(text);self.action_bar.show();self.log('info',text)
+
     def connect_field(self):
-        if self.workflow and self.workflow.busy:
-            return
+        from .action_feedback import defer_read
+        if defer_read(self,self,self.connect_field,lambda:('connect',self.xy_mode,repr(self.gateway_overrides)),self.show_action_hint):return
         try:
             address, pem_path, token = gateway_settings({**os.environ, **self.gateway_overrides})
         except ValueError as exc:
-            self.log("error", str(exc))
-            return
+            self.show_action_hint(str(exc)+'。请打开设备页的“连接设置”后再试。');return
 
         def channel():
             return secure_channel(address, pem_path.read_bytes(), token)
@@ -346,8 +357,8 @@ class WorkbenchWindow(QMainWindow):
 
     def connect_demo(self, kind):
         """Offline demo: 'tilt' runs the 4-point demo; 'marks' binds the mark simulator."""
-        if self.workflow and self.workflow.busy:
-            return
+        from .action_feedback import defer_read
+        if defer_read(self,self,lambda:self.connect_demo(kind),lambda:('demo',kind,self.xy_mode),self.show_action_hint):return
         if kind not in ('marks','sequence') and self.xy_mode == 'no_xy':
             self.log('warn', '无 XY 模式仅支持单点采图。测角演示请先切换为有电动 XY。')
             return
@@ -377,15 +388,17 @@ class WorkbenchWindow(QMainWindow):
         self.refresh_ui()
 
     def exit_demo(self):
-        if self.workflow and self.workflow.simulated and not self.workflow.busy:
-            self.disconnect()
-            self.equipment_tabs.setCurrentIndex(0)
-            self.navigate('device')
-            self.log('info','已退出离线演示；请点击连接现场设备。')
+        if not self.workflow or not self.workflow.simulated:
+            self.show_action_hint('当前不是离线演示，无需退出。');return
+        from .action_feedback import defer_read
+        if defer_read(self,self,self.exit_demo,lambda:('exit_demo',id(self.workflow)),self.show_action_hint):return
+        self.disconnect();self.equipment_tabs.setCurrentIndex(0);self.navigate('device')
+        self.show_action_hint('已退出离线演示。可在设备概览连接现场设备。')
 
     def disconnect(self):
-        if self.workflow is None or self.workflow.busy:
-            return
+        if self.workflow is None:self.show_action_hint('当前尚未连接，无需断开。');return
+        from .action_feedback import defer_read
+        if defer_read(self,self,self.disconnect,lambda:('disconnect',id(self.workflow)),self.show_action_hint):return
         old, self.workflow = self.workflow, None
         self._drain(old)
         if isinstance(old.device, GatewayDevice):
@@ -402,18 +415,22 @@ class WorkbenchWindow(QMainWindow):
         self.refresh_ui()
 
     def stop(self):
-        if self.workflow:
-            self.pending = None
+        from .action_feedback import cancel_pending
+        cancel_pending(self)
+        for page in self.pages.values():cancel_pending(page)
+        self.pending=None
+        if self.workflow and self.workflow.busy:
             self.workflow.stop()
-            self.log("warn", "已请求停止后续采集；正在等待的同步 RPC 不能取消，请在设备端确认停止。")
+            self.log('warn','已请求停止后续动作；当前设备调用可能仍需等待返回，请在设备端核实停止状态。')
+        else:self.show_action_hint('当前没有运行流程，待执行请求已取消。“停止流程”不等于设备硬件急停。')
 
     def set_xy_mode(self, mode):
         if mode not in ('motorized', 'no_xy'):
             raise ValueError('未知 XY 模式')
         if mode == self.xy_mode:
             return
-        if self.workflow and self.workflow.busy:
-            return
+        from .action_feedback import defer_read
+        if defer_read(self,self,lambda:self.set_xy_mode(mode),lambda:('mode',mode,id(self.workflow)),self.show_action_hint):return
         self.xy_mode = mode
         self._connected_mode = mode
         self.preferences.update(xy_mode=mode)
@@ -431,6 +448,10 @@ class WorkbenchWindow(QMainWindow):
     def locked(self):
         return bool(self.pending_runs()) or (
             self.workflow is not None and self.workflow.state == RECOVERY_STATE)
+
+    def action_busy(self):
+        from .action_feedback import action_busy
+        return action_busy(self)
 
     def device_ready(self):
         return self.workflow is not None and self.workflow.state in READY_STATES and not self.locked()
@@ -522,6 +543,7 @@ class WorkbenchWindow(QMainWindow):
             message = f"{state} · 点位 {point or '—'} {detail}".rstrip()
             level = "error" if state == RECOVERY_STATE else ("ok" if state in READY_STATES else "info")
             self.log(level, ("离线演示 · " if workflow.simulated else "") + message)
+            if state in READY_STATES:self.action_bar.hide()
             if state == RECOVERY_STATE:
                 if workflow.simulated:
                     self.recovery_runs = pending_recovery(self.data_root, simulated=True)
@@ -604,6 +626,8 @@ class WorkbenchWindow(QMainWindow):
     # ---------- live position readout ----------
 
     def _poll_position(self):
+        # An explicit click takes priority over the next periodic refresh.
+        if getattr(self,'_pending_click',None) or any(getattr(p,'_pending_click',None) or getattr(p,'_auto_start_token',None) for p in self.pages.values()):return
         workflow = self.workflow
         if workflow is None or workflow.busy or workflow.state in ("未连接", "连接检查"):
             return
@@ -659,7 +683,7 @@ class WorkbenchWindow(QMainWindow):
             self.conn_chip.setText(("离线演示" if workflow.simulated else "Gateway") + f" · {workflow.state}")
             self.conn_chip.set_kind("bad" if workflow.state == RECOVERY_STATE else "ok" if workflow.state in READY_STATES else "warn")
         self.exit_demo_button.setVisible(bool(workflow and workflow.simulated))
-        self.exit_demo_button.setEnabled(not busy)
+        self.exit_demo_button.setEnabled(True)
         self.mode_chip.setText("离线演示" if (workflow and workflow.simulated) else "真实设备")
         self.mode_chip.set_kind("warn" if (workflow and workflow.simulated) else "real")
         runs = self.pending_runs()
@@ -673,7 +697,7 @@ class WorkbenchWindow(QMainWindow):
         self.read_labels["Y"].setText("—" if self._live_xy is None else f"{self._live_xy[1]*1e6:.2f}")
         self.read_labels["Z"].setText("—" if self._live_z is None else f"{self._live_z*1e6:.2f}")
         self.recovery_chip.hide()
-        self.stop_button.setEnabled(busy)
+        self.stop_button.setEnabled(True)
         if locked:
             self.lock_text.setText(
                 "设备动作结束状态尚未核验；可执行只读检查和停止请求，四项人工恢复确认已取消。")
@@ -686,6 +710,9 @@ class WorkbenchWindow(QMainWindow):
                 handler()
 
     def closeEvent(self, event):
+        from .action_feedback import cancel_pending
+        cancel_pending(self)
+        for page in self.pages.values():cancel_pending(page)
         if not self.pages["recipes"]._resolve_dirty():
             event.ignore(); return
         if self.workflow and self.workflow.busy:

@@ -180,9 +180,10 @@ class DevicePage(QWidget):
 
     def _do_preflight(self):
         workflow = self.app.workflow
-        if workflow is None or workflow.device is None or workflow.busy:
-            self.app.log("info", "请先连接设备。")
-            return
+        if workflow is None or workflow.device is None:
+            self.preflight_summary.setText('尚未连接设备，请点击上方“连接”或选择离线演示。');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self._do_preflight,lambda:id(self.app.workflow),self.preflight_summary.setText):return
         device = workflow.device
         self.preflight_pill.set_kind('accent', '运行中…')
         self.preflight_summary.setText('正在执行只读预检…')
@@ -203,12 +204,13 @@ class DevicePage(QWidget):
 
     def _scan_services(self, all_services=False):
         workflow = self.app.workflow
-        if workflow is None or workflow.device is None or workflow.busy:
-            self.app.log("info", "请先连接设备。")
-            return
+        if workflow is None or workflow.device is None:
+            self.preflight_summary.setText('尚未连接，不能扫描设备服务。请先连接 Gateway。');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,lambda:self._scan_services(all_services),lambda:(id(self.app.workflow),all_services),self.preflight_summary.setText):return
         device = workflow.device
         if getattr(device, "_channel", None) is None:
-            self.app.log("info", "此设备不支持服务扫描（演示模式无 channel）。")
+            self.preflight_summary.setText('离线演示没有真实服务可扫描。请退出演示并连接 Gateway 后再试。')
             return
         self.scan_pill.set_kind("accent", "扫描中…")
         try:
@@ -321,14 +323,14 @@ class DevicePage(QWidget):
         self.mode_selector.blockSignals(True)
         self.mode_selector.setCurrentIndex(max(0, self.mode_selector.findData(self.app.xy_mode)))
         self.mode_selector.blockSignals(False)
-        self.mode_selector.setEnabled(not busy)
-        self.connect_button.setEnabled(not busy)
-        self.reconnect_button.setEnabled(not busy)
-        self.disconnect_button.setEnabled(connected and not busy)
+        self.mode_selector.setEnabled(not self.app.action_busy())
+        self.connect_button.setEnabled(True)
+        self.reconnect_button.setEnabled(True)
+        self.disconnect_button.setEnabled(True)
         self.disconnect_button.setText("退出离线演示" if simulated else "断开")
-        self.preflight_button.setEnabled(not busy and connected and not simulated)
-        self.scan_button.setEnabled(not busy and connected and not simulated)
-        self.scan_all.setEnabled(self.scan_button.isEnabled())
+        self.preflight_button.setEnabled(True)
+        self.scan_button.setEnabled(True)
+        self.scan_all.setEnabled(True)
         self.conn_labels["mode"].setText("演示" if simulated else ("真实设备" if connected else "—"))
         self.conn_labels["xy"].setText(
             "电动" if workflow and workflow.xy_enabled else ("无" if connected else "—"))

@@ -93,7 +93,10 @@ class TestRecipesPage(unittest.TestCase):
             ]["x_um"],
             7654,
         )
-        self.assertFalse(self.p.release_button.isEnabled())
+        self.assertTrue(self.p.release_button.isEnabled())
+        self.p.release_button.click()
+        self.assertIn('放行尚缺条件',self.p.validation_hint.text())
+        self.assertEqual(v['status'],'draft')
 
     def test_invalid_numeric_save_reports_and_keeps_last_saved_value(self):
         self.select(self.xy["step_id"])

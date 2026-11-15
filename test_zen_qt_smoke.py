@@ -107,7 +107,11 @@ class TestQtWorkbench(unittest.TestCase):
         window.refresh_ui()
         self.assertTrue(window.locked())
         for keys, button in page.capture_buttons.items():
-            self.assertFalse(button.isEnabled())
+            self.assertTrue(button.isEnabled())
+        before=window.workflow.device.capture_count
+        page.capture(('upper',))
+        self.assertEqual(window.workflow.device.capture_count,before)
+        self.assertTrue(page.capture_hint.text())
         # Unlock via the same path the recovery dialog uses.
         window.confirm_recovery()
         self.assertFalse(window.locked())

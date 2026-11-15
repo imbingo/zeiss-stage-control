@@ -49,7 +49,10 @@ class ManualTests(unittest.TestCase):
         self.fill()
         self.p.fields["x"].setText("2000")
         self.assertFalse(self.p.approved.isChecked())
-        self.assertFalse(self.p.xy.isEnabled())
+        self.assertTrue(self.p.xy.isEnabled())
+        self.p.move('xy')
+        self.assertEqual(self.w.workflow.device.moves,[])
+        self.assertIn('确认',self.p.message.text())
 
     def test_settings_save_updates_output_without_changing_recipe(self):
         settings = self.w.pages["settings"]
