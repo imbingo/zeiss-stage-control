@@ -692,6 +692,12 @@ class RunCenter(QWidget):
             self.notice(text, self.edit_selected, "编辑当前配方参数")
 
     def invalidate(self, *_, clear_confirmations=False):
+        # A terminal verdict belongs to the completed run, not the next task.
+        # Running reports keep their frozen identity until the worker finishes.
+        if getattr(self, "_verdict_kind", "idle") in ("ok", "bad", "warn") and not self.app.action_busy():
+            self.measure.configure(self._body or {"program_steps": []}, reset=True)
+            self.marks.clear()
+            self.reset_result("任务条件已变化；上一轮结果请在“结果与追溯”查看。")
         from ..action_feedback import cancel_pending
 
         cancel_pending(self)
@@ -1065,7 +1071,7 @@ class RunCenter(QWidget):
         if not hasattr(self, "start_button"):
             return
         busy = self.app.action_busy()
-        for control in (self.recipes, self.mode, self.output):
+        for control in (self.recipes, self.mode, self.output, self.app.sample_edit, self.app.operator_edit):
             control.setEnabled(not busy)
             control.setToolTip(
                 "设备任务执行中，当前运行已冻结；结束后可切换。" if busy else ""

@@ -276,5 +276,54 @@ class RecipeHmiTests(unittest.TestCase):
         )
 
 
+
+class AuditFollowupTests(unittest.TestCase):
+    setUpClass = classmethod(lambda cls: _app())
+    setUp = HmiReviewTests.setUp
+    cleanup = HmiReviewTests.cleanup
+    run_demo = HmiReviewTests.run_demo
+
+    def test_new_task_identity_clears_old_verdict(self):
+        self.run_demo()
+        self.w.sample_edit.setText('NEXT-SAMPLE')
+        self.assertEqual(self.c._verdict_kind, 'idle')
+        self.assertNotIn('Rx', self.c.verdict.text())
+        self.assertEqual(self.c.marks.frames, {})
+        self.c.set_verdict('ok', '旧结果')
+        self.p.seed_demo()
+        self.c.select_recipe(self.p.current_id, self.p.current_rev, mode='simulation')
+        self.assertEqual(self.c._verdict_kind, 'idle')
+        self.assertNotIn('完成', self.c.result_label.text())
+
+    def test_running_verdict_survives_identity_edit(self):
+        from unittest.mock import patch
+        self.c.set_verdict('run', '任务执行中')
+        with patch.object(self.w, 'action_busy', return_value=True):
+            self.w.sample_edit.setText('NEXT-SAMPLE')
+        self.assertEqual(self.c._verdict_kind, 'run')
+
+
+class PairSummaryTests(unittest.TestCase):
+    def test_pairs_require_both_layers_and_same_context_and_id(self):
+        from zen_qt.pages.records import completed_pairs
+        def image(context, pair, layer):
+            return dict(context=context, pair_id=pair, layer=layer, path='saved.tif')
+        upper = image('loop/1', 'A', 'upper')
+        cases = [([upper], 0), ([upper, image('loop/1', 'B', 'lower')], 0),
+                 ([upper, image('loop/2', 'A', 'lower')], 0),
+                 ([upper, image('loop/1', 'A', 'lower')], 1),
+                 ([upper, image('loop/1', 'A', 'lower'), image('loop/2', 'A', 'upper'), image('loop/2', 'A', 'lower')], 2)]
+        for images, expected in cases:
+            with self.subTest(images=images):
+                self.assertEqual(completed_pairs({'images': images}), expected)
+        self.assertEqual(completed_pairs({'captures': [{'state':'complete'}, {'state':'failed'}]}), 1)
+        self.assertEqual(completed_pairs({'images': [], 'captures': [{'state':'complete'}]}), 0)
+
+    def test_motion_only_sequence_is_not_reported_as_capture(self):
+        from zen_qt.pages.records import run_verdict
+        run = dict(state='complete',kind='sequence',sequence={},stage='',recovery=False,n_images=0)
+        self.assertEqual(run_verdict(run), ('ok','任务完成'))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,18 @@ VERDICT_COLORS = {
 }
 
 
+def completed_pairs(sequence):
+    """Count saved pairs within each loop context; never pair unrelated images."""
+    if "images" not in sequence:
+        return sum(c.get("state") == "complete" for c in sequence.get("captures", []))
+    layers = {}
+    for item in sequence["images"]:
+        if item.get("path") and item.get("pair_id"):
+            key = (item.get("context", ""), item["pair_id"])
+            layers.setdefault(key, set()).add(item.get("layer"))
+    return sum({"upper", "lower"} <= values for values in layers.values())
+
+
 def run_verdict(run):
     """(kind, headline) an operator can act on, without reading raw fields."""
     state = run["state"]
@@ -44,7 +56,7 @@ def run_verdict(run):
     if state != "complete":
         return "warn", STATE_NAMES.get(state, state)
     if run["kind"] == "sequence":
-        return "ok", "采集完成 · 待 SOMA 对位分析"
+        return "ok", ("采集完成 · 待 SOMA 对位分析" if run.get("n_images") else "任务完成")
     if run["kind"] == "mark":
         return "ok", "采图完成 · 待对位分析"
     if run["kind"] == "tilt":
@@ -371,7 +383,7 @@ class RecordsPage(QWidget):
             )
             lines.append("图像内容 / 清晰度 / 标定需另行核验，不等同于对位分析通过。")
         elif run["kind"] == "sequence":
-            done = sum(c.get("state") == "complete" for c in sequence.get("captures", []))
+            done = completed_pairs(sequence)
             lines.append(f"图像：{run['n_images']} 张 · 孔位采图完成 {done} 组")
             lines.append("自动任务完成不等于 SOMA 对位分析通过。")
         elif run["n_images"]:

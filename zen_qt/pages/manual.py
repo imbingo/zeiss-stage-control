@@ -112,9 +112,11 @@ class ManualPage(QWidget):
         from ..action_feedback import defer_read
         if defer_read(self.app,self,self.read,lambda:id(self.app.workflow),self.message.setText):return
         try:
+            generation = getattr(w, "action_generation", 0)
             w.read_only(
                 "manual_position",
                 lambda d: {
+                    "_generation": generation,
                     "xy": d.read_xy() if w.xy_enabled else None,
                     "z": d.read_z(),
                 },
@@ -122,8 +124,24 @@ class ManualPage(QWidget):
         except RuntimeError as e:
             self.message.setText(str(e))
 
+    def clear_position(self):
+        self._position = None
+        self.position.setText("X：—\nY：—\nZ：—（请重新读取）")
+
+    def current_position(self):
+        w = self.app.workflow
+        if self._position and (
+            w is None
+            or self._position_device is not w.device
+            or self._position_generation != getattr(w, "action_generation", 0)
+            or monotonic() - self._position_at > 5
+            or self.app.action_busy()
+        ):
+            self.clear_position()
+        return self._position
+
     def fill_current(self):
-        if not self._position:
+        if not self.current_position():
             self.message.setText("尚无读回位置，请先点“读取当前位置”。")
             return
         xy, z = self._position["xy"], self._position["z"]
@@ -141,7 +159,7 @@ class ManualPage(QWidget):
             text = self.fields["z"].text().strip()
             if text:
                 base = number(text, "目标 Z")
-            elif self._position:
+            elif self.current_position():
                 base = self._position["z"] * 1e6
             else:
                 raise ValueError("目标 Z 为空且尚无读回位置，请先“读取当前位置”。")
@@ -150,7 +168,7 @@ class ManualPage(QWidget):
             self.message.setText(str(e))
 
     def refresh_preview(self, *_):
-        if not self._position:
+        if not self.current_position():
             self.preview.setText("位移预览：先“读取当前位置”。")
             return
 
@@ -176,7 +194,16 @@ class ManualPage(QWidget):
         )
 
     def on_rpc_result(self, tag, value):
-        if tag == "manual_position":
+        if tag in ("manual_position", "position") and value.get("z") is not None:
+            w = self.app.workflow
+            if w is None or self.app.action_busy():
+                return
+            if value.get("_generation", getattr(w, "action_generation", 0)) != getattr(w, "action_generation", 0):
+                return
+            value = {"xy": value.get("xy"), "z": value["z"]}
+            self._position_device = w.device
+            self._position_generation = getattr(w, "action_generation", 0)
+            self._position_at = monotonic()
             self._position = value
             self.refresh_preview()
             xy = value["xy"]
@@ -190,7 +217,9 @@ class ManualPage(QWidget):
             )
 
     def on_rpc_error(self, tag, error):
-        if tag == "manual_position":
+        if tag in ("manual_position", "position"):
+            self.clear_position()
+            self.refresh_preview()
             self.message.setText(str(error))
 
     def move(self, kind):
@@ -326,6 +355,7 @@ class ManualPage(QWidget):
         self.refresh_preview()
 
     def refresh_enabled(self):
+        self.refresh_preview()
         self.xy.setEnabled(True);self.z.setEnabled(True)
         self.approved.setEnabled(True)
         self.xy.setToolTip('点击后检查设备、XY 配置、参数及动作确认；不满足时说明原因。')

@@ -92,3 +92,38 @@ class ManualTests(unittest.TestCase):
             self.w.pages["sequence"].output.text(), str(Path(self.tmp.name) / "images")
         )
         self.assertEqual(len(self.w.pages["recipes"].library.recipes()), 0)
+
+    def test_background_read_replaces_stale_microstep_origin(self):
+        self.w.z_timer.stop()
+        self.p.read()
+        self.assertTrue(_wait(lambda: self.p._position is not None))
+        self.w.workflow.device.z = 70e-6
+        self.w._poll_position()
+        self.assertTrue(_wait(lambda: abs(self.p._position['z'] - 70e-6) < 1e-12))
+        self.p.fields['z'].clear()
+        self.p.nudge(1)
+        self.assertEqual(self.p.fields['z'].text(), '80.000')
+        self.assertEqual(self.w.workflow.device.z_moves, [])
+
+    def test_failed_or_expired_or_changed_generation_read_cannot_seed_target(self):
+        self.w.z_timer.stop()
+        for reason in ('failed', 'expired', 'generation'):
+            with self.subTest(reason=reason):
+                self.p.on_rpc_result('manual_position', {'xy': None, 'z': 20e-6})
+                if reason == 'failed':
+                    self.p.on_rpc_error('position', RuntimeError('read failed'))
+                elif reason == 'expired':
+                    self.p._position_at -= 6
+                else:
+                    self.w.workflow.action_generation += 1
+                self.p.fields['z'].clear()
+                self.p.nudge(1)
+                self.assertEqual(self.p.fields['z'].text(), '')
+                self.assertIsNone(self.p._position)
+
+    def test_late_position_response_from_before_action_is_ignored(self):
+        self.w.z_timer.stop()
+        generation = getattr(self.w.workflow, 'action_generation', 0)
+        self.w.workflow.action_generation = generation + 1
+        self.p.on_rpc_result('position', {'_generation': generation, 'xy': None, 'z': 20e-6})
+        self.assertIsNone(self.p._position)

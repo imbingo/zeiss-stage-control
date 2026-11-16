@@ -645,8 +645,9 @@ class WorkbenchWindow(QMainWindow):
         workflow = self.workflow
         if workflow is None or workflow.busy or workflow.state in ("未连接", "连接检查"):
             return
+        generation = getattr(workflow, "action_generation", 0)
         def read(device):
-            out = {}
+            out = {"_generation": generation}
             if hasattr(device, 'read_z'):
                 out['z'] = device.read_z()
             if workflow.xy_enabled:
