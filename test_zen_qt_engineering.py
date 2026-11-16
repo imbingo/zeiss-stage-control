@@ -125,7 +125,35 @@ class EngineeringUiTests(unittest.TestCase):
         p.bind_current()
         d = BatchDialog(p)
         self.assertFalse(d.empty.isChecked())
-        self.assertTrue(d.zero_z.isChecked())
+        # Motion after a comms check must be opted into, never preselected.
+        self.assertFalse(d.zero_z.isChecked())
+        self.assertFalse(d.zero_xy.isChecked())
+        ok = d.buttons.button(d.buttons.StandardButton.Ok)
+        self.assertEqual(ok.text(), "开始勾选项目测试")
+        d.zero_z.setChecked(True)
+        self.assertIn("Z", ok.text())
+        self.assertIn("0 µm", d.zero_hint.text())
+        d.xy.setChecked(True)
+        d.zero_xy.setChecked(True)
+        d.xy.setChecked(False)
+        self.assertFalse(d.zero_xy.isChecked())
         self.assertTrue(hasattr(p, "batch_button"))
         self.assertTrue(hasattr(p, "stop_button"))
+        # A checked item with an empty required parameter is named up front.
+        from unittest.mock import patch
+        from PySide6.QtCore import Qt
+
+        row = next(i for i, r in enumerate(d.plan) if r["operation"] == "move_z")
+        d.plan[row]["parameters"]["z_um"] = ""
+        d.table.item(row, 0).setCheckState(Qt.Checked)
+        self.assertIn("缺少必填", d.table.item(row, 1).text())
+        self.assertIn("目标绝对 Z", d.table.item(row, 1).text())
+        d.empty.setChecked(True)
+        with patch("zen_qt.pages.hardware_batch.QMessageBox.information") as info:
+            d.start()
+        self.assertIn("Z MoveTo", info.call_args[0][2])
+        self.assertEqual(d.result(), 0)
+        d.plan[row]["parameters"]["z_um"] = "10"
+        d.refresh_row(row)
+        self.assertNotIn("缺少必填", d.table.item(row, 1).text())
         d.close()

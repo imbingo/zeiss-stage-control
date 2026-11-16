@@ -72,7 +72,7 @@ class DevicePage(QWidget):
         conn_card.add(self.mode_selector)
         btn_row = QWidget()
         rl = hbox(btn_row, spacing=8, margins=0)
-        self.connect_button = QPushButton("连接真实设备…", clicked=self._connect_real)
+        self.connect_button = QPushButton("连接现场设备…", clicked=self._connect_real)
         self.connect_button.setObjectName("primary")
         rl.addWidget(self.connect_button)
         self.reconnect_button = QPushButton("按已存配置重连", clicked=self.app.connect_field)
@@ -87,7 +87,7 @@ class DevicePage(QWidget):
 
         self.preflight_pill = Pill("未运行")
         preflight_card = Card("预检", trailing=self.preflight_pill)
-        self.preflight_summary = label("连接真实设备后自动运行只读预检。", role="muted", wrap=True)
+        self.preflight_summary = label("连接现场设备后自动运行只读预检。", role="muted", wrap=True)
         preflight_card.add(self.preflight_summary)
         row = QWidget()
         rl = hbox(row, spacing=8, margins=0)
@@ -297,8 +297,8 @@ class DevicePage(QWidget):
                 info.append(f"当前实验 {exp}")
         self.device_info.setText("\n".join(info) or "—")
         if workflow.simulated:
-            self.preflight_pill.set_kind("mute", "演示模式")
-            self.preflight_summary.setText("演示模式跳过真实预检。")
+            self.preflight_pill.set_kind("mute", "离线演示")
+            self.preflight_summary.setText("离线演示跳过现场预检。")
         # auto-preflight once after a real device becomes ready
         if (state in ("就绪", "通信就绪", "完成") and not workflow.simulated
                 and not self._auto_preflight_done and self._last_preflight_data is None):
@@ -331,7 +331,7 @@ class DevicePage(QWidget):
         self.preflight_button.setEnabled(True)
         self.scan_button.setEnabled(True)
         self.scan_all.setEnabled(True)
-        self.conn_labels["mode"].setText("演示" if simulated else ("真实设备" if connected else "—"))
+        self.conn_labels["mode"].setText("离线演示" if simulated else ("现场设备" if connected else "—"))
         self.conn_labels["xy"].setText(
             "电动" if workflow and workflow.xy_enabled else ("无" if connected else "—"))
         if connected:

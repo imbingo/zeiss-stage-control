@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QFileDialog,
     QHeaderView,
+    QScrollArea,
 )
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -30,6 +31,7 @@ from zen_steps import (
 )
 from zen_records import canonical_sha256
 from ..widgets import Card, hbox, vbox, label
+from .. import theme
 from .device import _page
 
 
@@ -51,8 +53,12 @@ class MeasurementView(QWidget):
         layout.addWidget(self.metrics)
         self.figure = Figure(figsize=(5, 6))
         self.canvas = FigureCanvasQTAgg(self.figure)
-        self.canvas.setMinimumHeight(380)
-        layout.addWidget(self.canvas, 1)
+        self.canvas.setMinimumHeight(480)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(self.canvas)
+        layout.addWidget(scroll, 1)
         self.planned = {}
         self.samples = {}
         self.selector.currentIndexChanged.connect(self.redraw)
@@ -90,8 +96,10 @@ class MeasurementView(QWidget):
 
     def redraw(self, *_):
         self.figure.clear()
-        path = self.figure.add_subplot(211)
-        scatter = self.figure.add_subplot(212, projection="3d")
+        # Fixed boxes: the 3D axes ignore tight layout and used to print their
+        # title over the XY plot's axis label on short windows.
+        path = self.figure.add_axes((0.14, 0.60, 0.80, 0.33))
+        scatter = self.figure.add_axes((0.10, 0.03, 0.80, 0.42), projection="3d")
         path.set_title("扫描路径 · XY", fontsize=11)
         path.set_xlabel("X · µm")
         path.set_ylabel("Y · µm")
@@ -144,9 +152,6 @@ class MeasurementView(QWidget):
         scatter.set_xlabel("X · µm")
         scatter.set_ylabel("Y · µm")
         scatter.set_zlabel("Z · µm")
-        self.figure.subplots_adjust(
-            left=0.13, right=0.93, top=0.93, bottom=0.10, hspace=0.38
-        )
         scatter.tick_params(labelsize=8)
         self.canvas.draw_idle()
 
@@ -247,7 +252,8 @@ class RunCenter(QWidget):
         self._recorded = False
         self._running_id = None
         self._tree_items = {}
-        lay, head = _page(self, "运行中心", "流程始终可预览；启动条件单独检查")
+        self._verdict_kind = "idle"
+        lay, head = _page(self, "运行中心", "选择配方 → 核对 → 启动；结论显示在中间上方")
         for title, fn in [
             ("查看配方", lambda: app.navigate("recipes")),
             ("完整任务", self.clear_scope),
@@ -265,7 +271,7 @@ class RunCenter(QWidget):
         self.mode = QComboBox()
         self.mode.addItem("正式运行", "production")
         self.mode.addItem("工程试运行", "engineering")
-        self.mode.addItem("离线模拟", "simulation")
+        self.mode.addItem("离线演示", "simulation")
         self.mode.currentIndexChanged.connect(
             lambda _: self.invalidate(clear_confirmations=True)
         )
@@ -282,9 +288,21 @@ class RunCenter(QWidget):
             )
         )
         self.output.textChanged.connect(self.invalidate)
-        task.add(label("图像输出目录", role="muted"))
-        task.add(self.output)
-        task.add(QPushButton("选择目录…", clicked=self.choose_output))
+        from PySide6.QtWidgets import QFormLayout
+
+        identity = QWidget()
+        form = QFormLayout(identity)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.addRow("样品 / 批次", app.sample_edit)
+        form.addRow("操作员", app.operator_edit)
+        task.add(identity)
+        self.output.setToolTip("图像输出目录")
+        output_row = QWidget()
+        orow = hbox(output_row, margins=0)
+        orow.addWidget(label("输出目录", role="muted"))
+        orow.addWidget(self.output, 1)
+        orow.addWidget(QPushButton("…", clicked=self.choose_output, toolTip="选择图像输出目录"))
+        task.add(output_row)
         ll.addWidget(task)
         check = Card("执行前检查")
         self.path_confirm = QCheckBox("已核对装夹、运动路径及允许 Z 范围")
@@ -308,8 +326,20 @@ class RunCenter(QWidget):
         check.add(self.start_button)
         ll.addWidget(check)
         ll.addStretch()
-        split.addWidget(left)
+        # Short windows scroll the task column instead of squashing the
+        # fields and pushing the start button off-screen.
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QScrollArea.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left)
+        left_scroll.setMinimumWidth(250)
+        split.addWidget(left_scroll)
         center = Card("测量与采集")
+        self.verdict = QLabel()
+        self.verdict.setWordWrap(True)
+        self.verdict.setTextFormat(Qt.RichText)
+        center.add(self.verdict)
         self.tabs = QTabWidget()
         self.measure = MeasurementView()
         self.marks = MarkView()
@@ -320,22 +350,102 @@ class RunCenter(QWidget):
         center.add(self.current_action)
         split.addWidget(center)
         right = Card("完整执行计划")
+        self.stop_button = QPushButton("停止后续步骤", clicked=app.stop)
+        self.stop_button.setToolTip(
+            "软件停止：不再下发后续步骤，当前设备动作会执行完。不是硬件急停。"
+        )
+        self.stop_button.setObjectName("danger")
+        self.stop_button.setProperty("idle", True)
+        right.add(self.stop_button)
         self.steps = QTreeWidget()
         self.steps.setHeaderLabels(["步骤 / 动作", "状态"])
         self.steps.setMinimumWidth(260)
         self.steps.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.steps.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         right.add(self.steps)
-        self.result_label = label("任务：未开始\n对位分析：待 SOMA", wrap=True)
+        self.result_label = label(self.IDLE_RESULT, wrap=True)
         right.add(self.result_label)
-        self.stop_button = QPushButton("停止后续步骤", clicked=app.stop)
-        right.add(self.stop_button)
         split.addWidget(right)
         split.setSizes([290, 540, 380])
         app.sample_edit.textChanged.connect(
             lambda _: self.invalidate(clear_confirmations="path")
         )
         app.operator_edit.textChanged.connect(self.invalidate)
+        self.reset_result()
+
+    IDLE_RESULT = "任务：未开始\n对位分析：待 SOMA"
+    VERDICT_COLORS = {
+        "idle": (theme.INSET, theme.MUTED, theme.LINE),
+        "run": (theme.ACCENT_SOFT, theme.ACCENT_INK, "#c5d9f5"),
+        "ok": (theme.OK_SOFT, theme.OK, "#bfe3d0"),
+        "warn": (theme.WARN_SOFT, theme.WARN, theme.WARN_LINE),
+        "bad": (theme.BAD_SOFT, theme.BAD, theme.BAD_LINE),
+    }
+
+    def set_verdict(self, kind, title, detail="", simulated=False):
+        """The one place an operator reads the outcome of the current run."""
+        from html import escape
+
+        self._verdict_kind = kind
+        bg, ink, line = self.VERDICT_COLORS[kind]
+        size = 14 if kind == "idle" else 20
+        text = f'<div style="font-size:{size}px;font-weight:700;color:{ink}">{escape(title)}</div>'
+        if simulated:
+            text = (
+                f'<div style="font-weight:700;color:{theme.WARN}">离线演示结果 · 非现场数据</div>'
+                + text
+            )
+        if detail:
+            text += f'<div style="color:{theme.INK}">{escape(detail).replace(chr(10), "<br>")}</div>'
+        self.verdict.setText(text)
+        self.verdict.setStyleSheet(
+            f"background:{bg}; border:1px solid {line}; border-radius:8px; padding:8px 10px;"
+        )
+
+    def next_step(self):
+        """First unmet start condition, as (text, done_flags)."""
+        app = self.app
+        done = [
+            bool(app.workflow),
+            bool(self._selection),
+            bool(app.sample_edit.text().strip() and app.operator_edit.text().strip()),
+            self.path_confirm.isChecked() and self.load_confirm.isChecked(),
+        ]
+        names = ["连接设备", "选择配方", "填写样品 / 操作员", "勾选两项核对"]
+        hints = [
+            "先到“设备与手动操作”连接设备，或点右上角“离线演示”。",
+            "在左侧“本次任务”选择配方；还没有配方时到“配方管理”新建。",
+            "在左侧“本次任务”填写样品 / 批次和操作员。",
+            "在“执行前检查”勾选两项现场核对。",
+        ]
+        strip = " → ".join(
+            ("✓ " if ok else f"{i} ") + name
+            for i, (ok, name) in enumerate(zip(done, names), 1)
+        ) + " → 启动任务"
+        pending = [hint for ok, hint in zip(done, hints) if not ok]
+        return strip, (pending[0] if pending else "条件已齐备，可以点击“启动任务”。")
+
+    def reset_result(self, note=""):
+        """Forget the previous run on screen; archived records are untouched."""
+        self.result_label.setText(self.IDLE_RESULT)
+        self.current_action.setText("当前动作：等待开始")
+        self.current_action.setToolTip("")
+        self._verdict_kind = "idle"
+        self._idle_note = note
+        self.refresh_guide()
+
+    def refresh_guide(self):
+        if self._verdict_kind != "idle" or not hasattr(self, "path_confirm"):
+            return
+        strip, hint = self.next_step()
+        note = getattr(self, "_idle_note", "")
+        self.set_verdict("idle", "下一步：" + hint, strip + ("\n" + note if note else ""))
+
+    def refresh_identity(self):
+        for edit in (self.app.sample_edit, self.app.operator_edit):
+            edit.setStyleSheet(
+                "" if edit.text().strip() else f"border:1px solid {theme.BAD};"
+            )
 
     def library(self):
         return self.app.pages["recipes"].library
@@ -510,7 +620,7 @@ class RunCenter(QWidget):
         if mode == "production" and "program_steps" not in v["body"]:
             raise ValueError("旧模板版本请复制为草稿并在新引擎重新验证")
         if w and not w.simulated and "program_steps" not in v["body"]:
-            raise ValueError("旧模板须先在配方管理保存为新步骤版本，再现场试运行")
+            raise ValueError("旧模板须先在配方管理保存为新步骤版本，再工程试运行")
         if w and not w.simulated and b.get("example"):
             raise ValueError("演示配方不能用于现场")
         identity = {
@@ -582,6 +692,12 @@ class RunCenter(QWidget):
             self.notice(text, self.edit_selected, "编辑当前配方参数")
 
     def invalidate(self, *_, clear_confirmations=False):
+        # A terminal verdict belongs to the completed run, not the next task.
+        # Running reports keep their frozen identity until the worker finishes.
+        if getattr(self, "_verdict_kind", "idle") in ("ok", "bad", "warn") and not self.app.action_busy():
+            self.measure.configure(self._body or {"program_steps": []}, reset=True)
+            self.marks.clear()
+            self.reset_result("任务条件已变化；上一轮结果请在“结果与追溯”查看。")
         from ..action_feedback import cancel_pending
 
         cancel_pending(self)
@@ -654,7 +770,7 @@ class RunCenter(QWidget):
                         self._tree_items[sid].setText(1, "不支持")
                 raise ValueError("\n".join(issues))
             if (self.mode.currentData() == "simulation") != w.simulated:
-                raise ValueError("离线模拟须使用模拟设备；现场运行须连接真实设备")
+                raise ValueError("离线演示须使用模拟设备；现场运行须连接现场设备")
             target = Path(self.output.text()).expanduser()
             if (
                 not self.output.text().strip()
@@ -795,11 +911,10 @@ class RunCenter(QWidget):
             self.measure.configure(self._body, reset=True)
             self.marks.clear()
             self.preview()
-            self._recorded = False
-            self._running_id = p.recipe_identity
+            self.reset_result("正在提交任务，尚未开始。")
             w.start_program(
                 p,
-                self.output.text(),
+                str(Path(self.output.text()).expanduser()),
                 session={
                     "sample": self.app.sample_edit.text(),
                     "operator": self.app.operator_edit.text(),
@@ -807,6 +922,16 @@ class RunCenter(QWidget):
                 preflight=c,
                 confirmed=True,
             )
+            self.result_label.setText("任务：执行中\n角度：测量中\n对位分析：待 SOMA")
+            self.current_action.setText("当前动作：正在启动")
+            self.set_verdict(
+                "run",
+                "任务执行中",
+                "本轮结论尚未产生；上一轮结果已归档到“结果与追溯”。",
+                simulated=bool(w.simulated),
+            )
+            self._recorded = False
+            self._running_id = p.recipe_identity
             self._checked = None
             self.notice("任务已启动；参数与本次检查已冻结，正在按执行计划运行。")
             self.persist()
@@ -845,21 +970,47 @@ class RunCenter(QWidget):
                     item.setToolTip(1, step.get("error", ""))
                     self.steps.setCurrentItem(item)
             if report["state"] != "running":
+                rejected = report["disposition"] == "MEASUREMENT_REJECTED"
                 self.result_label.setText(
                     "任务："
                     + names.get(report["state"], report["state"])
                     + "\n角度："
                     + (
                         "不合格"
-                        if report["disposition"] == "MEASUREMENT_REJECTED"
-                        else "已测量" if report.get("result") else "未启用 / 未完成"
+                        if rejected
+                        else "已测量" if result else "未启用 / 未完成"
                     )
                     + "\n对位分析：待 SOMA"
                 )
+                numbers = (
+                    f"Rx {result['rx_urad']:+.3f} µrad    Ry {result['ry_urad']:+.3f} µrad    RMS {result['rms_m']*1e6:.3f} µm"
+                    if result
+                    else ""
+                )
+                message = report.get("error", {}).get("message", "")
+                if rejected:
+                    kind, title = "bad", "角度不合格"
+                elif report["state"] == "complete":
+                    kind, title = "ok", "任务完成" + (" · 角度已测量" if result else "")
+                elif report["state"] == "stopped":
+                    kind, title = "warn", "任务已停止 · 结果不完整"
+                else:
+                    kind, title = "bad", "任务失败"
+                detail = "\n".join(
+                    part
+                    for part in (
+                        numbers,
+                        message,
+                        "对位分析待 SOMA。" if kind == "ok" else "",
+                    )
+                    if part
+                )
+                self.set_verdict(kind, title, detail, simulated=bool(report["simulated"]))
                 self.status.setText(
                     report.get("error", {}).get("message", "步骤流程完成，结果已归档。")
                 )
-                self.current_action.setText("记录：" + str(w.sequence_run_path))
+                self.current_action.setText("记录已归档，可在“结果与追溯”查看。")
+                self.current_action.setToolTip(str(w.sequence_run_path))
                 identity = report["recipe_identity"]
                 if (
                     report["state"] == "complete"
@@ -880,6 +1031,17 @@ class RunCenter(QWidget):
                         self.status.setText("验证证据未关联：" + str(e))
 
     def on_device_changed(self, w):
+        # Results drawn from another device (or the demo) must not sit next to
+        # the new connection state; the archive keeps them.
+        shown = self._verdict_kind != "idle"
+        self.measure.configure(self._body or {"program_steps": []}, reset=True)
+        self.marks.clear()
+        self.preview()
+        self.reset_result(
+            "设备连接已变化，上一轮结果已从本页清除；可在“结果与追溯”查看。"
+            if shown
+            else ""
+        )
         self.invalidate(clear_confirmations=True)
 
     def choose_output(self):
@@ -910,7 +1072,7 @@ class RunCenter(QWidget):
         if not hasattr(self, "start_button"):
             return
         busy = self.app.action_busy()
-        for control in (self.recipes, self.mode, self.output):
+        for control in (self.recipes, self.mode, self.output, self.app.sample_edit, self.app.operator_edit):
             control.setEnabled(not busy)
             control.setToolTip(
                 "设备任务执行中，当前运行已冻结；结束后可切换。" if busy else ""
@@ -919,12 +1081,27 @@ class RunCenter(QWidget):
         self.path_confirm.setEnabled(True)
         self.load_confirm.setEnabled(True)
         self.start_button.setEnabled(True)
+        name = "" if busy else "primary"
+        if self.start_button.objectName() != name:
+            self.start_button.setText("任务运行中…" if busy else "启动任务")
+            self.start_button.setObjectName(name)
+            self.start_button.style().unpolish(self.start_button)
+            self.start_button.style().polish(self.start_button)
         self.start_button.setToolTip(
-            "点击后列出尚缺条件；条件齐备时自动做只读检查，再启动。"
+            "任务正在运行；需要中止请点“停止后续步骤”。"
+            if busy
+            else "点击后列出尚缺条件；条件齐备时自动做只读检查，再启动。"
         )
+        self.refresh_identity()
+        self.refresh_guide()
         w = self.app.workflow
         self.stop_button.setEnabled(
             bool(w and w.busy)
             or getattr(self, "_pending_click", None) is not None
             or getattr(self, "_auto_start_token", None) is not None
         )
+        idle = not self.stop_button.isEnabled()
+        if self.stop_button.property("idle") != idle:
+            self.stop_button.setProperty("idle", idle)
+            self.stop_button.style().unpolish(self.stop_button)
+            self.stop_button.style().polish(self.stop_button)

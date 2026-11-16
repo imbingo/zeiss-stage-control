@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QLabel,
     QMenu,
+    QFrame,
 )
 from .recipes import RecipesPage as VersionPage
 from .recipe_tools import RecipeTools
 from ..widgets import label, hbox
+from .. import theme
 from zen_steps import (
     CATALOG,
     COMMON_FIELDS,
@@ -77,9 +79,46 @@ class RecipesPage(RecipeTools, VersionPage):
                     "动作可自由编排；到位校验、图像完整性和异常归档由执行器负责。"
                 )
         self.from_here_button = QPushButton("从此处试运行", clicked=self.run_from_here)
-        self.test_step_button.parentWidget().layout().insertWidget(
-            3, self.from_here_button
-        )
+        # Group the action bar by consequence: checks and simulation never
+        # touch hardware; the amber group drives the connected device.
+        bar = self.test_step_button.parentWidget().layout()
+        for button in (
+            self.check_button,
+            self.test_step_button,
+            self.simulate_button,
+            self.trial_button,
+            self.release_button,
+        ):
+            bar.removeWidget(button)
+
+        def rule():
+            line = QFrame()
+            line.setFrameShape(QFrame.VLine)
+            line.setStyleSheet(f"color:{theme.LINE};")
+            return line
+
+        bar.addWidget(label("不动设备", role="muted"))
+        self.check_button.setToolTip("只检查参数、步骤依赖与运动范围，不连接也不驱动设备。")
+        self.simulate_button.setToolTip("切到离线演示并在模拟设备上运行，不驱动现场设备。")
+        bar.addWidget(self.check_button)
+        bar.addWidget(self.simulate_button)
+        bar.addWidget(rule())
+        self.device_group_label = label("会驱动已连接设备", role="muted")
+        self.device_group_label.setStyleSheet(f"color:{theme.WARN};font-weight:600;")
+        bar.addWidget(self.device_group_label)
+        for button, tip in (
+            (self.test_step_button, "只执行选中的一个动作。"),
+            (self.from_here_button, "从选中动作执行到流程结束。"),
+            (self.trial_button, "在现场设备上按工程试运行执行完整流程。"),
+        ):
+            button.setObjectName("moving")
+            button.setToolTip(
+                tip + "连接现场设备时会下发运动 / 采集；启动前仍需在运行中心核对并确认。"
+            )
+            bar.addWidget(button)
+        bar.addWidget(rule())
+        bar.addWidget(self.release_button)
+        self._deleted = None
         self.add_catalog_button = QPushButton(
             "添加所选步骤",
             clicked=lambda: (
@@ -116,19 +155,112 @@ class RecipesPage(RecipeTools, VersionPage):
                 self._dirty = True
         super().refresh_all()
         if self.current_id:
-            v = self.library.get(self.current_id, self.current_rev)
-            checks = v.get("checks") or {}
-            trial = v.get("validation", {}).get("state")
-            self.meta_parent.setText(
-                "草稿 → 参数检查 "
-                + ("✓" if checks.get("result") == "passed" else "待完成")
-                + " → 工程试运行 "
-                + ("✓" if trial in ("field_trial_passed", "qualified") else "待完成")
-                + " → 人工放行 → 正式版"
-            )
+            if getattr(self, "_deleted", None) and self._deleted[0] != (
+                self.current_id,
+                self.current_rev,
+            ):
+                self._forget_deleted()
+            self.refresh_progress()
             self.release_hint.setText(
-                "放行条件：保存当前版本、检查通过、同版本完整现场试运行成功、工程师确认。模拟验证不放行现场配方。"
+                "放行条件：保存当前版本、检查通过、同版本完整工程试运行成功、工程师确认。模拟验证不放行现场配方。"
             )
+
+    def body_changed(self):
+        """True when the edited steps differ from the saved revision (not just the note)."""
+        from zen_records import canonical_sha256
+
+        v = self.library.get(self.current_id, self.current_rev) if self.current_id else None
+        if not v or not self._dirty or self._body is None:
+            return False
+        try:
+            return canonical_sha256(self._body) != v["content_sha256"]
+        except (TypeError, ValueError):
+            return True
+
+    def refresh_progress(self):
+        v = self.library.get(self.current_id, self.current_rev)
+        if v["status"] != DRAFT:
+            self.meta_parent.setText("已放行 / 归档版本 · 只读")
+            self.meta_parent.setStyleSheet("")
+            return
+        checks = v.get("checks") or {}
+        trial = v.get("validation", {}).get("state")
+        stale = self.body_changed()
+        if stale:
+            # The saved verdicts describe the previous content; saving
+            # discards them, so do not keep showing a tick meanwhile.
+            check_text = trial_text = "需重做"
+        else:
+            check_text = (
+                "✓"
+                if checks.get("result") == "passed"
+                else "未通过" if checks.get("result") == "failed" else "待完成"
+            )
+            trial_text = (
+                "✓" if trial in ("field_trial_passed", "qualified") else "待完成"
+            )
+        self.meta_parent.setText(
+            ("草稿（已修改，未保存）" if stale else "草稿")
+            + f" → 参数检查 {check_text} → 工程试运行 {trial_text} → 人工放行 → 正式版"
+        )
+        self.meta_parent.setStyleSheet(
+            f"color:{theme.WARN};font-weight:600;" if stale else ""
+        )
+        if stale and (checks or trial not in (None, "unvalidated")):
+            self.validation_hint.setText(
+                "配方内容已修改：之前的参数检查和试运行结论不再适用，保存后需重新检查。"
+            )
+
+    @staticmethod
+    def describe_validation(v):
+        """Operator-readable check / trial record instead of the stored JSON."""
+
+        def when(text):
+            return str(text or "").replace("T", " ")[:19] or "时间未记录"
+
+        results = {"passed": "通过", "failed": "未通过"}
+        lines = []
+        checks = v.get("checks")
+        if not checks:
+            lines.append("参数检查：尚未检查。点击下方“检查配方”。")
+        else:
+            lines.append(
+                f"参数检查：{results.get(checks.get('result'), checks.get('result'))}"
+                f" · {when(checks.get('checked_at'))}"
+            )
+            for item in checks.get("items", []):
+                ok = item.get("result") == "passed"
+                lines.append(
+                    f"  {'✓' if ok else '✗'} {item.get('label', item.get('key', ''))}"
+                    + (f"：{item['detail']}" if item.get("detail") else "")
+                )
+            for warning in checks.get("warnings", []):
+                lines.append(f"  ! {warning}")
+        lines.append("")
+        validation = v.get("validation") or {}
+        state = validation.get("state")
+        if state in ("field_trial_passed", "qualified"):
+            lines.append(
+                f"现场工程试运行：通过 · {when(validation.get('at'))}"
+                f" · 操作员 {validation.get('by') or '未记录'}"
+            )
+            count = len(validation.get("experiment_fingerprints") or {})
+            lines.append(f"  已记录 {count} 个 ZEN 实验指纹")
+            if validation.get("run_path"):
+                lines.append(f"  运行记录：{validation['run_path']}")
+        else:
+            lines.append(
+                "现场工程试运行：尚未完成。需在现场设备上用本版本完整运行一次；模拟运行不计入。"
+            )
+        lines.append("")
+        status = v.get("status")
+        if status == DRAFT:
+            lines.append("放行：未放行（草稿）")
+        else:
+            lines.append(
+                "放行：" + {"released": "已放行，正式版只读"}.get(status, "已归档，只读")
+            )
+        return "\n".join(lines)
 
     def _find_step(self, sid, group_id=None):
         if not self._body:
@@ -191,6 +323,10 @@ class RecipesPage(RecipeTools, VersionPage):
             self.form.removeRow(0)
         n = self._find_step(self._selected_step_id)
         if not n:
+            # Nothing selected: do not leave the previous step's title and help on screen.
+            self.step_title.setText("请选择步骤")
+            self.conditions.clear()
+            self.tests.clear()
             self._loading = False
             return
         kind = n["kind"]
@@ -292,13 +428,7 @@ class RecipesPage(RecipeTools, VersionPage):
 
         self.conditions.setPlainText(step_help(n))
         v = self.library.get(self.current_id, self.current_rev)
-        self.tests.setPlainText(
-            json.dumps(
-                {"checks": v.get("checks"), "validation": v.get("validation")},
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        self.tests.setPlainText(self.describe_validation(v))
         self._loading = False
 
     def points_editor(self, node, key):
@@ -405,20 +535,20 @@ class RecipesPage(RecipeTools, VersionPage):
                 "正式版只读：先点击“复制为新草稿”，再添加步骤。"
             )
             return
+        # One level: twelve actions under section headings, no submenus.
         self.add_menu = QMenu(self)
-        groups = {}
         self.add_actions = {}
-        self.add_groups = groups
+        seen = set()
         for kind, (group, title, _) in CATALOG.items():
-            if group not in groups:
-                groups[group] = self.add_menu.addMenu(group)
-            action = groups[group].addAction(
+            if group not in seen:
+                seen.add(group)
+                self.add_menu.addSection(group)
+            action = self.add_menu.addAction(
                 title + (" · 待适配" if kind == "set_gain" else "")
             )
             action.setData(kind)
             self.add_actions[kind] = action
             action.triggered.connect(lambda checked=False, k=kind: self.add_kind(k))
-        self.add_group_actions = [menu.menuAction() for menu in groups.values()]
         self.add_menu.popup(QCursor.pos())
 
     def add_kind(self, kind):
@@ -454,12 +584,66 @@ class RecipesPage(RecipeTools, VersionPage):
         if self._read_only():
             return
         nodes, i = self._siblings(self._selected_step_id)
-        if i >= 0:
-            nodes.pop(i)
-            self._selected_step_id = None
-            self.mark_dirty()
-            self.refresh_step_tree()
-            self.refresh_params()
+        if i < 0:
+            self.validation_hint.setText("请先在执行流程中选中要删除的动作；公共参数不能删除。")
+            return
+        node = nodes[i]
+        inner = sum(1 for _ in flatten(node.get("children", [])))
+        if inner and (
+            QMessageBox.question(
+                self,
+                "删除步骤",
+                f"“{node['label']}”包含 {inner} 个子步骤，将一并删除。\n删除后可用“撤销删除”恢复一次。",
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            != QMessageBox.Yes
+        ):
+            return
+        parent = next(
+            (
+                n["step_id"]
+                for _, n in flatten(self._body["program_steps"])
+                if n.get("children") is nodes
+            ),
+            None,
+        )
+        nodes.pop(i)
+        self._deleted = ((self.current_id, self.current_rev), parent, i, node)
+        self.undo_button.setEnabled(True)
+        self.undo_button.setToolTip(f"恢复刚删除的“{node['label']}”")
+        self.validation_hint.setText(
+            f"已删除“{node['label']}”"
+            + (f"及 {inner} 个子步骤" if inner else "")
+            + "。点“撤销删除”可恢复。"
+        )
+        self._selected_step_id = None
+        self.mark_dirty()
+        self.refresh_step_tree()
+        self.refresh_params()
+
+    def _forget_deleted(self):
+        self._deleted = None
+        self.undo_button.setEnabled(False)
+        self.undo_button.setToolTip("")
+
+    def undo_delete(self):
+        if not self._deleted or self._read_only():
+            return
+        _, parent, index, node = self._deleted
+        holder = self._find_step(parent) if parent else None
+        nodes = (
+            holder.setdefault("children", [])
+            if holder
+            else self._body["program_steps"]
+        )
+        nodes.insert(min(index, len(nodes)), node)
+        self._forget_deleted()
+        self._selected_step_id = node["step_id"]
+        self.validation_hint.setText(f"已恢复“{node['label']}”。")
+        self.mark_dirty()
+        self.refresh_step_tree()
+        self.refresh_params()
 
     def move_hole(self, delta):
         if self._read_only():
@@ -618,6 +802,8 @@ class RecipesPage(RecipeTools, VersionPage):
         super().mark_dirty(*args)
         if hasattr(self, "release_button"):
             self.release_button.setEnabled(True)
+        if not self._loading and self.current_id and hasattr(self, "_deleted"):
+            self.refresh_progress()
 
     def check_recipe(self):
         if not self.current_id:

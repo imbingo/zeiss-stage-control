@@ -41,6 +41,7 @@ class RecipeTools:
         self.step_tree.setHeaderHidden(True)
         self.step_tree.itemSelectionChanged.connect(self.on_step_selected)
         layout.removeWidget(old)
+        old.hide()
         old.deleteLater()
         layout.insertWidget(index, self.step_tree, 1)
         self.templates = TemplateStore(self.app.data_root / "step_templates.json")

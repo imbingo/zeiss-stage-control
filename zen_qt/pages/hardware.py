@@ -144,7 +144,7 @@ class HardwarePage(QWidget):
         if workflow.busy:
             self.bind_info.setText('当前设备任务正在进行，请稍后绑定；不会新建另一条设备连接。');return
         if not hasattr(workflow.device, 'call_hardware_operation'):
-            self.bind_info.setText('当前模拟器不支持硬件单步，请载入采图演示或连接真实设备。')
+            self.bind_info.setText('当前模拟器不支持硬件单步，请载入采图演示或连接现场设备。')
             return
         try:
             if self._experiment_device is not workflow.device:
@@ -246,7 +246,7 @@ class HardwarePage(QWidget):
     def run(self):
         workflow = self.app.workflow
         if workflow is None:
-            self.result_info.setText('尚未连接设备。请到“设备概览”连接真实设备或载入演示，再执行。');return
+            self.result_info.setText('尚未连接设备。请到“设备概览”连接现场设备或载入演示，再执行。');return
         from ..action_feedback import defer_read
         token=lambda:(self.op.key if self.op else None,tuple((k,e.text()) for k,e in self.values.items()),self.approved.isChecked(),self.timeout.value())
         if defer_read(self.app,self,self.run,token,self.result_info.setText):return

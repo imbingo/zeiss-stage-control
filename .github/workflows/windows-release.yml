@@ -77,9 +77,9 @@ jobs:
           @'
           import sys, unittest
           sys.path.insert(0, '.')
-          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence','test_zen_qt_recipes','test_zen_qt_manual','test_zen_qt_program','test_zen_qt_hotfix','test_zen_qt_engineering','test_zen_qt_action_feedback'])
+          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence','test_zen_qt_recipes','test_zen_qt_manual','test_zen_qt_program','test_zen_qt_hotfix','test_zen_qt_engineering','test_zen_qt_action_feedback','test_zen_qt_hmi_review'])
           result = unittest.TextTestRunner(verbosity=2).run(suite)
-          sys.exit(not result.wasSuccessful() or result.testsRun != 75 or bool(result.skipped))
+          sys.exit(not result.wasSuccessful() or result.testsRun != suite.countTestCases() or result.testsRun == 0 or bool(result.skipped))
           '@ | Set-Content -Encoding utf8 qt-smoke-runner.py
           $proc = Start-Process -FilePath ./runtime/python.exe -ArgumentList '-u','-I','-B','qt-smoke-runner.py' -NoNewWindow -PassThru -RedirectStandardOutput qt-smoke.out.txt -RedirectStandardError qt-smoke.err.txt
           if (-not $proc.WaitForExit(300000)) {
