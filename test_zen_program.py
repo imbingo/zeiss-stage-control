@@ -347,7 +347,7 @@ class PredictiveProgramTests(unittest.TestCase):
         self.assertTrue(all(abs(p['prediction_error_um'])<1e-6 for p in points[4:]))
         self.assertIn('prediction_models',r)
         self.assertEqual(len(r['result']['residuals_m']),20)
-        self.assertEqual(len(json.loads((self.w.sequence_run_path/'sequence.json').read_text())['measurements']),20)
+        self.assertEqual(len(json.loads((self.w.sequence_run_path/'sequence.json').read_text(encoding='utf-8'))['measurements']),20)
 
     def test_final_result_uses_actual_fine_z_without_updating_prediction(self):
         original=self.d.autofocus
