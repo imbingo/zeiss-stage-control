@@ -32,7 +32,8 @@ class BatchToolsTests(unittest.TestCase):
 
     def run_batch(self, plan, **kw):
         return execute_batch(
-            self.s, plan, timeout_s=0.08, stop=kw.pop("stop", Event()), **kw
+            # Successful completion needs multiple stable reads plus durable Windows I/O.
+            self.s, plan, timeout_s=kw.pop("timeout_s", 1), stop=kw.pop("stop", Event()), **kw
         )
 
     def test_unselected_never_calls_api_and_no_xy_never_reads_stage(self):
@@ -125,7 +126,8 @@ class BatchToolsTests(unittest.TestCase):
                 row("af", experiment_id="running", af_timeout_s=1),
                 row("move_z", z_um=0),
                 row("read_z"),
-            ]
+            ],
+            timeout_s=0.08,
         )
         self.assertEqual(self.d.z_moves, [])
         self.assertEqual(r["items"][-1]["result"], "OK")

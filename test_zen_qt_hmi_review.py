@@ -302,6 +302,25 @@ class AuditFollowupTests(unittest.TestCase):
             self.w.sample_edit.setText('NEXT-SAMPLE')
         self.assertEqual(self.c._verdict_kind, 'run')
 
+    def test_submission_failure_does_not_show_running_verdict(self):
+        from unittest.mock import patch
+        self.p.seed_demo()
+        self.c.demo()
+        self.assertTrue(_wait(lambda: self.w.device_ready()))
+        self.w.sample_edit.setText('S1')
+        self.w.operator_edit.setText('E1')
+        self.c.path_confirm.setChecked(True)
+        self.c.load_confirm.setChecked(True)
+        self.c.preflight()
+        self.assertTrue(_wait(lambda: self.c._checked is not None and not self.w.workflow.busy))
+        with patch.object(self.w.workflow, 'start_program', side_effect=ValueError('submission rejected')) as submit:
+            self.c.start()
+        submit.assert_called_once()
+        self.assertFalse(self.w.workflow.busy)
+        self.assertEqual(self.c._verdict_kind, 'idle')
+        self.assertNotIn('执行中', self.c.result_label.text())
+        self.assertIn('submission rejected', self.c.status.text())
+
 
 class PairSummaryTests(unittest.TestCase):
     def test_pairs_require_both_layers_and_same_context_and_id(self):
@@ -318,6 +337,17 @@ class PairSummaryTests(unittest.TestCase):
                 self.assertEqual(completed_pairs({'images': images}), expected)
         self.assertEqual(completed_pairs({'captures': [{'state':'complete'}, {'state':'failed'}]}), 1)
         self.assertEqual(completed_pairs({'images': [], 'captures': [{'state':'complete'}]}), 0)
+
+    def test_executor_rejection_and_stop_states_keep_specific_verdicts(self):
+        from zen_qt.pages.records import run_verdict
+        run = dict(state='failed',kind='sequence',sequence={'disposition':'MEASUREMENT_REJECTED'},stage='',recovery=False,n_images=0)
+        self.assertEqual(run_verdict(run), ('bad','角度不合格'))
+        run.update(state='stopped',sequence={'disposition':'EQUIPMENT_FAULT'},recovery=True)
+        kind, text = run_verdict(run)
+        self.assertEqual(kind, 'warn')
+        self.assertIn('已中止', text)
+        self.assertIn('待恢复确认', text)
+        self.assertNotIn('设备异常', text)
 
     def test_motion_only_sequence_is_not_reported_as_capture(self):
         from zen_qt.pages.records import run_verdict

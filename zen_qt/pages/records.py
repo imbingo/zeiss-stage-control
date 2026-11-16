@@ -44,15 +44,15 @@ def run_verdict(run):
     """(kind, headline) an operator can act on, without reading raw fields."""
     state = run["state"]
     disposition = run.get("sequence", {}).get("disposition")
+    if disposition == "MEASUREMENT_REJECTED":
+        return "bad", "角度不合格"
+    if state == "stopped":
+        return "warn", "已中止 · 结果不完整" + (" · 待恢复确认" if run["recovery"] else "")
     if state == "failed" or disposition == "EQUIPMENT_FAULT":
         stage = f" · 阶段：{run['stage']}" if run["stage"] else ""
         return "bad", ("设备异常" if disposition == "EQUIPMENT_FAULT" else "失败") + stage
-    if disposition == "MEASUREMENT_REJECTED":
-        return "bad", "角度不合格"
     if run["recovery"]:
         return "warn", STATE_NAMES.get(state, state) + " · 待恢复确认"
-    if state == "stopped":
-        return "warn", "已中止 · 结果不完整"
     if state != "complete":
         return "warn", STATE_NAMES.get(state, state)
     if run["kind"] == "sequence":

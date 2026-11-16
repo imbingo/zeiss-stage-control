@@ -911,6 +911,17 @@ class RunCenter(QWidget):
             self.measure.configure(self._body, reset=True)
             self.marks.clear()
             self.preview()
+            self.reset_result("正在提交任务，尚未开始。")
+            w.start_program(
+                p,
+                str(Path(self.output.text()).expanduser()),
+                session={
+                    "sample": self.app.sample_edit.text(),
+                    "operator": self.app.operator_edit.text(),
+                },
+                preflight=c,
+                confirmed=True,
+            )
             self.result_label.setText("任务：执行中\n角度：测量中\n对位分析：待 SOMA")
             self.current_action.setText("当前动作：正在启动")
             self.set_verdict(
@@ -921,16 +932,6 @@ class RunCenter(QWidget):
             )
             self._recorded = False
             self._running_id = p.recipe_identity
-            w.start_program(
-                p,
-                self.output.text(),
-                session={
-                    "sample": self.app.sample_edit.text(),
-                    "operator": self.app.operator_edit.text(),
-                },
-                preflight=c,
-                confirmed=True,
-            )
             self._checked = None
             self.notice("任务已启动；参数与本次检查已冻结，正在按执行计划运行。")
             self.persist()
