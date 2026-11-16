@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QSplitter,
     QScrollArea,
+    QLayout,
     QCheckBox,
     QFileDialog,
     QDialog,
@@ -194,6 +195,7 @@ class RecipesPage(QWidget):
         self.form_host = QWidget()
         self.form_host.setStyleSheet("background:white")
         self.form = QFormLayout(self.form_host)
+        self.form.setSizeConstraint(QLayout.SetMinimumSize)
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

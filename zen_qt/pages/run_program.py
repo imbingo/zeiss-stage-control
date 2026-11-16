@@ -113,7 +113,10 @@ class MeasurementView(QWidget):
                 pass
         if points:
             xs, ys = zip(*points)
-            path.plot(xs, ys, "o--", color="#94a3b8", markersize=4)
+            params = self.planned.get(sid, {}).get("params", {})
+            pre = sorted(i for i in params.get("prescan_indices", []) if 0 <= i < len(points)) if params.get("predict_plane") else []
+            order = pre + [i for i in range(len(points)) if i not in pre]
+            path.plot([points[i][0] for i in order], [points[i][1] for i in order], "o--", color="#94a3b8", markersize=4)
             for i, (x, y) in enumerate(points, 1):
                 path.annotate(
                     str(i),
@@ -123,8 +126,15 @@ class MeasurementView(QWidget):
                     fontsize=8,
                 )
             path.set_aspect("equal", adjustable="datalim")
+        params = self.planned.get(sid, {}).get("params", {})
+        if params.get("predict_plane"):
+            selected = [points[i] for i in params.get("prescan_indices", []) if 0 <= i < len(points)]
+            if selected:
+                path.scatter(*zip(*selected), marker="s", facecolors="none", edgecolors="#d97706", s=90, label="预扫描")
+                path.legend(fontsize=8)
         samples = self.samples.get(sid, [])
         if samples:
+            path.plot([p["x_um"] for p in samples], [p["y_um"] for p in samples], color="#2563eb", alpha=.5)
             path.scatter(
                 [p["x_um"] for p in samples],
                 [p["y_um"] for p in samples],

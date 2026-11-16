@@ -71,10 +71,14 @@ CATALOG = {
         "测量与判断",
         "共聚焦扫描物料角度",
         [
-            ("experiment", "测角实验", "text", ""),
-            ("z_um", "统一预期焦面 Z · µm", "number", ""),
-            ("half_um", "AF 半范围 · µm", "positive", 5),
-            ("timeout_s", "每点 AF 超时 · s", "positive", 30),
+            ("experiment", "ZEN 实验名称", "text", ""),
+            ("z_um", "初始 / 固定搜索中心 Z · µm", "number", ""),
+            ("predict_plane", "启用四点预扫描平面预测", "bool", False),
+            ("prescan_half_um", "预扫描 AF 半范围 · µm", "positive", 30),
+            ("prescan_timeout_s", "预扫描每点 AF 超时 · s", "positive", 60),
+            ("max_prediction_residual_um", "四点最大绝对拟合残差 · µm", "positive", 2),
+            ("half_um", "精扫描 / 固定 AF 半范围 · µm", "positive", 5),
+            ("timeout_s", "精扫描 / 固定每点 AF 超时 · s", "positive", 30),
             ("points_um", "有序 XY / 可选预期 Z · µm", "points", []),
         ],
     ),
@@ -377,6 +381,15 @@ def validate_program(body, identity=None, scope=None):
                             for r in p["points_um"]
                         ]
                     )
+                    if p.get("predict_plane"):
+                        from zen_scan_path import validate_prescan
+                        validate_prescan(p["points_um"], p.get("prescan_indices"))
+                        for key in ("prescan_half_um", "prescan_timeout_s", "max_prediction_residual_um", "half_um", "timeout_s"):
+                            p[key] = numeric(p[key], key, positive=True, allow_ref=False)
+                        initial = numeric(p["z_um"], "预扫描初始 Z", allow_ref=False)
+                        half = p["prescan_half_um"]
+                        if not float(common["z_min_um"]) <= initial-half < initial+half <= float(common["z_max_um"]):
+                            raise ValueError("预扫描完整 AF 搜索区间超出允许 Z 范围")
                 except (KeyError, TypeError, ValueError) as e:
                     errors.append(sid + "：" + str(e))
             if kind == "zstack" and (

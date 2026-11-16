@@ -29,7 +29,7 @@ def software_version():
     try:
         return metadata.version("zeiss-stage-control")
     except metadata.PackageNotFoundError:
-        return "2.9.2+source"
+        return "2.10.0+source"
 
 
 def canonical_sha256(value):

@@ -353,7 +353,28 @@ def execute_program(w, plan, output, session, preflight):
                 w.events.put(
                     ("measurement_begin", {"step_id": sid, "points_um": p["points_um"]})
                 )
-                for index, pointrow in enumerate(p["points_um"], 1):
+                from zen_scan_path import fit_prediction, predict_z
+                predictive = bool(p.get("predict_plane"))
+                prescan = sorted(p.get("prescan_indices", [])) if predictive else []
+                order = prescan + [i for i in range(len(p["points_um"])) if i not in prescan]
+                model = None
+                for sequence_index, point_index in enumerate(order, 1):
+                    index = point_index + 1
+                    pointrow = p["points_um"][point_index]
+                    phase = "prescan" if predictive and point_index in prescan else "fine" if predictive else "fixed"
+                    if predictive and sequence_index == 5:
+                        w._state("自动任务", detail="建立四点预测平面并检查剩余搜索区间")
+                        model = fit_prediction([(r.before_af[0]*1e6, r.before_af[1]*1e6, r.z*1e6) for r in rows], float(p["max_prediction_residual_um"]))
+                        report.setdefault("prediction_models", {})[path] = deepcopy(model)
+                        # Validate every remaining search interval before any fine motion.
+                        for i in order[4:]:
+                            predicted = predict_z(model, float(p["points_um"][i][0]), float(p["points_um"][i][1]))
+                            device.target((predicted-float(p["half_um"]))*1e-6)
+                            device.target((predicted+float(p["half_um"]))*1e-6)
+                        event()
+                    phase_count = sequence_index if phase != "fine" else sequence_index-4
+                    phase_total = 4 if phase == "prescan" else len(order)-4 if phase == "fine" else len(order)
+                    w.events.put(("state", "自动任务", index, f"{'预扫描' if phase == 'prescan' else '精扫描' if phase == 'fine' else '测角'} {phase_count}/{phase_total}"))
                     checkpoint()
                     safe = float(plan.common["safe_z_um"]) * 1e-6
                     before_xy = device.move_xy(
@@ -364,9 +385,13 @@ def execute_program(w, plan, output, session, preflight):
                         if len(pointrow) > 2 and pointrow[2] != ""
                         else float(p["z_um"])
                     )
-                    z_um = device.autofocus(
-                        experiment, z, float(p["half_um"]), float(p["timeout_s"])
-                    )
+                    if predictive:
+                        z = float(p["z_um"]) if phase == "prescan" else predict_z(model, float(pointrow[0]), float(pointrow[1]))
+                    half = float(p["prescan_half_um"] if phase == "prescan" else p["half_um"])
+                    timeout = float(p["prescan_timeout_s"] if phase == "prescan" else p["timeout_s"])
+                    started_af = monotonic()
+                    z_um = device.autofocus(experiment, z, half, timeout)
+                    af_elapsed = monotonic()-started_af
                     xy, actual = device.position()
                     row = PointRecord(
                         index,
@@ -382,13 +407,24 @@ def execute_program(w, plan, output, session, preflight):
                         "step_id": sid,
                         "path": path,
                         "index": index,
+                        "execution_index": sequence_index,
+                        "phase": phase,
+                        "search_center_um": z,
+                        "af_half_um": half,
+                        "af_timeout_s": timeout,
+                        "af_elapsed_s": af_elapsed,
+                        "prediction_error_um": actual*1e6-z if phase == "fine" else None,
                         "x_um": xy[0] * 1e6,
                         "y_um": xy[1] * 1e6,
-                        "z_um": z_um,
+                        "z_um": actual*1e6,
+                        "af_verified_z_um": z_um,
                     }
                     report["measurements"].append(item)
                     w.events.put(("measurement_point", item))
                     event()
+                if predictive and model is None:
+                    model = fit_prediction([(r.before_af[0]*1e6, r.before_af[1]*1e6, r.z*1e6) for r in rows], float(p["max_prediction_residual_um"]))
+                    report.setdefault("prediction_models", {})[path] = deepcopy(model)
                 result = w.fit(tuple(rows))
                 out = {
                     "rx_urad": result["rx_urad"],
