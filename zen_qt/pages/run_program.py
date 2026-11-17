@@ -306,7 +306,7 @@ class RunCenter(QWidget):
         form.addRow("样品 / 批次", app.sample_edit)
         form.addRow("操作员", app.operator_edit)
         task.add(identity)
-        self.output.setToolTip("图像输出目录")
+        self.output.setToolTip("图像与测量数据输出目录")
         output_row = QWidget()
         orow = hbox(output_row, margins=0)
         orow.addWidget(label("输出目录", role="muted"))
@@ -355,6 +355,9 @@ class RunCenter(QWidget):
         self.marks = MarkView()
         self.tabs.addTab(self.measure, "物料测角 · 路径 / Z 散点")
         self.tabs.addTab(self.marks, "上下 mark · 图像")
+        from .height_view import HeightView
+        self.heights = HeightView()
+        self.tabs.addTab(self.heights, "多面高度 · 数据")
         center.add(self.tabs)
         self.current_action = label("当前动作：等待开始", wrap=True)
         center.add(self.current_action)
@@ -377,11 +380,22 @@ class RunCenter(QWidget):
         right.add(self.result_label)
         split.addWidget(right)
         split.setSizes([290, 540, 380])
+        self.plan_card = right
+        self.plan_toggle = QPushButton("执行计划")
+        self.plan_toggle.setCheckable(True);self.plan_toggle.setChecked(True)
+        self.plan_toggle.toggled.connect(right.setVisible)
+        head.addWidget(self.plan_toggle)
+        self.tabs.currentChanged.connect(self.result_tab_layout)
+
         app.sample_edit.textChanged.connect(
             lambda _: self.invalidate(clear_confirmations="path")
         )
         app.operator_edit.textChanged.connect(self.invalidate)
         self.reset_result()
+
+    def result_tab_layout(self, *_):
+        # Give the height table enough width for all measured Z/difference columns.
+        self.plan_toggle.setChecked(self.tabs.currentWidget() is not self.heights)
 
     IDLE_RESULT = "任务：未开始\n对位分析：待 SOMA"
     VERDICT_COLORS = {
@@ -527,10 +541,15 @@ class RunCenter(QWidget):
             )
             self.measure.configure(self._body, reset=True)
             self.marks.clear()
+            self.heights.clear()
         else:
             self.measure.configure({"program_steps": []}, reset=True)
             self.marks.clear()
+            self.heights.clear()
             self.version_label.setText("请选择配方")
+        has_heights=bool(self._body and any(n["kind"]=="measure_heights" for _,n in flatten(self._body["program_steps"])))
+        if has_heights:self.tabs.setCurrentWidget(self.heights)
+        elif self.tabs.currentWidget() is self.heights:self.tabs.setCurrentWidget(self.measure)
         self.preview()
         self.invalidate(clear_confirmations=True)
 
@@ -603,7 +622,7 @@ class RunCenter(QWidget):
                 segment = [selected]
             needs_load = False
             for _, action in flatten(segment):
-                if action["kind"] in ("load_experiment", "measure_angle"):
+                if action["kind"] in ("load_experiment", "measure_angle", "measure_heights"):
                     break
                 if action["kind"] in (
                     "autofocus",
@@ -707,6 +726,7 @@ class RunCenter(QWidget):
         if getattr(self, "_verdict_kind", "idle") in ("ok", "bad", "warn") and not self.app.action_busy():
             self.measure.configure(self._body or {"program_steps": []}, reset=True)
             self.marks.clear()
+            self.heights.clear()
             self.reset_result("任务条件已变化；上一轮结果请在“结果与追溯”查看。")
         from ..action_feedback import cancel_pending
 
@@ -920,6 +940,7 @@ class RunCenter(QWidget):
                 return
             self.measure.configure(self._body, reset=True)
             self.marks.clear()
+            self.heights.clear()
             self.preview()
             self.reset_result("正在提交任务，尚未开始。")
             w.start_program(
@@ -962,6 +983,9 @@ class RunCenter(QWidget):
             self.current_action.setText("当前动作：" + data[2])
         elif kind == "program_progress":
             report = data[0]
+            self.heights.update_report(report)
+            if report.get("height_scans") and report.get("steps") and report["steps"][-1]["kind"] == "measure_heights":
+                self.tabs.setCurrentWidget(self.heights)
             result = report.get("result")
             if result:
                 self.measure.metrics.setText(
@@ -1011,11 +1035,17 @@ class RunCenter(QWidget):
                     for part in (
                         numbers,
                         message,
-                        "对位分析待 SOMA。" if kind == "ok" else "",
+                        ("多面高度与差值已归档，未扣物料厚度。" if report.get("height_scans") and not report.get("images") else "对位分析待 SOMA。") if kind == "ok" else "",
                     )
                     if part
                 )
                 self.set_verdict(kind, title, detail, simulated=bool(report["simulated"]))
+                if report.get("height_scans"):
+                    scans=list(report["height_scans"].values())
+                    complete=sum(s.get("data_complete") is True and s.get("return_complete") is True for s in scans)
+                    self.result_label.setText(self.result_label.text()+f"\n多面高度：完成 {complete}/{len(scans)} 个扫描" if report.get("images") else self.result_label.text().replace("对位分析：待 SOMA",f"多面高度：完成 {complete}/{len(scans)} 个扫描"))
+                    if any(s.get("data_complete") and not s.get("return_complete") for s in scans):
+                        self.set_verdict("bad","数据已采齐，结束定位未完成",message,simulated=bool(report["simulated"]))
                 self.status.setText(
                     report.get("error", {}).get("message", "步骤流程完成，结果已归档。")
                 )
@@ -1046,6 +1076,7 @@ class RunCenter(QWidget):
         shown = self._verdict_kind != "idle"
         self.measure.configure(self._body or {"program_steps": []}, reset=True)
         self.marks.clear()
+        self.heights.clear()
         self.preview()
         self.reset_result(
             "设备连接已变化，上一轮结果已从本页清除；可在“结果与追溯”查看。"

@@ -82,6 +82,20 @@ CATALOG = {
             ("points_um", "有序 XY / 可选预期 Z · µm", "points", []),
         ],
     ),
+    "measure_heights": (
+        "测量与判断", "多面高度扫描", [
+            ("surface_count", "测量面数", "surface_count", 3),
+            ("xy_mode", "点位方式", "height_mode", "motorized"),
+            ("surfaces", "各面实验与初始 Z", "height_faces", [
+                {"experiment":"", "z_um":"", "override":False} for _ in range(3)]),
+            ("prescan_half_um", "共用预扫描 AF 半范围 · µm", "positive", 30),
+            ("prescan_timeout_s", "共用预扫描超时 · s", "positive", 60),
+            ("half_um", "共用精扫描 / 单点 AF 半范围 · µm", "positive", 10),
+            ("timeout_s", "共用精扫描 / 单点超时 · s", "positive", 30),
+            ("max_prediction_residual_um", "四点最大绝对拟合残差 · µm", "positive", 2),
+            ("points_um", "有序 XY · µm", "points", []),
+        ],
+    ),
     "angle_gate": (
         "测量与判断",
         "角度结果判定",
@@ -348,6 +362,8 @@ def validate_program(body, identity=None, scope=None):
                     elif typ == "capture" and value not in ("confocal", "camera_snap"):
                         raise ValueError("未知采集方式")
                     elif typ == "points":
+                        if kind == "measure_heights" and p.get("xy_mode") == "current":
+                            continue
                         if not isinstance(value, list) or not 1 <= len(value) <= 1000:
                             raise ValueError("请填写点位表（1–1000 行）")
                         for row in value:
@@ -360,7 +376,7 @@ def validate_program(body, identity=None, scope=None):
                                 numeric(v, "XY 点位", allow_ref=False)
                 except (ValueError, TypeError) as e:
                     errors.append(sid + "：" + str(e))
-            if kind in ("load_experiment", "measure_angle"):
+            if kind in ("load_experiment", "measure_angle", "measure_heights"):
                 active = True
             if (
                 kind in ("autofocus", "capture_upper", "capture_lower", "zstack")
@@ -392,6 +408,12 @@ def validate_program(body, identity=None, scope=None):
                             raise ValueError("预扫描完整 AF 搜索区间超出允许 Z 范围")
                 except (KeyError, TypeError, ValueError) as e:
                     errors.append(sid + "：" + str(e))
+            if kind == "measure_heights":
+                try:
+                    from zen_heights import validate_heights
+                    validate_heights(p, common)
+                except (KeyError, TypeError, ValueError) as error:
+                    errors.append(sid + "：" + str(error))
             if kind == "zstack" and (
                 any(c in str(p.get("output_name", "")) for c in ("/", "\\"))
                 or len(str(p.get("output_name", ""))) > 64
@@ -453,7 +475,7 @@ def validate_program(body, identity=None, scope=None):
                 values = []
                 if k == "move_z" and not p.get("relative"):
                     values = [p.get("z_um")]
-                elif k == "move_xy" or k == "measure_angle":
+                elif k in ("move_xy", "measure_angle", "measure_heights"):
                     values = [
                         (
                             p.get("safe_z_um")
@@ -545,7 +567,7 @@ def capability_issues(plan, device):
     services = getattr(caps, "services", None)
     for path, n in flatten(plan.steps):
         kind = n["kind"]
-        if kind in ("move_xy", "measure_angle") and not getattr(
+        if (kind in ("move_xy", "measure_angle") or (kind == "measure_heights" and n["params"].get("xy_mode") == "motorized")) and not getattr(
             device, "xy_enabled", True
         ):
             errors.append(path + "：当前设备没有电动 XY")
@@ -554,7 +576,7 @@ def capability_issues(plan, device):
         if kind == "zstack" and not callable(getattr(device, "capture_stack", None)):
             errors.append(path + "：缺少已验证 Z-stack 采集适配")
         if services is not None:
-            if kind in ("autofocus", "measure_angle") and not any(
+            if kind in ("autofocus", "measure_angle", "measure_heights") and not any(
                 "ExperimentSwAutofocusService" in s for s in services
             ):
                 errors.append(path + "：未提供软件 AF 服务")
@@ -566,6 +588,7 @@ def capability_issues(plan, device):
                     "capture_lower",
                     "zstack",
                     "measure_angle",
+                    "measure_heights",
                 )
                 and "zen_api.acquisition.v1beta.ExperimentService" not in services
             ):

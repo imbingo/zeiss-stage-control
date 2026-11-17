@@ -266,6 +266,7 @@ def execute_program(w, plan, output, session, preflight):
             raise ValueError("同名实验在本次任务中已被修改，请重新验证：" + name)
         report["experiment_fingerprints"][name] = digest
         experiment = name
+        return digest
 
     def run(nodes, point=None, context=""):
         nonlocal active, issued, result
@@ -346,6 +347,11 @@ def execute_program(w, plan, output, session, preflight):
                         float(p["timeout_s"]),
                     )
                 }
+            elif kind == "measure_heights":
+                from zen_heights import execute_heights
+                issued = True
+                out = execute_heights(w, device, p, plan.common, path, report, parent.path,
+                                      image_root, fingerprint, event)
             elif kind == "measure_angle":
                 fingerprint(p["experiment"])
                 rows = []
@@ -353,10 +359,9 @@ def execute_program(w, plan, output, session, preflight):
                 w.events.put(
                     ("measurement_begin", {"step_id": sid, "points_um": p["points_um"]})
                 )
-                from zen_scan_path import fit_prediction, predict_z
+                from zen_scan_path import checked_prediction, prediction_order, predict_z
                 predictive = bool(p.get("predict_plane"))
-                prescan = sorted(p.get("prescan_indices", [])) if predictive else []
-                order = prescan + [i for i in range(len(p["points_um"])) if i not in prescan]
+                prescan, order = prediction_order(len(p["points_um"]), p.get("prescan_indices", []), predictive)
                 model = None
                 for sequence_index, point_index in enumerate(order, 1):
                     index = point_index + 1
@@ -364,13 +369,11 @@ def execute_program(w, plan, output, session, preflight):
                     phase = "prescan" if predictive and point_index in prescan else "fine" if predictive else "fixed"
                     if predictive and sequence_index == 5:
                         w._state("自动任务", detail="建立四点预测平面并检查剩余搜索区间")
-                        model = fit_prediction([(r.before_af[0]*1e6, r.before_af[1]*1e6, r.z*1e6) for r in rows], float(p["max_prediction_residual_um"]))
+                        model = checked_prediction(
+                            [(r.before_af[0]*1e6,r.before_af[1]*1e6,r.z*1e6) for r in rows],
+                            [p["points_um"][i][:2] for i in order[4:]],float(p["half_um"]),
+                            float(p["max_prediction_residual_um"]), device.target)
                         report.setdefault("prediction_models", {})[path] = deepcopy(model)
-                        # Validate every remaining search interval before any fine motion.
-                        for i in order[4:]:
-                            predicted = predict_z(model, float(p["points_um"][i][0]), float(p["points_um"][i][1]))
-                            device.target((predicted-float(p["half_um"]))*1e-6)
-                            device.target((predicted+float(p["half_um"]))*1e-6)
                         event()
                     phase_count = sequence_index if phase != "fine" else sequence_index-4
                     phase_total = 4 if phase == "prescan" else len(order)-4 if phase == "fine" else len(order)
@@ -423,7 +426,7 @@ def execute_program(w, plan, output, session, preflight):
                     w.events.put(("measurement_point", item))
                     event()
                 if predictive and model is None:
-                    model = fit_prediction([(r.before_af[0]*1e6, r.before_af[1]*1e6, r.z*1e6) for r in rows], float(p["max_prediction_residual_um"]))
+                    model = checked_prediction([(r.before_af[0]*1e6, r.before_af[1]*1e6, r.z*1e6) for r in rows], [], float(p["half_um"]), float(p["max_prediction_residual_um"]), device.target)
                     report.setdefault("prediction_models", {})[path] = deepcopy(model)
                 result = w.fit(tuple(rows))
                 out = {
@@ -694,7 +697,7 @@ def execute_program(w, plan, output, session, preflight):
         w.result_path = parent.path
         event()
         w.events.put(("result", result, parent.path))
-        w._state("完成", detail="步骤流程完成，未自动添加返回运动")
+        w._state("完成", detail="步骤流程完成；多面高度结束定位已核验" if report.get("height_scans") else "步骤流程完成，未自动添加返回运动")
     except Exception as error:
         recovery = issued and not isinstance(error, ProcessRejected)
         state = "stopped" if isinstance(error, InterruptedError) else "failed"

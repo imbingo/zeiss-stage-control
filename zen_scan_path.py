@@ -103,3 +103,18 @@ def predict_z(model, x, y):
         + b * (y - model["origin_um"][1]) / model["scale_um"]
         + c
     )
+
+
+def prediction_order(count, indices, enabled=True):
+    """Shared original-row ordering for angle and multi-surface scans."""
+    prescan = sorted(indices) if enabled else []
+    return prescan, prescan + [i for i in range(count) if i not in prescan]
+
+
+def checked_prediction(samples, remaining_xy_um, half_um, max_residual_um, target):
+    model = fit_prediction(samples, max_residual_um)
+    for x, y in remaining_xy_um:
+        z = predict_z(model, float(x), float(y))
+        target((z-half_um)*1e-6)
+        target((z+half_um)*1e-6)
+    return model
