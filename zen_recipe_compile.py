@@ -23,6 +23,9 @@ def number(value, label, positive=False):
 
 
 def compile_body(body, *, simulated=False, identity=None):
+    if "program_steps" in body:
+        from zen_steps import validate_program
+        return validate_program(body,identity)
     if body.get("units") != {"length": "um", "angle": "urad", "time": "s"}:
         raise ValueError("配方单位必须为 µm / µrad / s")
     if body.get("coordinate_system") != "设备绝对坐标（装夹基准须人工核对）":

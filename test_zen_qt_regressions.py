@@ -152,12 +152,14 @@ class QtRegressionTests(unittest.TestCase):
                  lambda: m.layers['upper']['half'].setValue(4),
                  lambda: m.layers['upper']['combo'].setCurrentText('another'),
                  lambda: m.use_af.setChecked(False),
-                 lambda: m.capture_kind.setCurrentIndex(1),
-                 lambda: m.output_edit.setText(str(self.base / 'other'))]
+                 lambda: m.capture_kind.setCurrentIndex(1)]
         for edit in edits:
             for k in ('zpath', 'loading'): m.check_items[k].check.setChecked(True)
             edit()
             for k in ('zpath', 'loading'): self.assertFalse(m.check_items[k].check.isChecked())
+        for k in ('zpath','loading'):m.check_items[k].check.setChecked(True)
+        m.output_edit.setText(str(self.base/'other'))
+        for k in ('zpath','loading'):self.assertTrue(m.check_items[k].check.isChecked())
 
     def test_demo_to_field_drops_demo_coordinates_and_approvals(self):
         m = self.demo()
@@ -195,16 +197,18 @@ class QtRegressionTests(unittest.TestCase):
         self.assertIsNone(h.session.library)
 
     def test_actual_recovery_dialog_and_archive_attestation(self):
-        h = self.load()
+        with patch('zen_hardware.completion.verify_completion',side_effect=TimeoutError('synthetic incomplete motion')):
+            h=self.load()
         self.assertTrue(self.w.locked())
-        self.confirm()
-        runs = scan_runs(self.root)
-        self.assertTrue(runs)
-        self.assertTrue(all(not r['recovery'] for r in runs))
-        self.select('read_z')
-        h.run()
-        self.assertTrue(_wait(lambda: h.latest.get('operation') == 'read_z' and not self.w.workflow.busy))
-        self.assertEqual(h.latest['status'], 'success')
+        with patch('zen_qt.app.RecoveryDialog') as dialog:
+            self.w.open_recovery()
+            self.assertTrue(_wait(lambda:not self.w.workflow.busy))
+            dialog.assert_not_called()
+        self.assertFalse(self.w.locked())
+        self.assertFalse(any((r['path']/'recovery.json').exists() for r in scan_runs(self.root)))
+        self.select('read_z');h.run()
+        self.assertTrue(_wait(lambda:h.latest.get('operation')=='read_z' and not self.w.workflow.busy))
+        self.assertEqual(h.latest['status'],'success')
 
     def test_capture_archive_and_preview_preserve_tiff(self):
         m = self.demo()
@@ -231,7 +235,7 @@ class QtRegressionTests(unittest.TestCase):
         before = hashlib.sha256(tiff.read_bytes()).digest()
         self.assertFalse(m._preview(tiff).isNull())
         self.assertEqual(hashlib.sha256(tiff.read_bytes()).digest(), before)
-        self.assertFalse(m.check_items['zpath'].check.isChecked())
+        self.assertTrue(m.check_items['zpath'].check.isChecked())
 
     def test_experiment_refresh_is_read_only_and_gated(self):
         m = self.demo()
@@ -272,9 +276,16 @@ class QtRegressionTests(unittest.TestCase):
         self.assertTrue(_wait(lambda: scroll.verticalScrollBar().maximum() > 0))
         self.assertEqual(self.w.pages['marks']._layer_layout.direction(),
                          QBoxLayout.TopToBottom)
+        # Short windows start with the log folded; the newest line stays readable.
+        self.assertTrue(self.w.dock.collapsed)
+        self.w.log('warn', '折叠时仍可见')
+        self.assertIn('折叠时仍可见', self.w.dock.tabText(0))
         old = self.w.dock.height()
         self.w.dock.fold_button.click()
-        self.assertLess(self.w.dock.height(), old)
+        self.assertGreater(self.w.dock.height(), old)
+        self.assertEqual(self.w.dock.tabText(0), '事件日志')
+        self.w.dock.fold_button.click()
+        self.assertEqual(self.w.dock.height(), old)
 
     def test_session_card_and_identity_persist(self):
         self.w.show()
@@ -294,7 +305,8 @@ class QtRegressionTests(unittest.TestCase):
             report('gateway', '✓ 通过', 'read-only checked')
         with patch('zen_qt.pages.device.preflight.check_gateway', side_effect=check):
             self.w.pages['device']._do_preflight()
-            self.assertTrue(_wait(lambda: not self.w.workflow.busy and bool(seen)))
+            self.assertTrue(_wait(lambda: not self.w.workflow.busy and bool(seen)
+                and self.w.pages['device']._last_preflight_data is not None))
         self.assertTrue(seen[0][1])
         self.assertIn('checks', self.w.pages['device']._last_preflight_data)
 

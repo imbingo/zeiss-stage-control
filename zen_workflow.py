@@ -48,9 +48,11 @@ class Workflow:
     def busy(self):
         return self._gate.locked()
 
-    def _launch(self, action):
+    def _launch(self, action, *, kind="action"):
         if not self._gate.acquire(blocking=False):
             raise RuntimeError("已有设备任务")
+        self.task_kind=kind
+        if kind!='read_only':self.action_generation=getattr(self,'action_generation',0)+1
         self._stop.clear()
 
         def worker():
@@ -166,6 +168,32 @@ class Workflow:
             self._save_capabilities()
 
         self._launch(action)
+
+    def verify_ready(self):
+        """Authenticate/read actual readiness without reconnecting or loading."""
+        def action():
+            self._state('就绪校验')
+            try:
+                if pending_recovery(self.root,simulated=self.simulated):
+                    self._state('设备状态待确认',detail='存在待恢复记录');return
+                z=self.device.read_z()
+                if not isfinite(z):raise ValueError('Z 读回无效')
+                self.events.put(('z_only',z))
+                if getattr(self.device,'_experiment_id',None):
+                    reply=self.device.call_hardware_operation('experiment_status',{'experiment_id':self.device._experiment_id})
+                    status=reply.get('status',reply)
+                    if status.get('is_experiment_running') is not False or status.get('is_acquisition_running') is not False:raise ValueError('实验/采集未明确空闲')
+                if self.xy_enabled:
+                    if self.device.motion_state() is not Motion.IDLE:raise ValueError('XY 未空闲')
+                    xy=self.device.read_xy()
+                    if not all(map(isfinite,xy)):raise ValueError('XY 读回无效')
+                    self.events.put(('xy',xy))
+            except Exception as error:
+                self._state('通信就绪（硬件单步）',detail='就绪校验失败：'+self._mark_hint(error))
+            else:
+                self.device._actions_unverified=False
+                self._state('就绪',detail='只读位置与空闲检查通过，未重新加载实验')
+        self._launch(action,kind="read_only")
 
     def start(self, recipe, *, path_confirmed, single_point=False, confirmed_start=None):
         if not self.xy_enabled:
@@ -289,22 +317,14 @@ class Workflow:
         self.result_path = None
 
     def read_mark_z(self, layer):
-        if layer not in ("upper", "lower"):
-            raise ValueError("未知的 mark 层")
-        if self.state not in {"就绪", "完成", "已中止"}:
-            raise RuntimeError("请先连接并确认设备就绪")
+        if layer not in ('upper','lower'):raise ValueError('未知的 mark 层')
         def action():
             try:
-                if pending_recovery(self.root, simulated=self.simulated):
-                    raise RuntimeError("设备状态待确认")
-                z = self.device.read_z()
-                xy = self.device.read_xy() if self.xy_enabled else None
-                if not isfinite(z) or (xy is not None and not all(map(isfinite, xy))):
-                    raise ValueError("无效的 XYZ 回读")
-                self.events.put(("mark_z", layer, z, xy))
-            except Exception as error:
-                self.events.put(("mark_error", self._mark_hint(error)))
-        self._launch(action)
+                z=self.device.read_z()
+                if not isfinite(z):raise ValueError('无效 Z 读回')
+                self.events.put(('mark_z',layer,z,None))
+            except Exception as error:self.events.put(('mark_error',self._mark_hint(error)))
+        self._launch(action,kind="read_only")
 
     @staticmethod
     def _mark_hint(error):
@@ -421,7 +441,7 @@ class Workflow:
             self.mark_diagnostic_report = report
             self.events.put(("mark_diagnostic", report))
             self._save_capabilities()
-        self._launch(action)
+        self._launch(action,kind="read_only")
 
     def run_hardware_test(self, session, operation, parameters, *, confirmed=False, timeout_s=60):
         """Use the same device task gate as both production measurement flows."""
@@ -444,10 +464,30 @@ class Workflow:
                 self._state("未连接",detail="客户端通道已断开，不代表物理动作已停止")
             elif operation=='connect' and report['status']=='success':
                 self._state("通信就绪（硬件单步）",detail="仅通道已连接；认证/位置/业务就绪须分别验证")
-            elif report['writes']:
-                self._state("通信就绪（硬件单步）",detail="参数已操作；业务采集前请重新连接并校验")
+            elif report.get('completion',{}).get('verified'):
+                self._state('就绪',detail='硬件操作已通过只读完成检查')
+            elif report['writes'] and self.state not in ('就绪','完成','已中止'):
+                self._state('通信就绪（硬件单步）',detail='通道已连接；请执行只读就绪校验')
             self._save_capabilities()
             self.events.put(("hardware_result",report))
+        self._launch(action)
+
+    def run_hardware_batch(self,session,plan,*,timeout_s,zero_z=False,zero_xy=False):
+        if session.library is None or session.library.device is not self.device:raise ValueError('请先绑定当前设备')
+        from copy import deepcopy
+        snapshot=deepcopy(plan)
+        def action():
+            from zen_hardware.batch import execute_batch
+            self._state('硬件批量测试')
+            try:
+                report=execute_batch(session,snapshot,timeout_s=timeout_s,stop=self._stop,zero_z=zero_z,zero_xy=zero_xy,progress=lambda r:self.events.put(('hardware_batch_progress',r)))
+                self.events.put(('hardware_batch_result',report))
+            except Exception as error:
+                self._state('设备状态待确认',detail='批量测试日志/执行异常：'+str(error));return
+            if session.uncertain:self._state('设备状态待确认',detail='测试已报告异常；请执行只读设备状态检查')
+            elif not getattr(self.device,'connected',False):self._state('未连接')
+            elif any(r.get('report',{}).get('completion',{}).get('verified') for r in report['items']):self._state('就绪',detail='批量测试结束，详见逐项报告')
+            else:self._state('通信就绪（硬件单步）',detail='批量测试结束，业务采集前执行只读就绪检查')
         self._launch(action)
 
     def read_only(self, tag, query):
@@ -459,7 +499,7 @@ class Workflow:
                 self.events.put(('read_only_error', tag, error))
             else:
                 self.events.put(('read_only_result', tag, result))
-        self._launch(action)
+        self._launch(action,kind="read_only")
 
     def start_sequence(self, plan, output, *, confirmed=False,
                        experiment_loading_confirmed=False, confirmed_start=None,
@@ -489,3 +529,43 @@ class Workflow:
         signed=list(attestations or [])
         self._launch(lambda:execute_sequence(self,snapshot,output,start,info,
                                              preflight=record,attestations=signed))
+
+    def start_program(self, plan, output, *, session, preflight, confirmed=False):
+        from copy import deepcopy
+        from pathlib import Path
+        from zen_program import execute_program
+        from zen_steps import capability_issues, validate_program
+
+        plan = validate_program(
+            {
+                "program_steps": list(plan.steps),
+                "common_params": plan.common,
+                "coordinate_system": "设备绝对坐标（装夹基准须人工核对）",
+                "product_family": plan.name,
+                "example": plan.simulated_configuration,
+            },
+            plan.recipe_identity,
+            scope=plan.execution_scope,
+        )
+        if not confirmed:
+            raise ValueError("请确认本次运动路径与实验行为")
+        if self.state not in {"就绪", "完成", "已中止"} or pending_recovery(
+            self.root, simulated=self.simulated
+        ):
+            raise RuntimeError("设备未就绪或存在待恢复记录")
+        issues = capability_issues(plan, self.device)
+        if issues:
+            raise ValueError("\n".join(issues))
+        if not self.simulated and plan.simulated_configuration:
+            raise ValueError("演示配置不可用于真实设备")
+        target = Path(output).expanduser().resolve()
+        if (
+            not str(output).strip()
+            or not Path(output).is_absolute()
+            or target.is_relative_to(self.root.resolve())
+        ):
+            raise ValueError("请选择运行记录目录之外的图像绝对路径")
+        snapshot = deepcopy(plan)
+        info = deepcopy(session)
+        checked = deepcopy(preflight)
+        self._launch(lambda: execute_program(self, snapshot, target, info, checked))

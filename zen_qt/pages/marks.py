@@ -77,6 +77,20 @@ class MarksPage(QWidget):
                        "arrival_timeout_s": 5.0, "capture_timeout_s": 60.0, "settle_s": 0.2}
         lay, head = _page(self, "对位采图",
                           "在当前 XY 位置 → 分别到上、下 mark 示教 Z 拍一张 → 保存 TIFF + JSON 元数据")
+        axis_row=QWidget()
+        axis_lay=hbox(axis_row,margins=0)
+        axis_lay.addWidget(label('设备轴配置'))
+        lay.addWidget(axis_row)
+        self.stage_mode=QComboBox()
+        self.stage_mode.addItem('无电动 XY · 仅 Z','no_xy')
+        self.stage_mode.addItem('有电动 XY','motorized')
+        self.stage_mode.setCurrentIndex(self.stage_mode.findData(app.xy_mode))
+        self.stage_mode.currentIndexChanged.connect(lambda _:app.set_xy_mode(self.stage_mode.currentData()))
+        self.stage_mode.setToolTip('按实际设备选择；切换后重新连接。Z 示教始终只读取 Z。')
+        axis_lay.addWidget(self.stage_mode)
+        self.ready_button=QPushButton('检查设备就绪',clicked=self.check_device_ready)
+        axis_lay.addWidget(self.ready_button)
+        axis_lay.addStretch(1)
         self.steps = StepStrip(["设备就绪", "示教 Z", "检查", "采集", "结果"])
         head.addWidget(self.steps)
 
@@ -188,6 +202,12 @@ class MarksPage(QWidget):
         self._side_lay.addWidget(checks_card)
 
         run_card = Card("执行")
+        self.capture_hint=label('可直接点击操作；缺少条件会在这里说明。',wrap=True)
+        run_card.add(self.capture_hint)
+        self._fix_action=None
+        self.fix_button=QPushButton()
+        self.fix_button.clicked.connect(lambda:self._fix_action() if self._fix_action else None)
+        self.fix_button.hide();run_card.add(self.fix_button)
         self.inspect_button = QPushButton("只读检查拍摄实验", clicked=self.inspect)
         run_card.add(self.inspect_button)
         self.capture_buttons = {}
@@ -219,7 +239,7 @@ class MarksPage(QWidget):
         self._field_preferences = None if self._configuration_simulated else self._serialize()
         self.use_af.toggled.connect(self._parameters_changed)
         self.capture_kind.currentIndexChanged.connect(self._parameters_changed)
-        self.output_edit.textChanged.connect(self._parameters_changed)
+        self.output_edit.textChanged.connect(lambda *_:self._save_timer.start(200))
         for key in ('zpath', 'loading'):
             self.check_items[key].check.toggled.connect(self.refresh_enabled)
         self.refresh_enabled()
@@ -408,7 +428,7 @@ class MarksPage(QWidget):
             if not self._configuration_simulated:
                 self._field_preferences = deepcopy(self._serialize())
             self.load_demo_defaults()
-        elif workflow and self._configuration_simulated:
+        elif (workflow is None or not workflow.simulated) and self._configuration_simulated:
             self.restore(self._field_preferences or {})
             self._configuration_simulated = False
             self.persist()
@@ -452,15 +472,27 @@ class MarksPage(QWidget):
 
     # ---- actions ----
 
-    def teach_z(self, key):
-        workflow = self.app.workflow
-        if workflow is None or workflow.busy:
-            self.app.log("info", "请先连接设备。")
-            return
+    def notice(self,text,action=None,caption=None):
+        self.capture_hint.setText(text);self._fix_action=action
+        self.fix_button.setVisible(action is not None)
+        if caption:self.fix_button.setText(caption)
+        self.app.log('info',text)
+
+    def _token(self):
+        return json.dumps(self._serialize(),sort_keys=True)
+
+    def teach_z(self,key):
+        w=self.app.workflow
+        if w is None:
+            self.layers[key]['taught'].set_kind('warn','尚未连接，请先连接设备')
+            self.notice('尚未连接设备，未读取 Z。',lambda:self.app.navigate('device'),'连接设备');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,lambda:self.teach_z(key),lambda:(key,self._token()),self.notice):return
         try:
-            workflow.read_mark_z(key)   # gated read; emits ("mark_z", layer, z, xy)
-        except (RuntimeError, ValueError) as exc:
-            self.app.log("error", str(exc))
+            self._teaching_layer=key
+            self.notice('正在只读获取当前 Z，不移动设备。')
+            w.read_mark_z(key)
+        except (RuntimeError,ValueError) as error:self.notice(str(error))
 
     def _apply_mark_z(self, key, z, xy):
         state = self.layers[key]
@@ -507,9 +539,10 @@ class MarksPage(QWidget):
         names = [self.layers[k]["combo"].currentText().strip()
                  for k in ("upper", "lower")
                  if self.layers[k]["combo"].currentText().strip()]
-        if workflow is None or workflow.device is None or workflow.busy or not names:
-            self.app.log("info", "请先连接设备并填写至少一个拍摄实验名。")
-            return
+        if workflow is None:self.notice('请先连接设备。',lambda:self.app.navigate('device'),'连接设备');return
+        if not names:self.notice('请填写至少一个拍摄实验名称。',self.layers['upper']['combo'].setFocus,'填写实验名称');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.inspect,self._token,self.notice):return
         try:
             workflow.inspect_mark_experiments(tuple(names),
                                             reported_zen_version="operator-qt")
@@ -522,34 +555,28 @@ class MarksPage(QWidget):
         layers = ("upper", "lower") if key == "both" else (key,)
         self.capture(layers)
 
-    def capture(self, layers):
-        app = self.app
-        workflow = app.workflow
-        if workflow is None or workflow.busy:
-            return
-        try:
-            recipe = self.build_recipe(layers)
-        except (ValueError, TypeError) as exc:
-            app.log("error", str(exc))
-            return
-        confirmed = self.check_items["zpath"].check.isChecked()
-        loading = self.check_items["loading"].check.isChecked()
-        output = self.output_edit.text().strip()
-        if not output:
-            app.log("error", "请选择图像输出目录。")
-            return
-        try:
-            workflow.start_mark_capture(recipe, Path(output), layers=tuple(layers),
-                                        confirmed=confirmed,
-                                        experiment_loading_confirmed=loading)
-        except (RuntimeError, ValueError) as exc:
-            app.log("error", str(exc))
-            return
+    def capture(self,layers):
+        app=self.app;w=app.workflow
+        if w is None:self.notice('尚未连接设备，未发送采图动作。',lambda:app.navigate('device'),'连接设备');return
+        from ..action_feedback import defer_read
+        token=lambda:(tuple(layers),self._token(),self.check_items['zpath'].check.isChecked(),self.check_items['loading'].check.isChecked())
+        if defer_read(app,self,lambda:self.capture(layers),token,self.notice):return
+        try:recipe=self.build_recipe(layers)
+        except (ValueError,TypeError) as error:
+            self.notice(str(error),lambda:self.layers[layers[0]]['combo'].setFocus(),'检查本层实验与 Z 参数');return
+        missing=[]
+        for key,title in [('zpath','两层 Z 路径、AF 范围与物镜间隙'),('loading','实验不换物镜、不恢复位置')]:
+            if not self.check_items[key].check.isChecked():missing.append((key,title))
+        if missing:
+            self.notice('采图前还需核对：'+ '；'.join(title for _,title in missing),self.check_items[missing[0][0]].check.setFocus,'定位待确认项');return
+        if not app.device_ready():self.notice('设备业务状态尚未就绪，未发送采图动作。',self.check_device_ready,'只读检查设备就绪');return
+        output=self.output_edit.text().strip()
+        if not output:self.notice('请选择图像输出目录。',self._choose_output,'选择输出目录');return
+        try:w.start_mark_capture(recipe,Path(output),layers=tuple(layers),confirmed=True,experiment_loading_confirmed=True)
+        except (RuntimeError,ValueError) as error:self.notice(str(error),self.check_device_ready,'检查设备状态');return
         self.persist()
-        self.invalidate_confirmation()
-        for key in layers:
-            self.saved_pills[key].set_kind("accent", "采集中…")
-        app.log("info", f"开始采集 {len(layers)} 层…")
+        for key in layers:self.saved_pills[key].set_kind('accent','采集中…')
+        self.notice(f'已开始采集 {len(layers)} 层；可以点击停止取消后续动作。')
 
     def _choose_output(self):
         path = QFileDialog.getExistingDirectory(self, "图像输出目录", self.output_edit.text())
@@ -617,6 +644,18 @@ class MarksPage(QWidget):
         self.invalidate_confirmation()
         self._update_derived()
         self.refresh_enabled()
+
+    def check_device_ready(self):
+        w=self.app.workflow
+        if not w:self.notice('请先建立设备连接。',lambda:self.app.navigate('device'),'打开设备连接');return
+        from ..action_feedback import defer_read
+        if defer_read(self.app,self,self.check_device_ready,self._token,self.notice):return
+        self.notice('正在只读检查设备状态，不移动设备。')
+        w.verify_ready()
+
+    def on_show(self):
+        w=self.app.workflow
+        if w and not w.busy and w.state=='通信就绪（硬件单步）':self.check_device_ready()
 
     def on_workflow_event(self, kind, data, workflow):
         if kind == "state":
@@ -718,7 +757,12 @@ class MarksPage(QWidget):
     def refresh_enabled(self):
         app = self.app
         workflow = app.workflow
-        busy = bool(workflow and workflow.busy)
+        busy = app.action_busy()
+        self.stage_mode.blockSignals(True)
+        self.stage_mode.setCurrentIndex(self.stage_mode.findData(app.xy_mode))
+        self.stage_mode.blockSignals(False)
+        self.stage_mode.setEnabled(not busy)
+        self.check_items['recovery'].hide()
         ready = bool(workflow and workflow.device is not None
                      and workflow.state in ("就绪", "完成", "已中止")
                      and not app.locked() and not busy)
@@ -727,16 +771,17 @@ class MarksPage(QWidget):
         for key, button in self.capture_buttons.items():
             keys = ("upper", "lower") if key == "both" else (key,)
             error = self._recipe_error(keys)
-            button.setEnabled(ready and manual and error is None)
+            button.setEnabled(True)
             button.setToolTip(error or "")
-        self.inspect_button.setEnabled(bool(workflow and workflow.device is not None and not busy))
+        self.inspect_button.setEnabled(True)
+        self.ready_button.setEnabled(True)
         manual = (self.check_items["zpath"].check.isChecked()
                   and self.check_items["loading"].check.isChecked())
         # checks
         connected = bool(workflow and workflow.device is not None)
         self.check_items["connected"].set_state(
             "ok" if workflow and workflow.state in ("就绪", "完成", "已中止") else "todo",
-            "自动" if connected else "未连接")
+            ('正在校验' if workflow and workflow.state=='就绪校验' else workflow.state+' · 可点击检查设备就绪' if connected else '未连接'))
         if both_error is None:
             self.check_items["recipe"].set_state("ok", "两层配方有效")
         else:
@@ -752,7 +797,8 @@ class MarksPage(QWidget):
         # step strip (idle view)
         for state in self.layers.values():
             for name in ('combo', 'z', 'half', 'teach_button'):
-                state[name].setEnabled(not busy)
+                state[name].setEnabled(name=='teach_button' or not busy)
+                state[name].setToolTip('设备任务执行中，参数已冻结。' if busy and name!='teach_button' else '')
         for control in (self.use_af, self.capture_kind, self.output_edit, self.common_button):
             control.setEnabled(not busy)
         if not busy and self._last_result_output is None:

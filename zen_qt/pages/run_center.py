@@ -130,7 +130,7 @@ class RunCenter(QWidget):
         self.mode = QComboBox()
         self.mode.addItem("正式运行", "production")
         self.mode.addItem("现场工程试运行", "engineering")
-        self.mode.addItem("离线模拟", "simulation")
+        self.mode.addItem("离线演示", "simulation")
         self.mode.currentIndexChanged.connect(self.selection_changed)
         task.add(self.mode)
         self.version_label = label("请选择配方", wrap=True)
@@ -418,7 +418,7 @@ class RunCenter(QWidget):
             if self.mode.currentData() == "simulation" and not w.simulated:
                 raise ValueError("模拟模式必须连接离线演示设备")
             if self.mode.currentData() != "simulation" and w.simulated:
-                raise ValueError("当前是模拟设备，请选择离线模拟模式")
+                raise ValueError("当前是模拟设备，请选择离线离线演示")
             if (
                 not self.sample.text().strip()
                 or not self.app.operator_edit.text().strip()

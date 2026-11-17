@@ -19,6 +19,49 @@ from .device import _page
 KIND_NAMES = {"tilt": "测角", "mark": "采图", "hardware": "硬件单步", "sequence": "自动任务", "unknown": "记录"}
 STATE_PILLS = {"complete": ("ok", "有效"), "stopped": ("warn", "中止"),
                "failed": ("bad", "失败"), "running": ("accent", "运行中")}
+STATE_NAMES = {"complete": "已完成", "stopped": "已中止", "failed": "失败",
+               "running": "未正常结束", "unknown": "状态未知"}
+VERDICT_COLORS = {
+    "ok": (theme.OK_SOFT, theme.OK),
+    "warn": (theme.WARN_SOFT, theme.WARN),
+    "bad": (theme.BAD_SOFT, theme.BAD),
+}
+
+
+def completed_pairs(sequence):
+    """Count saved pairs within each loop context; never pair unrelated images."""
+    if "images" not in sequence:
+        return sum(c.get("state") == "complete" for c in sequence.get("captures", []))
+    layers = {}
+    for item in sequence["images"]:
+        if item.get("path") and item.get("pair_id"):
+            key = (item.get("context", ""), item["pair_id"])
+            layers.setdefault(key, set()).add(item.get("layer"))
+    return sum({"upper", "lower"} <= values for values in layers.values())
+
+
+def run_verdict(run):
+    """(kind, headline) an operator can act on, without reading raw fields."""
+    state = run["state"]
+    disposition = run.get("sequence", {}).get("disposition")
+    if disposition == "MEASUREMENT_REJECTED":
+        return "bad", "角度不合格"
+    if state == "stopped":
+        return "warn", "已中止 · 结果不完整" + (" · 待恢复确认" if run["recovery"] else "")
+    if state == "failed" or disposition == "EQUIPMENT_FAULT":
+        stage = f" · 阶段：{run['stage']}" if run["stage"] else ""
+        return "bad", ("设备异常" if disposition == "EQUIPMENT_FAULT" else "失败") + stage
+    if run["recovery"]:
+        return "warn", STATE_NAMES.get(state, state) + " · 待恢复确认"
+    if state != "complete":
+        return "warn", STATE_NAMES.get(state, state)
+    if run["kind"] == "sequence":
+        return "ok", ("采集完成 · 待 SOMA 对位分析" if run.get("n_images") else "任务完成")
+    if run["kind"] == "mark":
+        return "ok", "采图完成 · 待对位分析"
+    if run["kind"] == "tilt":
+        return ("ok", "测角结果有效") if run["valid"] else ("warn", "已完成 · 结果未判为有效")
+    return "ok", "已完成"
 
 
 def _load_json(path):
@@ -71,7 +114,7 @@ def scan_runs(data_root):
                 'capture_complete': kind == 'mark' and status.get('state') == 'complete',
                 'pair_complete': bool(capture.get('status', {}).get('pair_complete')),
                 "stage": status.get("failure_stage", ""), "recipe": recipe, "result": result,
-                "session": session, "n_images": (sum(len(_load_json(Path(c['record_path'])/'capture.json').get('images',{})) for c in sequence.get('captures',[]) if c.get('record_path'))
+                "session": session, "n_images": (len(sequence.get('images',[])) + sum(s.get('planes',0) for s in sequence.get('stacks',[])) + sum(len(_load_json(Path(c['record_path'])/'capture.json').get('images',{})) for c in sequence.get('captures',[]) if c.get('record_path'))
                                                   if kind=='sequence' else len(capture.get('images', {}))),
                 'sequence':sequence,
                 'capture': capture,
@@ -129,8 +172,8 @@ class RecordsPage(QWidget):
         self.search.setPlaceholderText("搜索 run_id / 配方 / 实验 / 样品…")
         fl.addWidget(self.search, 1)
         self.real_only = QComboBox()
-        self.real_only.addItems(["真实 + 演示", "仅真实设备", "仅演示"])
-        self.real_only.setFixedWidth(110)
+        self.real_only.addItems(["现场 + 离线演示", "仅现场设备", "仅离线演示"])
+        self.real_only.setFixedWidth(140)
         fl.addWidget(self.real_only)
         fl.addWidget(QPushButton("刷新", clicked=self.reload))
         lay.addWidget(filters)
@@ -145,7 +188,10 @@ class RecordsPage(QWidget):
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
             ("时间", "类型", "样品", "配方 / 实验", "Rx µrad", "Ry µrad", "RMS µm", "状态"))
-        self.table.horizontalHeader().setStretchLastSection(True)
+        from PySide6.QtWidgets import QHeaderView
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -161,9 +207,25 @@ class RecordsPage(QWidget):
         bl.addWidget(side)
         self.detail_title = label("", role="muted")
         detail_card = Card("所选记录", trailing=self.detail_title)
-        self.detail = label("—", wrap=True, mono=True)
-        self.detail.setStyleSheet("font-size:11px; line-height:1.6")
+        # Outcome first, numbers second, provenance last and folded away.
+        self.detail_verdict = label("选择一条记录查看结论。", wrap=True)
+        detail_card.add(self.detail_verdict)
+        self.detail_metrics = label("", wrap=True, mono=True)
+        self.detail_metrics.setStyleSheet("font-size:14px; font-weight:600")
+        self.detail_metrics.hide()
+        detail_card.add(self.detail_metrics)
+        self.detail = label("—", wrap=True)
         detail_card.add(self.detail)
+        self.more_button = QPushButton("显示路径与内部字段")
+        self.more_button.setObjectName("flat")
+        self.more_button.setCheckable(True)
+        self.more_button.toggled.connect(self._toggle_more)
+        detail_card.add(self.more_button)
+        self.detail_more = label("", wrap=True, mono=True)
+        self.detail_more.setStyleSheet("font-size:10.5px")
+        self.detail_more.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.detail_more.hide()
+        detail_card.add(self.detail_more)
         buttons = QWidget()
         btl = hbox(buttons, spacing=6, margins=0)
         btl.addWidget(QPushButton("打开目录", clicked=self.open_dir))
@@ -172,14 +234,9 @@ class RecordsPage(QWidget):
         detail_card.add(buttons)
         sl.addWidget(detail_card)
 
-        index_card = Card("汇总索引", trailing=label("分析入口", role="muted"))
-        index_card.add(label("所有运行自动汇总成一张宽表，Excel / pandas 直接打开。",
-                             role="muted", wrap=True))
-        self.index_path = label(str(Path(app.data_root) / "index.csv"), mono=True, wrap=True)
-        self.index_path.setStyleSheet("font-size:10.5px; background:#f5f7fa; border:1px solid "
-                                      f"{theme.LINE}; border-radius:7px; padding:8px 10px;")
-        index_card.add(self.index_path)
-        sl.addWidget(index_card)
+        self.index_path = label("汇总索引 index.csv（Excel 可直接打开）", role="muted", wrap=True)
+        self.index_path.setToolTip(str(Path(app.data_root) / "index.csv"))
+        sl.addWidget(self.index_path)
         sl.addStretch(1)
         self.capture_selector=QComboBox();self.capture_selector.setToolTip('选择孔位图像');self.capture_selector.currentIndexChanged.connect(self._show_detail)
         self._preview_run_id=None
@@ -189,11 +246,15 @@ class RecordsPage(QWidget):
         for title in ('上孔','下孔'):
             col=QWidget();cl=vbox(col,margins=0);cl.addWidget(label(title,role='muted'));view=label('选择一条含图像的记录');view.setMinimumSize(160,120);view.setAlignment(Qt.AlignCenter);cl.addWidget(view);il.addWidget(col);self.image_labels.append(view)
         self.evidence_tabs.addTab(image_page,'上下孔图像')
+        from .height_view import HeightView
+        self.height_view=HeightView()
+        self.evidence_tabs.addTab(self.height_view,'多面高度 · 数据')
         self.evidence_text={}
-        for key,title in [('sequence.json','执行记录'),('snapshot.json','配方快照'),('command_log.json','动作与诊断')]:
+        for key,title in [('sequence.json','原始记录 · 执行'),('snapshot.json','原始记录 · 配方快照'),('command_log.json','原始记录 · 动作与诊断')]:
             text=QPlainTextEdit();text.setReadOnly(True);self.evidence_text[key]=text;self.evidence_tabs.addTab(text,title)
         lay.addWidget(self.evidence_tabs)
         self.evidence_tabs.setMaximumHeight(240)
+        self.evidence_tabs.currentChanged.connect(lambda _:self.evidence_tabs.setMaximumHeight(360 if self.evidence_tabs.currentWidget() is self.height_view else 240))
         self.reload()
 
     # ---- data ----
@@ -249,7 +310,7 @@ class RecordsPage(QWidget):
                 "" if "rx_urad" not in result else f"{result['rx_urad']:+.2f}",
                 "" if "ry_urad" not in result else f"{result['ry_urad']:+.2f}",
                 "" if "rms_m" not in result else f"{result['rms_m']*1e6:.2f}",
-                run["state"] + ("·待恢复" if run["recovery"] else "") + ("·演示" if run["simulated"] else ""),
+                STATE_NAMES.get(run["state"], run["state"]) + ("·待恢复" if run["recovery"] else "") + ("·演示" if run["simulated"] else ""),
             )
             for col, text in enumerate(values):
                 item = QTableWidgetItem(str(text))
@@ -275,59 +336,105 @@ class RecordsPage(QWidget):
         row = rows.pop()
         return runs[row] if 0 <= row < len(runs) else None
 
+    def _toggle_more(self, shown):
+        self.detail_more.setVisible(shown)
+        self.more_button.setText("收起路径与内部字段" if shown else "显示路径与内部字段")
+
     def _show_detail(self):
+        from html import escape
+
         run = self._selected_run()
         if run is None:
             return
-        self.detail_title.setText(run["run_id"][:24])
+        self.detail_title.setText(KIND_NAMES.get(run["kind"], run["kind"]))
         recipe, result, session = run["recipe"], run["result"], run["session"]
-        lines = [
-            f"类型 {KIND_NAMES.get(run['kind'], run['kind'])} · {'演示' if run['simulated'] else '真实'}",
-            f"开始 {run['started']}",
-            f"状态 {run['state']} · 待恢复 {run['recovery']}",
-        ]
-        if run['kind'] == 'mark':
-            lines.append(f"图像 {run['n_images']} 张 · 保存完成 {run['capture_complete']} · 图片对完整 {run['pair_complete']}")
-            lines.append('图像内容/清晰度/标定需另行核验；不等同于对位分析通过。')
-        elif run['kind'] == 'sequence':
-            sequence=run['sequence']
-            lines.append(f"孔位采图完成 {sum(c.get('state')=='complete' for c in sequence.get('captures',[]))} 组")
-            lines.append('图像目录 '+sequence.get('output_directory',''))
-            lines.append('自动任务完成不等于 SOMA 对位分析通过。')
-        elif run['kind'] == 'tilt':
-            lines.append(f"测角结果有效 {run['valid']}")
-        if recipe.get("recipe_name"):
-            lines.append(f"配方 {recipe['recipe_name']} · 实验 {recipe.get('experiment_name', '')}")
-        if recipe.get("point_order"):
-            lines.append(f"点位 {len(recipe['point_order'])} 个")
-        if run["n_images"]:
-            lines.append(f"图像 {run['n_images']} 张")
+        sequence = run.get("sequence", {})
+        self.height_view.update_report(sequence)
+        if getattr(self,"_height_run_id",None)!=run["run_id"]:
+            self._height_run_id=run["run_id"]
+            if sequence.get("height_scans") and not sequence.get("images"):
+                self.evidence_tabs.setCurrentWidget(self.height_view)
+        identity = sequence.get("recipe_identity", {})
+        kind, headline = run_verdict(run)
+        bg, ink = VERDICT_COLORS[kind]
+        source = (
+            f'<div style="font-weight:700;color:{theme.WARN}">离线演示结果 · 非现场数据</div>'
+            if run["simulated"]
+            else f'<div style="color:{theme.MUTED}">现场设备记录</div>'
+        )
+        self.detail_verdict.setText(
+            source
+            + f'<div style="font-size:17px;font-weight:700;color:{ink}">{escape(headline)}</div>'
+        )
+        self.detail_verdict.setStyleSheet(
+            f"background:{bg}; border-radius:8px; padding:8px 10px;"
+        )
+        self.detail_metrics.setVisible(bool(result))
         if result:
-            lines.append(f"Rx {result.get('rx_urad', 0):+.3f} µrad · Ry {result.get('ry_urad', 0):+.3f} µrad")
-            lines.append(f"RMS {result.get('rms_m', 0)*1e6:.3f} µm · PV {result.get('pv_m', 0)*1e6:.3f} µm")
+            self.detail_metrics.setText(
+                f"Rx  {result.get('rx_urad', 0):+.3f} µrad\n"
+                f"Ry  {result.get('ry_urad', 0):+.3f} µrad\n"
+                f"RMS {result.get('rms_m', 0)*1e6:.3f} µm · PV {result.get('pv_m', 0)*1e6:.3f} µm"
+            )
+        lines = []
+        name = recipe.get("recipe_name") or recipe.get("experiment_name")
+        if name:
+            revision = f" · Rev.{identity.get('revision', 0):03d}" if identity else ""
+            lines.append(f"配方：{name}{revision}")
         if session.get("sample") or session.get("operator"):
-            lines.append(f"样品 {session.get('sample', '—')} · 操作员 {session.get('operator', '—')}")
-        if run["stage"]:
-            lines.append(f"失败阶段 {run['stage']}")
-        lines.append("")
-        lines.append(str(run["path"]))
-        identity=run.get('sequence',{}).get('recipe_identity',{})
+            lines.append(f"样品：{session.get('sample') or '—'} · 操作员：{session.get('operator') or '—'}")
+        if run["started"]:
+            lines.append("开始：" + run["started"][:19].replace("T", " "))
+        if run["kind"] == "mark":
+            lines.append(
+                f"图像：{run['n_images']} 张 · "
+                + ("上下孔成对" if run["pair_complete"] else "图片对不完整")
+            )
+            lines.append("图像内容 / 清晰度 / 标定需另行核验，不等同于对位分析通过。")
+        elif run["kind"] == "sequence":
+            done = completed_pairs(sequence)
+            if run['n_images'] or not sequence.get("height_scans"):
+                lines.append(f"图像：{run['n_images']} 张 · 孔位采图完成 {done} 组")
+            if sequence.get("height_scans"):
+                scans=list(sequence["height_scans"].values())
+                points=sum(sum(r.get("status")=="complete" for r in scan.get("rows",[])) for scan in scans)
+                lines.append(f"多面高度：{len(scans)} 个扫描，{points} 个完整点；单位 µm，差值未扣物料厚度。")
+            if run["n_images"]:lines.append("自动任务完成不等于 SOMA 对位分析通过。")
+        elif run["n_images"]:
+            lines.append(f"图像：{run['n_images']} 张")
+        if recipe.get("point_order"):
+            lines.append(f"点位：{len(recipe['point_order'])} 个")
+        if run["recovery"]:
+            lines.append("待恢复：上次动作未确认完成，请到运行中心处理。")
+        self.detail.setText("\n".join(lines) or "—")
+        more = [f"run_id  {run['run_id']}", f"目录  {run['path']}"]
+        if sequence.get("output_directory"):
+            more.append(f"图像目录  {sequence['output_directory']}")
         if identity:
-            lines.insert(1,f"配方版本 {identity.get('recipe_id')} · Rev.{identity.get('revision',0):03d}")
-            lines.insert(2,'模式 '+str(identity.get('execution_mode')))
-            lines.insert(3,'工艺判定 '+{'MEASUREMENT_REJECTED':'角度不合格','AWAITING_EXTERNAL_REVIEW':'采集完成，待 SOMA','EQUIPMENT_FAULT':'设备异常'}.get(run.get('sequence',{}).get('disposition'),'待判定'))
-        self.detail.setText("\n".join(lines))
+            more.append(f"配方 ID  {identity.get('recipe_id')}")
+            more.append(f"执行模式  {identity.get('execution_mode')}")
+        if sequence.get("disposition"):
+            more.append(f"disposition  {sequence['disposition']}")
+        more.append(f"state  {run['state']} · recovery_required  {run['recovery']}")
+        if recipe.get("experiment_name"):
+            more.append(f"实验  {recipe['experiment_name']}")
+        self.detail_more.setText("\n".join(more))
         if hasattr(self,'evidence_text'):
             for key,edit in self.evidence_text.items():edit.setPlainText(json.dumps(_load_json(run['path']/key),ensure_ascii=False,indent=2))
             captures=run.get('sequence',{}).get('captures',[])
             if self._preview_run_id!=run['run_id']:
                 self.capture_selector.blockSignals(True);self.capture_selector.clear()
                 for capture in captures:self.capture_selector.addItem(capture['station'],capture['output_directory'])
+                pairs={}
+                for image in run.get('sequence',{}).get('images',[]):
+                    key=image.get('context','')+image.get('pair_id','mark')
+                    pairs.setdefault(key,{})[image['layer']]=image['path']
+                for key,paths in pairs.items():self.capture_selector.addItem(key,paths)
                 self.capture_selector.blockSignals(False);self._preview_run_id=run['run_id']
             selected_output=self.capture_selector.currentData()
-            output=Path(selected_output) if selected_output else Path(run.get('capture',{}).get('status',{}).get('output_directory',str(run['path'])))
+            output=Path(selected_output) if selected_output and not isinstance(selected_output,dict) else Path(run.get('capture',{}).get('status',{}).get('output_directory',str(run['path'])))
             for view,name in zip(self.image_labels,('upper.tif','lower.tif')):
-                file=output/name
+                file=Path(selected_output.get(name.split('.')[0],str(output/'missing'))) if isinstance(selected_output,dict) else output/name
                 try:
                     import numpy as np
                     import tifffile

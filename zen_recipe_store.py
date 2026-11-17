@@ -201,7 +201,7 @@ class RecipeLibrary:
 
     # ---- queries -----------------------------------------------------
     def recipes(self):
-        return list(self._doc["recipes"])
+        return [r for r in self._doc["recipes"] if not r.get("deleted_at")]
 
     def find(self, recipe_id):
         return next(
@@ -333,7 +333,14 @@ class RecipeLibrary:
         if identity.get("execution_scope"):
             raise ValueError("单步试运行不能放行完整配方")
         fingerprints = report.get("experiment_fingerprints", {})
-        if not fingerprints:
+        required_experiments = True
+        if "program_steps" in version["body"]:
+            from zen_steps import flatten
+            required_experiments = any(n["kind"] in ("load_experiment", "measure_angle", "autofocus", "zstack", "capture_upper", "capture_lower") for _, n in flatten(version["body"]["program_steps"]))
+        if "program_steps" in version["body"]:
+            from zen_heights import validate_height_trial
+            validate_height_trial(version["body"], report)
+        if required_experiments and not fingerprints:
             raise ValueError("试运行没有完整实验指纹")
         version["validation"] = {
             "state": "field_trial_passed",
@@ -402,6 +409,12 @@ class RecipeLibrary:
         version["status"] = ARCHIVED
         self.save()
         return version
+
+    def delete_recipe(self,recipe_id,*,by):
+        recipe=self.find(recipe_id)
+        if not recipe:raise ValueError('配方不存在')
+        recipe.update(deleted_at=utc_now(),deleted_by=by)
+        self.save()
 
     # ---- comparison --------------------------------------------------
     def compare(self, recipe_id, revision_a, revision_b):

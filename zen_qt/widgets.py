@@ -338,6 +338,13 @@ class LogDock(QTabWidget):
     def toggle_fold(self):
         self.collapsed = not self.collapsed
         self.setFixedHeight(36 if self.collapsed else 144)
+        self.refresh_fold_title()
+
+    def refresh_fold_title(self):
+        # A folded log must still surface the newest line, or a warning
+        # written while it is closed goes unseen.
+        last = self.log.document().lastBlock().text().strip() if self.collapsed else ""
+        self.setTabText(0, "事件日志" + (" · " + last[:60] if last else ""))
         self.fold_button.setText('展开日志' if self.collapsed else '收起日志')
 
     def add(self, level, text):
@@ -345,6 +352,8 @@ class LogDock(QTabWidget):
         name, color = self.LEVELS.get(level, self.LEVELS["info"])
         stamp = datetime.now().strftime("%H:%M:%S")
         self.log.appendPlainText(f"{stamp}  {name:<4} {text}")
+        if self.collapsed:
+            self.refresh_fold_title()
 
     def refresh_tab(self):
         index = self.currentIndex()

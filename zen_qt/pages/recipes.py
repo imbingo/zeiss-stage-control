@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QSplitter,
     QScrollArea,
+    QLayout,
     QCheckBox,
     QFileDialog,
     QDialog,
@@ -94,16 +95,26 @@ class RecipesPage(QWidget):
 
     def _build(self):
         lay, head = _page(self, "配方管理", "选择配方 → 编排流程 → 设置步骤参数")
+        head.addWidget(QPushButton("新建配方", clicked=self.new_recipe))
+        # Occasional entries share one menu so the header keeps a single
+        # obvious action.
+        from PySide6.QtWidgets import QMenu
+
+        self.import_button = QPushButton("导入 / 演示")
+        self.import_menu = QMenu(self.import_button)
         for text, fn in [
-            ("新建配方", self.new_recipe),
-            ("导入旧配置", self.import_legacy),
+            ("导入旧配置…", self.import_legacy),
             (
                 "导入上次配置",
                 lambda: self.import_legacy(str(self.app.preferences.path)),
             ),
             ("载入演示配方", self.seed_demo),
         ]:
-            head.addWidget(QPushButton(text, clicked=fn))
+            self.import_menu.addAction(text).triggered.connect(
+                lambda checked=False, f=fn: f()
+            )
+        self.import_button.setMenu(self.import_menu)
+        head.addWidget(self.import_button)
         meta = QWidget()
         ml = hbox(meta, margins=0)
         self.meta_name = label("请选择或新建配方")
@@ -149,13 +160,19 @@ class RecipesPage(QWidget):
         mid.add(self.template)
         row = QWidget()
         rl = hbox(row, margins=0)
-        for text, fn in [
-            ("＋步骤", self.add_step),
-            ("↑", lambda: self.move_hole(-1)),
-            ("↓", lambda: self.move_hole(1)),
-            ("删除", self.delete_hole),
+        for text, fn, tip in [
+            ("＋步骤", self.add_step, "在选中步骤之后添加"),
+            ("↑", lambda: self.move_hole(-1), "上移选中步骤"),
+            ("↓", lambda: self.move_hole(1), "下移选中步骤"),
+            ("删除", self.delete_hole, "删除选中步骤；可用“撤销删除”恢复"),
         ]:
-            rl.addWidget(QPushButton(text, clicked=fn))
+            button = QPushButton(text, clicked=fn, toolTip=tip)
+            if text in "↑↓":
+                button.setFixedWidth(34)
+            rl.addWidget(button)
+        self.undo_button = QPushButton("撤销删除", clicked=self.undo_delete)
+        self.undo_button.setEnabled(False)
+        rl.addWidget(self.undo_button)
         mid.add(row)
         self.step_tree = QTreeWidget()
         self.step_tree.setHeaderHidden(True)
@@ -178,6 +195,7 @@ class RecipesPage(QWidget):
         self.form_host = QWidget()
         self.form_host.setStyleSheet("background:white")
         self.form = QFormLayout(self.form_host)
+        self.form.setSizeConstraint(QLayout.SetMinimumSize)
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -239,6 +257,9 @@ class RecipesPage(QWidget):
             self._dirty = True
             self.save_state.setText("有未保存修改")
             self.release_button.setEnabled(False)
+
+    def undo_delete(self):
+        pass
 
     def _set(self, container, key, text):
         container[key] = text
@@ -573,7 +594,7 @@ class RecipesPage(QWidget):
             and v.get("validation", {}).get("state") == "field_trial_passed"
         )
         self.release_hint.setText(
-            "现场放行须关联本修订成功的真实设备试运行；模拟验证不会放行现场配方。"
+            "现场放行须关联本修订成功的现场设备试运行；模拟验证不会放行现场配方。"
         )
 
     def change_template(self, text):
@@ -814,7 +835,7 @@ class RecipesPage(QWidget):
             QMessageBox.question(
                 self,
                 "现场放行",
-                "已核对本版本现场试运行、运动路径与实验行为，确认放行？",
+                "已核对本版本工程试运行、运动路径与实验行为，确认放行？",
             )
             != QMessageBox.Yes
         ):

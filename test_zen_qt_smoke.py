@@ -97,6 +97,8 @@ class TestQtWorkbench(unittest.TestCase):
         page = window.pages["marks"]
         # Simulate a pending-recovery record appearing after connect.
         from zen_records import pending_recovery, write_json, utc_now
+        # Explicitly test legacy policy compatibility; the current product uses live checks.
+        write_json(window.data_root/'device_policy.json',{'manual_recovery':True})
         run = Path(self.tmp.name) / "data" / "demo" / "stale-run"
         run.mkdir(parents=True)
         write_json(run / "status.json", {"state": "running", "recovery_required": True,
@@ -105,7 +107,11 @@ class TestQtWorkbench(unittest.TestCase):
         window.refresh_ui()
         self.assertTrue(window.locked())
         for keys, button in page.capture_buttons.items():
-            self.assertFalse(button.isEnabled())
+            self.assertTrue(button.isEnabled())
+        before=window.workflow.device.capture_count
+        page.capture(('upper',))
+        self.assertEqual(window.workflow.device.capture_count,before)
+        self.assertTrue(page.capture_hint.text())
         # Unlock via the same path the recovery dialog uses.
         window.confirm_recovery()
         self.assertFalse(window.locked())
