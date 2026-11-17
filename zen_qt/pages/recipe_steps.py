@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 import json
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QTabWidget,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QGridLayout,
+    QLineEdit,
 )
 from .recipes import RecipesPage as VersionPage
 from .recipe_tools import RecipeTools
@@ -320,6 +321,17 @@ class RecipesPage(RecipeTools, VersionPage):
         if not self._selected_step_id:
             self.step_tree.setCurrentItem(common)
 
+    def queue_params_refresh(self):
+        # Never delete a sender while Qt is still emitting its value-change signal.
+        stamp=(id(self._body),self.current_id,self.current_rev,self._selected_step_id)
+        token=object();self._params_refresh_token=token
+        def refresh():
+            if (getattr(self,"_params_refresh_token",None) is token
+                and stamp==(id(self._body),self.current_id,self.current_rev,self._selected_step_id)):
+                self._params_refresh_token=None
+                self.refresh_params()
+        QTimer.singleShot(0,self,refresh)
+
     def refresh_params(self):
         self._loading = True
         self.param_edits = {}
@@ -366,7 +378,30 @@ class RecipesPage(RecipeTools, VersionPage):
             self.form.addRow("步骤编号", label(n["step_id"], role="muted"))
             self._entry("步骤名称", n, "label")
             for key, title, typ, default in CATALOG[kind][2]:
+                if kind == "measure_heights" and p.get("xy_mode", "motorized") == "current" and key in ("prescan_half_um", "prescan_timeout_s", "max_prediction_residual_um"):
+                    continue
+                if kind == "measure_heights" and key in ("prescan_timeout_s", "timeout_s", "max_prediction_residual_um") and not getattr(self,"_height_advanced",False):
+                    continue
+                if kind == "measure_heights" and key == "points_um":
+                    advanced=QCheckBox("更多 AF 设置（超时、拟合残差）")
+                    advanced.setChecked(getattr(self,"_height_advanced",False))
+                    advanced.toggled.connect(lambda checked:(setattr(self,"_height_advanced",checked),self.queue_params_refresh()))
+                    self.form.addRow(advanced)
+                    self.form.addRow(label(f"共用超时：预扫描 {p.get('prescan_timeout_s',60)} s / 精扫描 {p.get('timeout_s',30)} s；残差上限 {p.get('max_prediction_residual_um',2)} µm",wrap=True,role="muted"))
+                if typ in ("surface_count", "height_mode"):
+                    control = QComboBox()
+                    choices = [("两面",2),("三面",3)] if typ == "surface_count" else [("XY 路径 · 四点预测","motorized"),("固定当前位置 · 单点（不预测）","current")]
+                    for text,value in choices:control.addItem(text,value)
+                    control.setCurrentIndex(max(0,control.findData(p.get(key,default))))
+                    control.setEnabled(not self._read_only())
+                    control.currentIndexChanged.connect(lambda _,c=control,k=key: (self._set(p,k,c.currentData()),self.queue_params_refresh()))
+                    self.form.addRow(title,control)
+                    continue
+                if typ == "height_faces":
+                    self.height_faces_editor(n)
+                    continue
                 if typ == "points":
+                    if kind == "measure_heights" and p.get("xy_mode")=="current":continue
                     self.points_editor(n, key)
                     continue
                 if typ == "bool":
@@ -375,7 +410,7 @@ class RecipesPage(RecipeTools, VersionPage):
                     c.setEnabled(not self._read_only())
                     c.toggled.connect(lambda v, k=key: self._set(p, k, v))
                     if key == "predict_plane":
-                        c.toggled.connect(lambda _: self.refresh_params())
+                        c.toggled.connect(lambda _: self.queue_params_refresh())
                     self.form.addRow(c)
                 elif typ == "capture":
                     c = QComboBox()
@@ -393,6 +428,8 @@ class RecipesPage(RecipeTools, VersionPage):
                     e = self._entry(title, p, key, default)
                     if typ in ("number", "optional"):
                         e.setPlaceholderText("数字，或引用 @步骤编号.z_um")
+            if kind == "measure_heights":
+                self.form.addRow(label("逐点 Z1→Z2→Z3，各面独立四点预测；只输出实测高度与差值，不扣物料厚度。固定点不调用 XY 运动，无 XY 时不读取 XY。正常完成返回公共安全 Z，异常或停止不自动返回。",wrap=True))
             if kind == "measure_angle":
                 self.form.addRow(QPushButton("读取当前 Z 为初始搜索中心（只读）", clicked=self.teach_initial_z))
                 self.form.addRow(
@@ -438,12 +475,68 @@ class RecipesPage(RecipeTools, VersionPage):
         self.tests.setPlainText(self.describe_validation(v))
         self._loading = False
 
+    def height_faces_editor(self, node):
+        from zen_heights import default_surfaces, AF_DEFAULTS
+        p=node["params"];faces=p.setdefault("surfaces",default_surfaces())
+        self.height_z_edits={}
+        table=QTableWidget(p.get("surface_count",3),5)
+        table.setHorizontalHeaderLabels(["面","ZEN 实验名称","初始 Z · µm","示教","独立 AF"])
+        table.verticalHeader().setVisible(False)
+        table.setMinimumHeight(180 if p.get("surface_count",3)==3 else 140)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        header=table.horizontalHeader();header.setSectionResizeMode(1,QHeaderView.Stretch)
+        for col,width in ((0,40),(2,100),(3,65),(4,70)):
+            header.setSectionResizeMode(col,QHeaderView.Fixed);table.setColumnWidth(col,width)
+        for index,face in enumerate(faces[:p.get("surface_count",3)]):
+            table.setRowHeight(index,44)
+            table.setItem(index,0,QTableWidgetItem(f"Z{index+1}"))
+            for col,key in ((1,"experiment"),(2,"z_um")):
+                edit=QLineEdit(str(face.get(key,"")));edit.setEnabled(not self._read_only())
+                edit.setPlaceholderText("ZEN 名称" if col==1 else "只读示教 / 输入")
+                edit.textChanged.connect(lambda value,f=face,k=key:self._set(f,k,value))
+                table.setCellWidget(index,col,edit)
+                if key=="z_um":self.height_z_edits[index]=edit
+            button=QPushButton("读取",clicked=lambda checked=False,i=index:self.teach_height_z(i))
+            button.setToolTip("只读取当前 Z，不运动、不读 XY")
+            button.setEnabled(not self._read_only());table.setCellWidget(index,3,button)
+            override=QCheckBox("独立");override.setObjectName(f"height_override_{index}")
+            override.setToolTip("展开本面的独立 AF 参数；未勾选时使用共用参数")
+            override.setChecked(bool(face.get("override")));override.setEnabled(not self._read_only())
+            override.toggled.connect(lambda value,f=face:self.set_height_override(p,f,value))
+            table.setCellWidget(index,4,override)
+        self.form.addRow(table)
+        for index,face in enumerate(faces[:p.get("surface_count",3)]):
+            if face.get("override"):
+                self.form.addRow(label(f"Z{index+1} 独立 AF 参数",role="h3"))
+                for key,default in AF_DEFAULTS.items():
+                    if p.get("xy_mode")=="current" and key.startswith("prescan"):continue
+                    titles={"prescan_half_um":"预扫描 AF 半范围 · µm","prescan_timeout_s":"预扫描超时 · s","half_um":"精扫描 / 单点 AF 半范围 · µm","timeout_s":"精扫描 / 单点超时 · s"}
+                    self._entry(titles[key],face,key,p.get(key,default))
+
+    def set_height_override(self,params,face,enabled):
+        from zen_heights import AF_DEFAULTS
+        if self._read_only():return
+        if enabled:
+            for key,default in AF_DEFAULTS.items():face.setdefault(key,params.get(key,default))
+        self._set(face,"override",enabled);self.queue_params_refresh()
+
+    def teach_height_z(self, index):
+        node=self._find_step(self._selected_step_id);w=self.app.workflow
+        if not node or node["kind"]!="measure_heights" or self._read_only():return
+        if not w or w.busy:
+            self.validation_hint.setText("请先连接设备并等待读取/任务结束，再点击示教；未发送运动。")
+            return
+        stamp=(self.current_id,self.current_rev,node["step_id"],index,json.dumps(node["params"],sort_keys=True))
+        generation=getattr(w,"action_generation",0)
+        w.read_only("heights_teach",lambda d:dict(target=stamp,device=id(d),generation=generation,z=d.read_z()))
+
     def points_editor(self, node, key):
         p = node["params"]
         rows = p.get(key, [])
-        angle = node["kind"] == "measure_angle"
+        angle = node["kind"] in ("measure_angle", "measure_heights")
         table = QTableWidget(len(rows), 4 if angle else 3)
         table.setHorizontalHeaderLabels(["X · µm", "Y · µm", "固定模式预期 Z（可空）· µm"] + (["预扫描点"] if angle else []))
+        if node["kind"] == "measure_heights":table.setColumnHidden(2,True)
         table.setMinimumHeight(180)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for r, row in enumerate(rows):
@@ -839,12 +932,22 @@ class RecipesPage(RecipeTools, VersionPage):
         if tag == "path_endpoint":
             dialog = getattr(self, "path_dialog", None)
             if dialog and dialog.isVisible(): dialog.notice.setText("只读示教失败："+str(error))
-        elif tag == "prediction_initial_z":
+        elif tag in ("prediction_initial_z", "heights_teach"):
             self.validation_hint.setText("初始 Z 读取失败："+str(error))
         else:
             super().on_rpc_error(tag, error)
 
     def on_rpc_result(self, tag, value):
+        if tag == "heights_teach":
+            rid,rev,sid,index,params=value["target"];node=self._find_step(sid);w=self.app.workflow
+            if (not w or id(w.device)!=value["device"] or getattr(w,"action_generation",0)!=value["generation"]
+                or (rid,rev)!=(self.current_id,self.current_rev) or not node or self._read_only()
+                or json.dumps(node["params"],sort_keys=True)!=params):return
+            try:
+                node["params"]["surfaces"][index]["z_um"]=numeric(value["z"]*1e6,"初始 Z",allow_ref=False)
+                self.mark_dirty();self.refresh_params()
+            except ValueError as error:self.validation_hint.setText(str(error))
+            return
         if tag == "prediction_initial_z":
             rid,rev,sid,params = value["target"]
             w = self.app.workflow; node = self._find_step(sid)
