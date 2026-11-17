@@ -299,3 +299,19 @@ class HeightTests(unittest.TestCase):
         r = self.execute(b)
         self.assertEqual(r["state"], "complete", r.get("error"))
         validate_height_trial(b, r)
+
+    def test_return_checks_xy_against_original_point_anchor(self):
+        move = self.d.move_z
+
+        def drift(z):
+            move(z)
+            # Small per-move XY drift accumulates across faces and the final return.
+            self.d.xy = (self.d.xy[0] + 0.3e-6, self.d.xy[1])
+
+        self.d.move_z = drift
+        r = self.execute(body([height_step(current=True)]))
+        scan = self.scan(r)
+        self.assertEqual(r["state"], "failed")
+        self.assertTrue(scan["data_complete"])
+        self.assertFalse(scan["return_complete"])
+        self.assertIn("累计", scan["error"])

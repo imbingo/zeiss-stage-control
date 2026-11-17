@@ -277,6 +277,7 @@ def execute_heights(
         publish()
         w._state("自动任务", detail="多面高度数据已采齐，返回安全 Z 并核验到位")
         device.move_z(float(common["safe_z_um"]) * 1e-6)
+        check_xy(anchor)
         scan.update(state="complete", return_complete=True, finished_at=utc_now())
         publish()
         return {"height_scan_path": path, "points": len(points), "surfaces": count}
