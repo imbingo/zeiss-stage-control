@@ -38,6 +38,9 @@ def main(runtime):
         remove(site / name)
         for info in site.glob(f"{name}-*.dist-info"):
             remove(info)
+    # setuptools is removed above; its startup hook must not reference it.
+    if not (site / "_distutils_hack").exists():
+        remove(site / "distutils-precedence.pth")
     qt = site / "PySide6"
     if qt.is_dir():
         for name in QT_DIRS:

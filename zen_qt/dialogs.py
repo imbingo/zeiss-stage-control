@@ -272,7 +272,14 @@ class ConfirmRunDialog(QDialog):
 
 
 class RecoveryDialog(QDialog):
-    """Operator attestation that XY and AF/Z motion have actually ended."""
+    """Operator attestation that every physical subsystem has actually stopped."""
+
+    CHECKS = (
+        ("xy_idle", "已按现场规程确认 XY：有电动 XY 时动作已结束；无电动 XY 时样品已固定、手动水平调整已结束", "xy_box"),
+        ("af_z_idle", "已在 ZEN 或设备端独立确认软件 AF、Z 轴和拍摄均已结束", "z_box"),
+        ("experiment_idle", "已确认 ZEN 实验与采集已停止，没有后台任务在运行", "experiment_box"),
+        ("optics_unchanged", "已确认物镜、倍率与光路未被改变，转盘不在动作中", "optics_box"),
+    )
 
     def __init__(self, app, parent=None):
         super().__init__(parent or app)
@@ -281,24 +288,36 @@ class RecoveryDialog(QDialog):
         self.setMinimumWidth(560)
         lay = vbox(self, spacing=10, margins=16)
         lay.addWidget(note(
-            "软件无法确认物理动作是否已结束。请先在 ZEN / 设备端独立核实，再逐项确认解锁。", ))
-        self.xy_box = QCheckBox("已按现场规程确认 XY：有电动 XY 时动作已结束；无电动 XY 时样品已固定、手动水平调整已结束")
-        self.z_box = QCheckBox("已在 ZEN 或设备端独立确认软件 AF、Z 轴和拍摄均已结束")
-        for box in (self.xy_box, self.z_box):
+            "软件无法确认物理动作是否已结束。请先在 ZEN / 设备端独立核实，再逐项确认解锁。"))
+        self.checks = []
+        for key, text, attr in self.CHECKS:
+            box = QCheckBox()
             row = QWidget()
             row_lay = hbox(row, spacing=8, margins=0)
-            caption = label(box.text(), wrap=True)
-            box.setText('已确认')
-            box.setAccessibleName(caption.text())
+            caption = label(text, wrap=True)
+            box.setText("已确认")
+            box.setAccessibleName(text)
             row_lay.addWidget(box)
             row_lay.addWidget(caption, 1)
             lay.addWidget(row)
+            setattr(self, attr, box)
+            self.checks.append((key, text, box))
+        current = ""
+        source = getattr(app, "operator_edit", None)
+        if source is not None and hasattr(source, "text"):
+            current = source.text()
+        lay.addWidget(label("确认人（写入逐条恢复记录）", role="muted"))
+        self.operator_edit = QLineEdit(current)
+        self.operator_edit.setPlaceholderText("操作员姓名 / 工号")
+        lay.addWidget(self.operator_edit)
         runs = app.pending_runs()
-        self.list_label = label("待确认运行记录：" + ("、".join(p.name for p in runs) if runs else "（无）"),
+        self.list_label = label("待确认运行记录："
+                                + ("、".join(p.name for p in runs) if runs else "（无）"),
                                 role="muted", wrap=True)
-        from PySide6.QtGui import QFont
-        self.list_label.setFont(QFont("Consolas", 9))
+        self.list_label.setAccessibleName("待确认运行记录列表")
         lay.addWidget(self.list_label)
+        lay.addWidget(label("每条运行将分别写入一条带确认人、时间与设备回读的记录。",
+                            role="muted", wrap=True))
         buttons = QDialogButtonBox()
         ok = buttons.addButton("记录恢复并解锁", QDialogButtonBox.AcceptRole)
         ok.setObjectName("danger")
@@ -308,8 +327,16 @@ class RecoveryDialog(QDialog):
         lay.addWidget(buttons)
 
     def _confirm(self):
-        if not (self.xy_box.isChecked() and self.z_box.isChecked()):
-            self.list_label.setText("须分别确认 XY 和 AF/Z 已结束。")
+        missing = [text for _, text, box in self.checks if not box.isChecked()]
+        if missing:
+            self.list_label.setText(f"还有 {len(missing)} 项未确认：请逐项在设备端核实后勾选。")
             return
-        if self.app.confirm_recovery():
+        attestation = {
+            "operator": self.operator_edit.text().strip(),
+            "reason": "设备状态恢复解锁",
+            "items": [{"key": key, "label": text, "confirmed": True,
+                       "method": "operator_external_check", "value": ""}
+                      for key, text, box in self.checks],
+        }
+        if self.app.confirm_recovery(attestation):
             self.accept()

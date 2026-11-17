@@ -24,6 +24,8 @@ def entry(value):
 
 def sanitize(value):
     result = {'ui_schema_version': 1}
+    for key in ('image_output','naming_rule'):
+        if text(value.get(key)) is not None: result[key]=value[key]
     if value.get('xy_mode') in ('motorized', 'no_xy'):
         result['xy_mode'] = value['xy_mode']
     connection = value.get('connection', {})
@@ -104,6 +106,10 @@ def sanitize(value):
                 raise ValueError('invalid sequence tilt points')
             saved['tilt_coordinate_unit']='m';saved['tilt']={k:tilt[k] for k in keys}
         result['sequence']=saved
+    limits = value.get('manual_limits', {})
+    if isinstance(limits, dict):
+        # Raw UI text in micrometres; targets and the confirmation are never stored.
+        result['manual_limits'] = {k: v for k in ('safe', 'low', 'high') if (v := entry(limits.get(k))) is not None}
     session = value.get('session', {})
     if isinstance(session, dict):
         result['session'] = {k: v for k in ('sample', 'operator') if (v := text(session.get(k))) is not None}

@@ -1,0 +1,22 @@
+{
+  "simulated": true,
+  "state": "complete",
+  "captures": 2,
+  "recipe_identity": {
+    "recipe_id": "RCP-743EEE23D6",
+    "revision": 1,
+    "content_sha256": "b1f2222108475588c1746ee75f528db9a3855479147f60e03631c488ec205b2d",
+    "execution_mode": "simulation",
+    "status": "draft",
+    "experiment_fingerprints": {}
+  },
+  "final_xy_m": [
+    0.0045,
+    0.0015
+  ],
+  "final_z_m": 1.9999999999999998e-05,
+  "small_window": [
+    1366,
+    768
+  ]
+}

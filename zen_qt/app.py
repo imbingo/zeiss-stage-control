@@ -24,7 +24,8 @@ from zen_hardware.mark_simulator import SimulatedMarkDevice, SimulatedSequenceDe
 from zen_hardware.simulator import SimulatedDevice
 from zen_fit import fit_demo, fit_field, FIELD_CONVENTION, validate_recipe
 from zen_preferences import Preferences
-from zen_records import confirm_recovery, pending_recovery, write_json, utc_now
+from zen_records import (RECOVERY_ITEMS, confirm_recovery, pending_recovery,
+                         write_json, utc_now)
 from zen_workflow import Recipe, Workflow
 from . import theme, worker
 from .dialogs import GatewayDialog, RecoveryDialog
@@ -41,6 +42,8 @@ class WorkbenchWindow(QMainWindow):
     def __init__(self, data_root):
         super().__init__()
         self.data_root = Path(data_root)
+        from zen_device_policy import use_live_checks
+        use_live_checks(self.data_root)
         self.preferences = Preferences(self.data_root / "preferences" / "ui.json")
         self.gateway_overrides = dict(self.preferences.data.get("connection", {}))
         self.session = dict(self.preferences.data.get("session", {}))
@@ -58,10 +61,13 @@ class WorkbenchWindow(QMainWindow):
         self._live_z = None
         self._live_xy = None
 
-        self.setWindowTitle("ZEN 表面测角工作台 v2.6.0")
+        self.setWindowTitle("LSM测量工作站 v2.11.0")
         self.resize(1600, 980)
         self.setMinimumSize(1000, 620)
         self.setStyleSheet(theme.QSS)
+        from .i18n import install
+
+        install()
 
         root = QWidget()
         root.setObjectName("root")
@@ -69,6 +75,12 @@ class WorkbenchWindow(QMainWindow):
         outer = vbox(root, spacing=0, margins=0)
 
         outer.addWidget(self._build_topbar())
+        self.action_bar=QFrame()
+        action_lay=hbox(self.action_bar,margins=(16,6,16,6))
+        self.action_text=label('',wrap=True)
+        action_lay.addWidget(self.action_text,1)
+        action_lay.addWidget(QPushButton('关闭提示',clicked=self.action_bar.hide))
+        outer.addWidget(self.action_bar);self.action_bar.hide()
         self.lockbar = self._build_lockbar()
         outer.addWidget(self.lockbar)
         self.lockbar.hide()
@@ -111,62 +123,21 @@ class WorkbenchWindow(QMainWindow):
     # ---------- shell construction ----------
 
     def _build_topbar(self):
-        bar = QFrame()
-        bar.setObjectName("topbar")
-        bar.setFixedHeight(56)
-        lay = hbox(bar, spacing=10, margins=(16, 0, 16, 0))
-        brand = QLabel("■ ZEN 表面测角工作台")
-        brand.setObjectName("brand")
-        brand.setStyleSheet(f"color:{theme.ACCENT}")
-        lay.addWidget(brand)
-        lay.addWidget(label("v2.6.0", role="muted"))
-        self.conn_chip = Chip("未连接")
-        self.mode_chip = Chip("真实设备")
-        self.mode_chip.set_kind("real")
-        self.xy_chip = Chip("有电动 XY" if self.xy_mode == "motorized" else "无电动 XY · 单点")
-        self.recovery_chip = Chip("无待恢复项")
-        for chip in (self.conn_chip, self.mode_chip, self.xy_chip, self.recovery_chip):
-            lay.addWidget(chip)
-        readouts = QFrame()
-        readouts.setStyleSheet(f"border:1px solid {theme.LINE}; border-radius:8px; background:#fbfcfd;")
-        rl = hbox(readouts, spacing=0, margins=0)
-        self.read_labels = {}
-        for index, (key, unit) in enumerate((("X", "µm"), ("Y", "µm"), ("Z", "µm"), ("物镜", ""))):
-            cell = QWidget()
-            cl = vbox(cell, spacing=0, margins=(10, 3, 10, 3))
-            head = label(f"{key} {unit}".rstrip(), role="muted")
-            head.setStyleSheet("font-size:10px")
-            cl.addWidget(head)
-            value = label("—", mono=True)
-            value.setStyleSheet("font-size:13px; font-weight:600")
-            self.read_labels[key] = value
-            cl.addWidget(value)
-            rl.addWidget(cell)
-            if index < 3:
-                sep = QFrame()
-                sep.setStyleSheet(f"background:{theme.LINE}; max-width:1px;")
-                rl.addWidget(sep)
-        lay.addWidget(readouts)
-        lay.addStretch(1)
-        self.stop_button = QPushButton("■ 停止")
-        self.stop_button.setObjectName("danger")
-        self.stop_button.setShortcut("Esc")
-        self.stop_button.clicked.connect(self.stop)
-        lay.addWidget(self.stop_button)
-        return bar
+        from .titlebar import build_titlebar
+        return build_titlebar(self)
 
     def _build_lockbar(self):
         bar = QFrame()
         bar.setObjectName("lockbar")
         lay = hbox(bar, spacing=12, margins=(16, 8, 16, 8))
-        self.lock_title = label("⚠ 设备状态待确认 · 写入与运动已锁定")
+        self.lock_title = label("⚠ 设备状态未验证 · 请执行只读检查")
         self.lock_title.setStyleSheet(f"color:{theme.BAD}; font-size:14px; font-weight:700;")
         lay.addWidget(self.lock_title)
         self.lock_text = label("", wrap=True)
         self.lock_text.setStyleSheet("color:#6d2a22; font-size:12px;")
         lay.addWidget(self.lock_text, 1)
         view = QPushButton("查看运行记录", clicked=lambda: self.navigate("records"))
-        unlock = QPushButton("逐项确认并解锁…", clicked=self.open_recovery)
+        unlock = QPushButton("重新检查设备", clicked=self.open_recovery)
         unlock.setStyleSheet(f"border-color:{theme.BAD}; color:{theme.BAD}; font-weight:600;")
         lay.addWidget(view)
         lay.addWidget(unlock)
@@ -182,38 +153,38 @@ class WorkbenchWindow(QMainWindow):
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         entries = (
-            ("device", "1  设备与自检"), ("tilt", "2  表面测角"),
-            ("marks", "3  对位采图"), ("sequence", "4  自动任务 / Sequence"),
-            ("records", "5  记录与分析"),
+            ("sequence", "运行中心"), ("recipes", "配方管理"),
+            ("device", "设备与手动操作"), ("records", "结果与追溯"),
+            ("settings", "系统设置"),
         )
         for key, text in entries:
             button = self._nav_button(key, text)
             lay.addWidget(button)
             self.nav_buttons[key] = button
-        lay.addWidget(label("工程", role="muted"))
-        for key, text in (("hardware", "⚙  硬件单步调试"), ("settings", "≡  设置")):
+
+        for key, text in (("hardware", "硬件通讯测试"),("tilt","独立测角测试"),("marks","单点采图测试")):
             button = self._nav_button(key, text)
             lay.addWidget(button)
             self.nav_buttons[key] = button
         lay.addStretch(1)
-        session_card = Card()
-        session_lay = session_card._lay
-        session_lay.setSpacing(4)
-        session_lay.addWidget(label("样品 / 批次", role="muted"))
+        # The fields themselves live in the run centre's task card, next to
+        # the start button; the sidebar only echoes them on every page.
         self.sample_edit = QLineEdit(str(self.session.get("sample", "")))
-        self.sample_edit.setPlaceholderText("如 W-0412 · Lot A7")
+        self.sample_edit.setPlaceholderText("必填，如 W-0412 · Lot A7")
         self.operator_edit = QLineEdit(str(self.session.get("operator", "")))
-        self.operator_edit.setPlaceholderText("操作员")
-        session_lay.addWidget(self.sample_edit)
-        session_lay.addWidget(self.operator_edit)
-        session_lay.addWidget(label("本次会话目录", role="muted"))
-        path = label(str(self.data_root), role="muted")
-        path.setStyleSheet("font-size:10px")
-        path.setWordWrap(True)
-        session_lay.addWidget(path)
-        lay.addWidget(session_card)
+        self.operator_edit.setPlaceholderText("必填")
+        self.session_summary = QPushButton()
+        self.session_summary.setObjectName("flat")
+        self.session_summary.setStyleSheet("text-align:left;")
+        self.session_summary.setToolTip(
+            f"点击到运行中心填写样品 / 操作员。\n本次会话目录：{self.data_root}"
+        )
+        self.session_summary.clicked.connect(self.edit_session)
+        lay.addWidget(self.session_summary)
         for edit in (self.sample_edit, self.operator_edit):
             edit.editingFinished.connect(self._save_session)
+            edit.textChanged.connect(self._refresh_session_summary)
+        self._refresh_session_summary()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -237,10 +208,12 @@ class WorkbenchWindow(QMainWindow):
         from .pages.records import RecordsPage
         from .pages.hardware import HardwarePage
         from .pages.settings import SettingsPage
-        from .pages.sequence import SequencePage
+        from .pages.run_program import RunCenter as SequencePage
+        from .pages.recipe_steps import RecipesPage
         self.page_containers = {}
         for key, cls in (("device", DevicePage), ("tilt", TiltPage),
-                         ("marks", MarksPage), ("sequence", SequencePage), ("records", RecordsPage),
+                         ("marks", MarksPage), ("sequence", SequencePage),
+                         ("recipes", RecipesPage), ("records", RecordsPage),
                          ("hardware", HardwarePage), ("settings", SettingsPage)):
             page = cls(self)
             self.pages[key] = page
@@ -250,14 +223,49 @@ class WorkbenchWindow(QMainWindow):
             scroll.setWidget(page)
             self.page_containers[key] = scroll
             self.stack.addWidget(scroll)
-        self.navigate("device")
+        # One equipment module owns its engineering tabs; existing page objects
+        # retain event handlers and shared workflow ownership.
+        from PySide6.QtWidgets import QTabWidget
+        from .pages.manual import ManualPage
+        self.equipment_tabs=QTabWidget()
+        self.pages['manual']=ManualPage(self)
+        for key,title in [('device','设备概览'),('manual','手动运动'),('hardware','采集与通讯测试'),('tilt','独立测角测试'),('marks','单点采图测试')]:
+            if key in self.page_containers:self.page_containers[key].takeWidget()
+            tab_scroll=QScrollArea();tab_scroll.setWidgetResizable(True);tab_scroll.setFrameShape(QFrame.NoFrame);tab_scroll.setWidget(self.pages[key])
+            self.equipment_tabs.addTab(tab_scroll,title)
+        self.equipment_tabs.currentChanged.connect(self._equipment_changed)
+        self.page_containers['device'].setWidget(self.equipment_tabs)
+        for key in ('hardware','tilt','marks'):self.nav_buttons[key].hide()
+        self.navigate("sequence")
 
     # ---------- navigation / logging ----------
 
+    def _equipment_changed(self,index):
+        key=['device','manual','hardware','tilt','marks'][index]
+        page=self.pages[key]
+        if hasattr(page,'on_show'):page.on_show()
+
+    def _refresh_session_summary(self, *_):
+        sample = self.sample_edit.text().strip()
+        operator = self.operator_edit.text().strip()
+        self.session_summary.setText(
+            f"样品 {sample or '未填写'}\n操作员 {operator or '未填写'}"
+        )
+
+    def edit_session(self):
+        self.navigate("sequence")
+        (self.operator_edit if self.sample_edit.text().strip() else self.sample_edit).setFocus()
+
     def navigate(self, key):
+        from .action_feedback import cancel_pending
+        for name,page in self.pages.items():
+            if name!=key:cancel_pending(page)
+        original=key
+        if hasattr(self,'equipment_tabs') and key in ('hardware','tilt','marks','manual'):
+            self.equipment_tabs.setCurrentIndex(['device','manual','hardware','tilt','marks'].index(key));key='device'
         self.stack.setCurrentWidget(self.page_containers[key])
         self.nav_buttons[key].setChecked(True)
-        page = self.pages[key]
+        page = self.pages[original]
         if hasattr(page, "on_show"):
             page.on_show()
 
@@ -279,7 +287,7 @@ class WorkbenchWindow(QMainWindow):
     def export_diagnostic_bundle(self):
         from PySide6.QtWidgets import QFileDialog
         bundle = {"kind": "diagnostic_bundle", "exported_at": utc_now(),
-                  "software": "ZEN 表面测角工作台 v2.6.0 (Qt)",
+                  "software": "LSM测量工作站 v2.11.0 (Qt)",
                   "simulated": bool(self.workflow and self.workflow.simulated),
                   "xy_mode": self.xy_mode,
                   "rpc_trace": (self.workflow.device.rpc_trace()
@@ -335,14 +343,16 @@ class WorkbenchWindow(QMainWindow):
             if hasattr(page, "clear_result"):
                 page.clear_result()
 
+    def show_action_hint(self,text):
+        self.action_text.setText(text);self.action_bar.show();self.log('info',text)
+
     def connect_field(self):
-        if self.workflow and self.workflow.busy:
-            return
+        from .action_feedback import defer_read
+        if defer_read(self,self,self.connect_field,lambda:('connect',self.xy_mode,repr(self.gateway_overrides)),self.show_action_hint):return
         try:
             address, pem_path, token = gateway_settings({**os.environ, **self.gateway_overrides})
         except ValueError as exc:
-            self.log("error", str(exc))
-            return
+            self.show_action_hint(str(exc)+'。请打开设备页的“连接设置”后再试。');return
 
         def channel():
             return secure_channel(address, pem_path.read_bytes(), token)
@@ -361,13 +371,13 @@ class WorkbenchWindow(QMainWindow):
 
     def connect_demo(self, kind):
         """Offline demo: 'tilt' runs the 4-point demo; 'marks' binds the mark simulator."""
-        if self.workflow and self.workflow.busy:
-            return
-        if kind != 'marks' and self.xy_mode == 'no_xy':
+        from .action_feedback import defer_read
+        if defer_read(self,self,lambda:self.connect_demo(kind),lambda:('demo',kind,self.xy_mode),self.show_action_hint):return
+        if kind not in ('marks','sequence') and self.xy_mode == 'no_xy':
             self.log('warn', '无 XY 模式仅支持单点采图。测角演示请先切换为有电动 XY。')
             return
         if kind == 'sequence':
-            self._replace_workflow(SimulatedSequenceDevice(), simulated=True,
+            self._replace_workflow(SimulatedSequenceDevice() if self.xy_mode != 'no_xy' else SimulatedMarkDevice(xy_enabled=False), simulated=True,
                                    validate=validate_recipe, fit=fit_demo)
             self.pages['tilt'].apply_recipe(Recipe('演示测角配方','Demo AF',DEMO_POINTS,1e-6,3,2,DEMO_CONVENTION))
             self.pages['sequence'].load_demo_defaults()
@@ -391,9 +401,18 @@ class WorkbenchWindow(QMainWindow):
             self.navigate("tilt")
         self.refresh_ui()
 
+    def exit_demo(self):
+        if not self.workflow or not self.workflow.simulated:
+            self.show_action_hint('当前不是离线演示，无需退出。');return
+        from .action_feedback import defer_read
+        if defer_read(self,self,self.exit_demo,lambda:('exit_demo',id(self.workflow)),self.show_action_hint):return
+        self.disconnect();self.equipment_tabs.setCurrentIndex(0);self.navigate('device')
+        self.show_action_hint('已退出离线演示。可在设备概览连接现场设备。')
+
     def disconnect(self):
-        if self.workflow is None or self.workflow.busy:
-            return
+        if self.workflow is None:self.show_action_hint('当前尚未连接，无需断开。');return
+        from .action_feedback import defer_read
+        if defer_read(self,self,self.disconnect,lambda:('disconnect',id(self.workflow)),self.show_action_hint):return
         old, self.workflow = self.workflow, None
         self._drain(old)
         if isinstance(old.device, GatewayDevice):
@@ -410,18 +429,22 @@ class WorkbenchWindow(QMainWindow):
         self.refresh_ui()
 
     def stop(self):
-        if self.workflow:
-            self.pending = None
+        from .action_feedback import cancel_pending
+        cancel_pending(self)
+        for page in self.pages.values():cancel_pending(page)
+        self.pending=None
+        if self.workflow and self.workflow.busy:
             self.workflow.stop()
-            self.log("warn", "已请求停止后续采集；正在等待的同步 RPC 不能取消，请在设备端确认停止。")
+            self.log('warn','已请求停止后续动作；当前设备调用可能仍需等待返回，请在设备端核实停止状态。')
+        else:self.show_action_hint('当前没有运行流程，待执行请求已取消。“停止后续步骤”是软件停止，不等于设备硬件急停。')
 
     def set_xy_mode(self, mode):
         if mode not in ('motorized', 'no_xy'):
             raise ValueError('未知 XY 模式')
         if mode == self.xy_mode:
             return
-        if self.workflow and self.workflow.busy:
-            return
+        from .action_feedback import defer_read
+        if defer_read(self,self,lambda:self.set_xy_mode(mode),lambda:('mode',mode,id(self.workflow)),self.show_action_hint):return
         self.xy_mode = mode
         self._connected_mode = mode
         self.preferences.update(xy_mode=mode)
@@ -440,26 +463,60 @@ class WorkbenchWindow(QMainWindow):
         return bool(self.pending_runs()) or (
             self.workflow is not None and self.workflow.state == RECOVERY_STATE)
 
+    def action_busy(self):
+        from .action_feedback import action_busy
+        return action_busy(self)
+
     def device_ready(self):
         return self.workflow is not None and self.workflow.state in READY_STATES and not self.locked()
 
     def open_recovery(self):
         if self.workflow and self.workflow.busy:
             return
-        dialog = RecoveryDialog(self)
-        dialog.exec()
+        if self.workflow:self.workflow.verify_ready()
 
-    def confirm_recovery(self):
+    def _device_readback_for_attestation(self):
+        """Best-effort readback evidence; a failed read is reported, not faked."""
+        device = getattr(self.workflow, "device", None) if self.workflow else None
+        if device is None:
+            return {"note": "确认时设备未连接，回读不可用"}
+        values = {}
+        for key, action in (("z_m", "read_z"), ("motion_state", "motion_state"),
+                            ("optics", "read_optics")):
+            try:
+                value = getattr(device, action)()
+                values[key] = list(value) if isinstance(value, tuple) else (
+                    str(value) if not isinstance(value, (int, float, str, bool, type(None))) else value)
+            except Exception:
+                values[key] = None
+        return values
+
+    def confirm_recovery(self, attestation=None):
+        """Write one signed attestation per pending run, never a batch shortcut."""
         if self.workflow and self.workflow.busy:
             return False
         from PySide6.QtWidgets import QMessageBox
+        attestation = attestation or {}
+        items = attestation.get("items")
+        if not items:
+            # Compatibility path (no dialog, e.g. automated recovery). Mark the
+            # source honestly instead of pretending an operator checked 4 items.
+            items = [{"key": key, "label": text, "confirmed": True,
+                      "method": "programmatic_caller", "value": ""}
+                     for key, text in RECOVERY_ITEMS[:2]]
+        operator = attestation.get("operator") or ""
+        if not operator and hasattr(self, "operator_edit"):
+            operator = self.operator_edit.text().strip()
+        readbacks = self._device_readback_for_attestation()
         try:
             if self.workflow and self.workflow.simulated:
                 self.workflow.device.confirm_simulated_recovery()
             for run in self.pending_runs():
-                confirm_recovery(run, xy_confirmed=True, af_z_confirmed=True)
-        except OSError:
-            QMessageBox.critical(self, "恢复记录失败", "恢复记录保存失败，请检查数据目录。")
+                confirm_recovery(run, operator=operator, items=items,
+                                 reason=attestation.get("reason", ""),
+                                 readbacks=readbacks)
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, "恢复记录失败", f"恢复记录保存失败：{error}")
             return False
         self.recovery_runs = pending_recovery(self.data_root, simulated=True)
         self.field_recovery_runs = pending_recovery(self.data_root, simulated=False)
@@ -500,17 +557,18 @@ class WorkbenchWindow(QMainWindow):
             message = f"{state} · 点位 {point or '—'} {detail}".rstrip()
             level = "error" if state == RECOVERY_STATE else ("ok" if state in READY_STATES else "info")
             self.log(level, ("离线演示 · " if workflow.simulated else "") + message)
+            if state in READY_STATES:self.action_bar.hide()
             if state == RECOVERY_STATE:
                 if workflow.simulated:
                     self.recovery_runs = pending_recovery(self.data_root, simulated=True)
                 else:
                     self.field_verified = False
                     self.field_recovery_runs = pending_recovery(self.data_root, simulated=False)
-        elif kind == 'sequence_progress':
+        elif kind in ('sequence_progress','program_progress'):
             report=data[0]
             readback=next((s['readback'] for s in reversed(report.get('steps',[])) if s.get('readback')),None)
             if readback:
-                self._live_xy=tuple(readback['xy_m']);self._live_z=readback['z_m']
+                self._live_xy=tuple(readback['xy_m']) if readback.get('xy_m') is not None else None;self._live_z=readback['z_m']
             if report.get('recovery_required'):
                 self._live_xy=self._live_z=None
         elif kind == "xy":
@@ -544,6 +602,7 @@ class WorkbenchWindow(QMainWindow):
                      f"诊断报告已生成（{report.get('kind', '')}）；详见「诊断」页签")
         elif kind == "mark_z":
             layer, z, xy = data
+            self._live_z=z
             self.log("info", f"已读取 {'上' if layer == 'upper' else '下'} mark Z = {z*1e6:.6f} µm")
         elif kind == "mark_error":
             self.log("error", data[0])
@@ -559,6 +618,10 @@ class WorkbenchWindow(QMainWindow):
     def _stamp_session(self, run_path):
         if run_path is None:
             return
+        # Sequence session was frozen before any action; never overwrite it
+        # with a subsequently edited sidebar value or drop its snapshot hash.
+        session_path=Path(run_path)/'session.json'
+        if (Path(run_path)/'snapshot.json').exists():return
         info = {"sample": self.sample_edit.text().strip(),
                 "operator": self.operator_edit.text().strip(),
                 "recorded_at": utc_now()}
@@ -577,11 +640,14 @@ class WorkbenchWindow(QMainWindow):
     # ---------- live position readout ----------
 
     def _poll_position(self):
+        # An explicit click takes priority over the next periodic refresh.
+        if getattr(self,'_pending_click',None) or any(getattr(p,'_pending_click',None) or getattr(p,'_auto_start_token',None) for p in self.pages.values()):return
         workflow = self.workflow
         if workflow is None or workflow.busy or workflow.state in ("未连接", "连接检查"):
             return
+        generation = getattr(workflow, "action_generation", 0)
         def read(device):
-            out = {}
+            out = {"_generation": generation}
             if hasattr(device, 'read_z'):
                 out['z'] = device.read_z()
             if workflow.xy_enabled:
@@ -626,13 +692,18 @@ class WorkbenchWindow(QMainWindow):
         busy = bool(workflow and workflow.busy)
         locked = self.locked()
         if workflow is None:
-            self.conn_chip.setText("未连接")
-            self.conn_chip.set_kind(None)
+            self.conn_chip.setText("未连接设备")
+            self.conn_chip.set_kind("offline")
         else:
             self.conn_chip.setText(("离线演示" if workflow.simulated else "Gateway") + f" · {workflow.state}")
             self.conn_chip.set_kind("bad" if workflow.state == RECOVERY_STATE else "ok" if workflow.state in READY_STATES else "warn")
-        self.mode_chip.setText("离线演示" if (workflow and workflow.simulated) else "真实设备")
-        self.mode_chip.set_kind("warn" if (workflow and workflow.simulated) else "real")
+        self.exit_demo_button.setVisible(bool(workflow and workflow.simulated))
+        self.exit_demo_button.setEnabled(True)
+        # "真实设备" next to "未连接" read as if hardware were attached.
+        simulated = bool(workflow and workflow.simulated)
+        self.mode_chip.setText("离线演示 · 非现场数据" if simulated else "现场设备" if workflow else "")
+        self.mode_chip.setVisible(workflow is not None)
+        self.mode_chip.set_kind("demo" if simulated else "real")
         runs = self.pending_runs()
         if runs or (workflow and workflow.state == RECOVERY_STATE):
             self.recovery_chip.setText("⚠ 待恢复 · 已锁定" if runs else "⚠ 状态待确认")
@@ -643,10 +714,16 @@ class WorkbenchWindow(QMainWindow):
         self.read_labels["X"].setText("—" if self._live_xy is None else f"{self._live_xy[0]*1e6:.2f}")
         self.read_labels["Y"].setText("—" if self._live_xy is None else f"{self._live_xy[1]*1e6:.2f}")
         self.read_labels["Z"].setText("—" if self._live_z is None else f"{self._live_z*1e6:.2f}")
-        self.stop_button.setEnabled(busy)
+        self.recovery_chip.hide()
+        self.stop_button.setEnabled(True)
+        idle = not busy
+        if self.stop_button.property("idle") != idle:
+            self.stop_button.setProperty("idle", idle)
+            self.stop_button.style().unpolish(self.stop_button)
+            self.stop_button.style().polish(self.stop_button)
         if locked:
             self.lock_text.setText(
-                "存在未确认的设备状态；请在 ZEN 现场确认 Z、AF 与采集均已停止。只读查询和「停止」仍可用。")
+                "设备动作结束状态尚未核验；可执行只读检查和停止请求，四项人工恢复确认已取消。")
             self.lockbar.show()
         else:
             self.lockbar.hide()
@@ -655,7 +732,21 @@ class WorkbenchWindow(QMainWindow):
             if handler:
                 handler()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # On 1366x768-class screens the log would take a fifth of the page;
+        # start folded there (once) so the run verdict and start button fit.
+        if not getattr(self, "_dock_sized", False):
+            self._dock_sized = True
+            if self.height() < 800 and not self.dock.collapsed:
+                self.dock.toggle_fold()
+
     def closeEvent(self, event):
+        from .action_feedback import cancel_pending
+        cancel_pending(self)
+        for page in self.pages.values():cancel_pending(page)
+        if not self.pages["recipes"]._resolve_dirty():
+            event.ignore(); return
         if self.workflow and self.workflow.busy:
             self.stop()
             QMessageBox.information(self, "任务仍在处理",
@@ -670,4 +761,9 @@ class WorkbenchWindow(QMainWindow):
             self.workflow.device.close()
         self.pump.timer.stop()
         self.z_timer.stop()
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().removeEventFilter(self.chrome)
+        channel=worker.bridge(self)
+        for signal,slot in ((channel.done,self._rpc_done),(channel.fail,self._rpc_fail),(channel.progress,self._rpc_progress)):
+            signal.disconnect(slot)
         event.accept()
