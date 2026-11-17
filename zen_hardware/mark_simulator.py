@@ -68,6 +68,10 @@ class SimulatedMarkDevice(SimulatedDevice):
     def autofocus(self, timeout_seconds):
         self._require_connection()
         self.af_attempts += 1
+        if self.experiment in ("Demo Z1", "Demo Z2", "Demo Z3"):
+            index=("Demo Z1", "Demo Z2", "Demo Z3").index(self.experiment)
+            self.z=(100,160,230)[index]*1e-6 + (0.0002,0.00025,0.0001)[index]*self.xy[0] - 0.0001*self.xy[1]
+            return self.z
         if self.mark_fault == 'af_timeout':
             raise AutofocusTimeout("模拟局部 AF 超时")
         self.z = sum(self.bounds) / 2

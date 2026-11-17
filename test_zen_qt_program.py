@@ -36,7 +36,7 @@ class ProgramUiTests(unittest.TestCase):
     def test_actual_window_is_frameless_and_brand_is_lsm(self):
         self.assertTrue(self.w.windowFlags() & Qt.FramelessWindowHint)
         self.assertIn("LSM测量工作站", self.w.windowTitle())
-        self.assertEqual(self.c.tabs.count(), 2)
+        self.assertEqual(self.c.tabs.count(), 3)
         self.assertTrue(
             self.w.chrome.edges(
                 __import__("PySide6.QtCore", fromlist=["QPoint"]).QPoint(1, 1)

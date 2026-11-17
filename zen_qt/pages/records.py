@@ -246,11 +246,15 @@ class RecordsPage(QWidget):
         for title in ('上孔','下孔'):
             col=QWidget();cl=vbox(col,margins=0);cl.addWidget(label(title,role='muted'));view=label('选择一条含图像的记录');view.setMinimumSize(160,120);view.setAlignment(Qt.AlignCenter);cl.addWidget(view);il.addWidget(col);self.image_labels.append(view)
         self.evidence_tabs.addTab(image_page,'上下孔图像')
+        from .height_view import HeightView
+        self.height_view=HeightView()
+        self.evidence_tabs.addTab(self.height_view,'多面高度 · 数据')
         self.evidence_text={}
         for key,title in [('sequence.json','原始记录 · 执行'),('snapshot.json','原始记录 · 配方快照'),('command_log.json','原始记录 · 动作与诊断')]:
             text=QPlainTextEdit();text.setReadOnly(True);self.evidence_text[key]=text;self.evidence_tabs.addTab(text,title)
         lay.addWidget(self.evidence_tabs)
         self.evidence_tabs.setMaximumHeight(240)
+        self.evidence_tabs.currentChanged.connect(lambda _:self.evidence_tabs.setMaximumHeight(360 if self.evidence_tabs.currentWidget() is self.height_view else 240))
         self.reload()
 
     # ---- data ----
@@ -345,6 +349,11 @@ class RecordsPage(QWidget):
         self.detail_title.setText(KIND_NAMES.get(run["kind"], run["kind"]))
         recipe, result, session = run["recipe"], run["result"], run["session"]
         sequence = run.get("sequence", {})
+        self.height_view.update_report(sequence)
+        if getattr(self,"_height_run_id",None)!=run["run_id"]:
+            self._height_run_id=run["run_id"]
+            if sequence.get("height_scans") and not sequence.get("images"):
+                self.evidence_tabs.setCurrentWidget(self.height_view)
         identity = sequence.get("recipe_identity", {})
         kind, headline = run_verdict(run)
         bg, ink = VERDICT_COLORS[kind]
@@ -384,8 +393,13 @@ class RecordsPage(QWidget):
             lines.append("图像内容 / 清晰度 / 标定需另行核验，不等同于对位分析通过。")
         elif run["kind"] == "sequence":
             done = completed_pairs(sequence)
-            lines.append(f"图像：{run['n_images']} 张 · 孔位采图完成 {done} 组")
-            lines.append("自动任务完成不等于 SOMA 对位分析通过。")
+            if run['n_images'] or not sequence.get("height_scans"):
+                lines.append(f"图像：{run['n_images']} 张 · 孔位采图完成 {done} 组")
+            if sequence.get("height_scans"):
+                scans=list(sequence["height_scans"].values())
+                points=sum(sum(r.get("status")=="complete" for r in scan.get("rows",[])) for scan in scans)
+                lines.append(f"多面高度：{len(scans)} 个扫描，{points} 个完整点；单位 µm，差值未扣物料厚度。")
+            if run["n_images"]:lines.append("自动任务完成不等于 SOMA 对位分析通过。")
         elif run["n_images"]:
             lines.append(f"图像：{run['n_images']} 张")
         if recipe.get("point_order"):

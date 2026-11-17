@@ -320,3 +320,113 @@ class ProgramTests(unittest.TestCase):
         self.assertEqual(report["state"], "failed")
         self.assertIn("已被修改", report["error"]["message"])
         self.assertEqual(self.d.z_moves, [])
+
+class PredictiveProgramTests(unittest.TestCase):
+    setUp = ProgramTests.setUp
+    execute = ProgramTests.execute
+    # Reuse the deterministic device fixture, not the inherited test cases.
+    def predictive_body(self):
+        from zen_scan_path import generate_path
+        points = generate_path(0,0,3000,3000,rows=4,columns=5)
+        step = make_step('measure_angle', experiment='Demo AF', points_um=points,z_um=100,
+            predict_plane=True,prescan_indices=[0,4,15,19],prescan_half_um=30,
+            half_um=10,prescan_timeout_s=20,timeout_s=5,max_prediction_residual_um=.5)
+        return body([step])
+
+    def test_twenty_points_four_first_no_duplicate_af_and_model_separate(self):
+        b = self.predictive_body()
+        r = self.execute(b)
+        self.assertEqual(r['state'],'complete',r.get('error'))
+        points = r['measurements']
+        self.assertEqual([p['index'] for p in points[:4]],[1,5,16,20])
+        self.assertEqual(len({p['index'] for p in points}),20)
+        self.assertEqual(self.d.af_attempts,20)
+        self.assertEqual([p['phase'] for p in points[:4]],['prescan']*4)
+        self.assertTrue(all(p['af_half_um']==10 and p['af_timeout_s']==5 for p in points[4:]))
+        self.assertTrue(all(p['af_half_um']==30 and p['af_timeout_s']==20 for p in points[:4]))
+        self.assertTrue(all(abs(p['prediction_error_um'])<1e-6 for p in points[4:]))
+        self.assertIn('prediction_models',r)
+        self.assertEqual(len(r['result']['residuals_m']),20)
+        self.assertEqual(len(json.loads((self.w.sequence_run_path/'sequence.json').read_text(encoding='utf-8'))['measurements']),20)
+
+    def test_final_result_uses_actual_fine_z_without_updating_prediction(self):
+        original=self.d.autofocus
+        def biased(timeout):
+            original(timeout)
+            if self.d.af_attempts == 5: self.d.z += 2e-6
+            return self.d.z
+        self.d.autofocus=biased
+        r=self.execute(self.predictive_body())
+        self.assertEqual(r['state'],'complete',r.get('error'))
+        self.assertAlmostEqual(r['measurements'][4]['prediction_error_um'],2)
+        self.assertAlmostEqual(r['measurements'][5]['prediction_error_um'],0)
+        self.assertGreater(r['result']['rms_m'],0)
+
+    def test_bad_four_point_residual_blocks_fine_scan(self):
+        original = self.d.autofocus
+        def warped(timeout):
+            z = original(timeout)
+            if self.d.af_attempts == 4:
+                self.d.z += 4e-6
+            return self.d.z
+        self.d.autofocus = warped
+        r = self.execute(self.predictive_body())
+        self.assertEqual(r['state'],'failed')
+        self.assertEqual(self.d.af_attempts,4)
+        self.assertEqual(len(r['measurements']),4)
+        self.assertIsNone(r.get('result'))
+
+    def test_prescan_failure_never_enters_fine_or_retries(self):
+        from zen_hardware import AutofocusTimeout
+        original = self.d.autofocus
+        def fail(timeout):
+            if self.d.af_attempts == 1: raise AutofocusTimeout('unknown AF state')
+            return original(timeout)
+        self.d.autofocus = fail
+        r = self.execute(self.predictive_body())
+        self.assertEqual(r['state'],'failed')
+        self.assertEqual(len(r['measurements']),1)
+        self.assertNotIn('prediction_models',r)
+
+    def test_fine_failure_preserves_four_points_and_stops_without_retry(self):
+        from zen_hardware import AutofocusTimeout
+        original = self.d.autofocus
+        def fail(timeout):
+            if self.d.af_attempts == 4: raise AutofocusTimeout('fine timeout')
+            return original(timeout)
+        self.d.autofocus = fail
+        r = self.execute(self.predictive_body())
+        self.assertEqual(r['state'],'failed')
+        self.assertEqual(self.d.af_attempts,4)
+        self.assertEqual(len(r['measurements']),4)
+        self.assertIn('prediction_models',r)
+
+    def test_predicted_search_interval_outside_limits_blocks_fine_movement(self):
+        b = self.predictive_body()
+        # Four low-X points define the plane; a remaining distant point extrapolates above limit.
+        p=b['program_steps'][0]['params']
+        p['points_um']=[[0,0],[1000,0],[0,1000],[1000,1000],[200000,0]]
+        p['prescan_indices']=[0,1,2,3]
+        r=self.execute(b)
+        self.assertEqual(r['state'],'failed')
+        self.assertEqual(self.d.af_attempts,4)
+        self.assertEqual(len(self.d.moves),4)
+        self.assertNotIn('result',r)
+
+    def test_stop_after_prescan_does_not_visit_fine_points(self):
+        original = self.d.autofocus
+        def stop(timeout):
+            result=original(timeout)
+            if self.d.af_attempts == 4: self.w.stop()
+            return result
+        self.d.autofocus=stop
+        r=self.execute(self.predictive_body())
+        self.assertEqual(r['state'],'stopped')
+        self.assertEqual(self.d.af_attempts,4)
+        self.assertEqual(len(self.d.moves),4)
+
+    def test_invalid_selected_points_rejected_before_any_motion(self):
+        for indices in ([0,1,2,3], [0,4,15], [0,4,15,99], [0,4,15,15]):
+            b=self.predictive_body();b['program_steps'][0]['params']['prescan_indices']=indices
+            with self.subTest(indices=indices), self.assertRaises(ValueError): validate_program(b)
+        self.assertEqual(self.d.moves,[])

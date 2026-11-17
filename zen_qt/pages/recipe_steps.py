@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 import json
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QTabWidget,
@@ -20,6 +20,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QFrame,
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QGridLayout,
+    QLineEdit,
 )
 from .recipes import RecipesPage as VersionPage
 from .recipe_tools import RecipeTools
@@ -316,6 +321,17 @@ class RecipesPage(RecipeTools, VersionPage):
         if not self._selected_step_id:
             self.step_tree.setCurrentItem(common)
 
+    def queue_params_refresh(self):
+        # Never delete a sender while Qt is still emitting its value-change signal.
+        stamp=(id(self._body),self.current_id,self.current_rev,self._selected_step_id)
+        token=object();self._params_refresh_token=token
+        def refresh():
+            if (getattr(self,"_params_refresh_token",None) is token
+                and stamp==(id(self._body),self.current_id,self.current_rev,self._selected_step_id)):
+                self._params_refresh_token=None
+                self.refresh_params()
+        QTimer.singleShot(0,self,refresh)
+
     def refresh_params(self):
         self._loading = True
         self.param_edits = {}
@@ -362,7 +378,30 @@ class RecipesPage(RecipeTools, VersionPage):
             self.form.addRow("步骤编号", label(n["step_id"], role="muted"))
             self._entry("步骤名称", n, "label")
             for key, title, typ, default in CATALOG[kind][2]:
+                if kind == "measure_heights" and p.get("xy_mode", "motorized") == "current" and key in ("prescan_half_um", "prescan_timeout_s", "max_prediction_residual_um"):
+                    continue
+                if kind == "measure_heights" and key in ("prescan_timeout_s", "timeout_s", "max_prediction_residual_um") and not getattr(self,"_height_advanced",False):
+                    continue
+                if kind == "measure_heights" and key == "points_um":
+                    advanced=QCheckBox("更多 AF 设置（超时、拟合残差）")
+                    advanced.setChecked(getattr(self,"_height_advanced",False))
+                    advanced.toggled.connect(lambda checked:(setattr(self,"_height_advanced",checked),self.queue_params_refresh()))
+                    self.form.addRow(advanced)
+                    self.form.addRow(label(f"共用超时：预扫描 {p.get('prescan_timeout_s',60)} s / 精扫描 {p.get('timeout_s',30)} s；残差上限 {p.get('max_prediction_residual_um',2)} µm",wrap=True,role="muted"))
+                if typ in ("surface_count", "height_mode"):
+                    control = QComboBox()
+                    choices = [("两面",2),("三面",3)] if typ == "surface_count" else [("XY 路径 · 四点预测","motorized"),("固定当前位置 · 单点（不预测）","current")]
+                    for text,value in choices:control.addItem(text,value)
+                    control.setCurrentIndex(max(0,control.findData(p.get(key,default))))
+                    control.setEnabled(not self._read_only())
+                    control.currentIndexChanged.connect(lambda _,c=control,k=key: (self._set(p,k,c.currentData()),self.queue_params_refresh()))
+                    self.form.addRow(title,control)
+                    continue
+                if typ == "height_faces":
+                    self.height_faces_editor(n)
+                    continue
                 if typ == "points":
+                    if kind == "measure_heights" and p.get("xy_mode")=="current":continue
                     self.points_editor(n, key)
                     continue
                 if typ == "bool":
@@ -370,6 +409,8 @@ class RecipesPage(RecipeTools, VersionPage):
                     c.setChecked(bool(p.get(key, default)))
                     c.setEnabled(not self._read_only())
                     c.toggled.connect(lambda v, k=key: self._set(p, k, v))
+                    if key == "predict_plane":
+                        c.toggled.connect(lambda _: self.queue_params_refresh())
                     self.form.addRow(c)
                 elif typ == "capture":
                     c = QComboBox()
@@ -387,10 +428,13 @@ class RecipesPage(RecipeTools, VersionPage):
                     e = self._entry(title, p, key, default)
                     if typ in ("number", "optional"):
                         e.setPlaceholderText("数字，或引用 @步骤编号.z_um")
+            if kind == "measure_heights":
+                self.form.addRow(label("逐点 Z1→Z2→Z3，各面独立四点预测；只输出实测高度与差值，不扣物料厚度。固定点不调用 XY 运动，无 XY 时不读取 XY。正常完成返回公共安全 Z，异常或停止不自动返回。",wrap=True))
             if kind == "measure_angle":
+                self.form.addRow(QPushButton("读取当前 Z 为初始搜索中心（只读）", clicked=self.teach_initial_z))
                 self.form.addRow(
                     label(
-                        "高度来源：多点 AF 获取 Z。运行中心显示扫描路径和实测 Z 散点。",
+                        "填写 ZEN 中已保存的实验名称，不引用独立测角测试 Recipe。预测模式：先测勾选的四点，再按固定预测平面测剩余点；四点使用初始 Z，精扫描忽略表中预期 Z。预测值不参与最终测角，未标记点使用精扫描范围。四点应分布在区域四周；超时不自动重试。",
                         wrap=True,
                     )
                 )
@@ -431,16 +475,83 @@ class RecipesPage(RecipeTools, VersionPage):
         self.tests.setPlainText(self.describe_validation(v))
         self._loading = False
 
+    def height_faces_editor(self, node):
+        from zen_heights import default_surfaces, AF_DEFAULTS
+        p=node["params"];faces=p.setdefault("surfaces",default_surfaces())
+        self.height_z_edits={}
+        table=QTableWidget(p.get("surface_count",3),5)
+        table.setHorizontalHeaderLabels(["面","ZEN 实验名称","初始 Z · µm","示教","独立 AF"])
+        table.verticalHeader().setVisible(False)
+        table.setMinimumHeight(180 if p.get("surface_count",3)==3 else 140)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        header=table.horizontalHeader();header.setSectionResizeMode(1,QHeaderView.Stretch)
+        for col,width in ((0,40),(2,100),(3,65),(4,70)):
+            header.setSectionResizeMode(col,QHeaderView.Fixed);table.setColumnWidth(col,width)
+        for index,face in enumerate(faces[:p.get("surface_count",3)]):
+            table.setRowHeight(index,44)
+            table.setItem(index,0,QTableWidgetItem(f"Z{index+1}"))
+            for col,key in ((1,"experiment"),(2,"z_um")):
+                edit=QLineEdit(str(face.get(key,"")));edit.setEnabled(not self._read_only())
+                edit.setPlaceholderText("ZEN 名称" if col==1 else "只读示教 / 输入")
+                edit.textChanged.connect(lambda value,f=face,k=key:self._set(f,k,value))
+                table.setCellWidget(index,col,edit)
+                if key=="z_um":self.height_z_edits[index]=edit
+            button=QPushButton("读取",clicked=lambda checked=False,i=index:self.teach_height_z(i))
+            button.setToolTip("只读取当前 Z，不运动、不读 XY")
+            button.setEnabled(not self._read_only());table.setCellWidget(index,3,button)
+            override=QCheckBox("独立");override.setObjectName(f"height_override_{index}")
+            override.setToolTip("展开本面的独立 AF 参数；未勾选时使用共用参数")
+            override.setChecked(bool(face.get("override")));override.setEnabled(not self._read_only())
+            override.toggled.connect(lambda value,f=face:self.set_height_override(p,f,value))
+            table.setCellWidget(index,4,override)
+        self.form.addRow(table)
+        for index,face in enumerate(faces[:p.get("surface_count",3)]):
+            if face.get("override"):
+                self.form.addRow(label(f"Z{index+1} 独立 AF 参数",role="h3"))
+                for key,default in AF_DEFAULTS.items():
+                    if p.get("xy_mode")=="current" and key.startswith("prescan"):continue
+                    titles={"prescan_half_um":"预扫描 AF 半范围 · µm","prescan_timeout_s":"预扫描超时 · s","half_um":"精扫描 / 单点 AF 半范围 · µm","timeout_s":"精扫描 / 单点超时 · s"}
+                    self._entry(titles[key],face,key,p.get(key,default))
+
+    def set_height_override(self,params,face,enabled):
+        from zen_heights import AF_DEFAULTS
+        if self._read_only():return
+        if enabled:
+            for key,default in AF_DEFAULTS.items():face.setdefault(key,params.get(key,default))
+        self._set(face,"override",enabled);self.queue_params_refresh()
+
+    def teach_height_z(self, index):
+        node=self._find_step(self._selected_step_id);w=self.app.workflow
+        if not node or node["kind"]!="measure_heights" or self._read_only():return
+        if not w or w.busy:
+            self.validation_hint.setText("请先连接设备并等待读取/任务结束，再点击示教；未发送运动。")
+            return
+        stamp=(self.current_id,self.current_rev,node["step_id"],index,json.dumps(node["params"],sort_keys=True))
+        generation=getattr(w,"action_generation",0)
+        w.read_only("heights_teach",lambda d:dict(target=stamp,device=id(d),generation=generation,z=d.read_z()))
+
     def points_editor(self, node, key):
         p = node["params"]
         rows = p.get(key, [])
-        table = QTableWidget(len(rows), 3)
-        table.setHorizontalHeaderLabels(["X · µm", "Y · µm", "预期 Z（可空）· µm"])
+        angle = node["kind"] in ("measure_angle", "measure_heights")
+        table = QTableWidget(len(rows), 4 if angle else 3)
+        table.setHorizontalHeaderLabels(["X · µm", "Y · µm", "固定模式预期 Z（可空）· µm"] + (["预扫描点"] if angle else []))
+        if node["kind"] == "measure_heights":table.setColumnHidden(2,True)
         table.setMinimumHeight(180)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for r, row in enumerate(rows):
             for c, value in enumerate(row):
-                table.setItem(r, c, QTableWidgetItem(str(value)))
+                item = QTableWidgetItem(str(value))
+                if c == 2 and angle and p.get("predict_plane"):
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    item.setToolTip("预测模式不使用此值；预扫描使用初始 Z，精扫描由四点平面计算")
+                table.setItem(r, c, item)
+        if angle:
+            for r in range(len(rows)):
+                check = QTableWidgetItem()
+                check.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+                check.setCheckState(Qt.Checked if r in p.get("prescan_indices", []) else Qt.Unchecked)
+                table.setItem(r, 3, check)
         table.setEnabled(not self._read_only())
         self.point_table = table
         self._points_target = (node["step_id"], key)
@@ -450,6 +561,9 @@ class RecipesPage(RecipeTools, VersionPage):
                 [table.item(r, c).text() if table.item(r, c) else "" for c in range(3)]
                 for r in range(table.rowCount())
             ]
+            if angle:
+                p["prescan_indices"] = [r for r in range(table.rowCount())
+                    if table.item(r,3) and table.item(r,3).checkState() == Qt.Checked]
             self.mark_dirty()
 
         table.itemChanged.connect(lambda *_: sync())
@@ -459,6 +573,11 @@ class RecipesPage(RecipeTools, VersionPage):
 
         def add():
             table.insertRow(table.rowCount())
+            if angle:
+                item = QTableWidgetItem()
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
+                table.setItem(table.rowCount()-1, 3, item)
             sync()
 
         def delete():
@@ -471,6 +590,80 @@ class RecipesPage(RecipeTools, VersionPage):
         bl.addWidget(QPushButton("读取当前 XY/Z", clicked=self.teach_tilt))
         buttons.setEnabled(not self._read_only())
         self.form.addRow(buttons)
+        tools = QWidget(); layout = QGridLayout(tools); layout.setContentsMargins(0,0,0,0)
+        layout.addWidget(QPushButton("批量生成路径…", clicked=lambda: self.generate_points(node,key)),0,0)
+        layout.addWidget(QPushButton("从 Excel 粘贴…", clicked=lambda: self.paste_points(node,key)),0,1)
+        csv_button = QPushButton("CSV…")
+        csv_menu = QMenu(csv_button)
+        csv_menu.addAction("导入 CSV（µm）…", lambda: self.import_points(node,key))
+        csv_menu.addAction("导出 CSV（µm）…", lambda: self.export_points(node,key))
+        csv_button.setMenu(csv_menu); layout.addWidget(csv_button,1,0)
+        if angle:
+            layout.addWidget(QPushButton("选择四角预扫描点", clicked=lambda: self.select_corners(node,key)),1,1)
+        tools.setEnabled(not self._read_only()); self.form.addRow(tools)
+
+    def replace_points(self, node, key, points, append=False):
+        if self._read_only() or self._find_step(node["step_id"]) is not node:
+            raise ValueError("配方已变化或当前版本只读，未应用路径")
+        from zen_scan_path import parse_points
+        combined = (node["params"].get(key, []) if append else []) + points
+        # Validate combined rows, including duplicates at append boundaries.
+        checked = parse_points("\n".join("\t".join(str(v) for v in row) for row in combined))
+        node["params"][key] = checked
+        node["params"]["prescan_indices"] = []
+        self.mark_dirty(); self.refresh_params()
+        self.validation_hint.setText("路径已应用到草稿，未移动设备；请重新选择预扫描点、保存并检查配方。")
+
+    def generate_points(self, node, key):
+        if self._read_only(): return
+        from .path_tools import PathDialog
+        self.path_dialog = PathDialog(self)
+        if self.path_dialog.exec() == QDialog.Accepted:
+            try:
+                self.replace_points(node,key,self.path_dialog.points,self.path_dialog.apply_mode.currentIndex()==1)
+            except ValueError as e:
+                self.validation_hint.setText(str(e))
+
+    def import_points(self, node, key):
+        if self._read_only(): return
+        file, _ = QFileDialog.getOpenFileName(self,"导入设备绝对坐标 CSV · µm","","CSV (*.csv)")
+        if file:
+            try:
+                from pathlib import Path
+                self.paste_points(node,key,Path(file).read_text(encoding="utf-8-sig"))
+            except (OSError,UnicodeError) as e: self.validation_hint.setText("导入失败："+str(e))
+
+    def export_points(self, node, key):
+        from zen_scan_path import parse_points
+        try:
+            points = parse_points("\n".join("\t".join(str(v) for v in row) for row in node["params"].get(key,[])))
+            file, _ = QFileDialog.getSaveFileName(self,"导出设备绝对坐标 CSV · µm","scan_path_um.csv","CSV (*.csv)")
+            if file:
+                from pathlib import Path
+                Path(file).write_text("X_um,Y_um,Z_um\n"+"\n".join(",".join(str(v) for v in row) for row in points),encoding="utf-8-sig")
+        except (ValueError,OSError) as e: self.validation_hint.setText("导出失败："+str(e))
+
+    def paste_points(self, node, key, text=None):
+        if self._read_only(): return
+        from zen_scan_path import parse_points
+        text, ok = QInputDialog.getMultiLineText(self,"粘贴点位 · µm","粘贴 Excel 两列 X/Y 或三列 X/Y/Z（无表头）。应用后替换当前路径，清除预扫描选择。",QApplication.clipboard().text() if text is None else text)
+        if ok:
+            try: self.replace_points(node,key,parse_points(text))
+            except ValueError as e: self.validation_hint.setText("粘贴未应用："+str(e))
+
+    def select_corners(self, node, key):
+        if self._read_only(): return
+        try:
+            rows = node["params"][key]
+            xs,ys=zip(*[(float(r[0]),float(r[1])) for r in rows])
+            targets=[(x,y) for y in (min(ys),max(ys)) for x in (min(xs),max(xs))]
+            indices=[next(i for i,r in enumerate(rows) if (float(r[0]),float(r[1]))==target) for target in targets]
+            from zen_scan_path import validate_prescan
+            validate_prescan(rows,indices)
+            node["params"]["prescan_indices"] = sorted(indices)
+            self.mark_dirty(); self.refresh_params()
+        except (ValueError,StopIteration):
+            self.validation_hint.setText("路径没有四个矩形角点，请手动勾选四个分布合适的点。")
 
     def _collect_body(self):
         return deepcopy(self._body)
@@ -682,6 +875,17 @@ class RecipesPage(RecipeTools, VersionPage):
         self._dirty = False
         self.refresh()
 
+    def teach_initial_z(self):
+        w = self.app.workflow
+        node = self._find_step(self._selected_step_id)
+        if self._read_only() or not node or node["kind"] != "measure_angle": return
+        if not w or w.busy:
+            self.validation_hint.setText("请连接设备并等待读取/任务结束后重新点击；未下发运动。")
+            return
+        token = (self.current_id,self.current_rev,node["step_id"],json.dumps(node["params"],sort_keys=True))
+        generation = getattr(w,"action_generation",0)
+        w.read_only("prediction_initial_z",lambda d:dict(target=token,device=id(d),generation=generation,z=d.read_z()))
+
     def teach(self):
         w = self.app.workflow
         n = self._find_step(self._selected_step_id)
@@ -724,7 +928,41 @@ class RecipesPage(RecipeTools, VersionPage):
             lambda d: {"target": token, "xy": d.read_xy(), "z": d.read_z()},
         )
 
+    def on_rpc_error(self, tag, error):
+        if tag == "path_endpoint":
+            dialog = getattr(self, "path_dialog", None)
+            if dialog and dialog.isVisible(): dialog.notice.setText("只读示教失败："+str(error))
+        elif tag in ("prediction_initial_z", "heights_teach"):
+            self.validation_hint.setText("初始 Z 读取失败："+str(error))
+        else:
+            super().on_rpc_error(tag, error)
+
     def on_rpc_result(self, tag, value):
+        if tag == "heights_teach":
+            rid,rev,sid,index,params=value["target"];node=self._find_step(sid);w=self.app.workflow
+            if (not w or id(w.device)!=value["device"] or getattr(w,"action_generation",0)!=value["generation"]
+                or (rid,rev)!=(self.current_id,self.current_rev) or not node or self._read_only()
+                or json.dumps(node["params"],sort_keys=True)!=params):return
+            try:
+                node["params"]["surfaces"][index]["z_um"]=numeric(value["z"]*1e6,"初始 Z",allow_ref=False)
+                self.mark_dirty();self.refresh_params()
+            except ValueError as error:self.validation_hint.setText(str(error))
+            return
+        if tag == "prediction_initial_z":
+            rid,rev,sid,params = value["target"]
+            w = self.app.workflow; node = self._find_step(sid)
+            if (not w or id(w.device) != value["device"] or getattr(w,"action_generation",0) != value["generation"]
+                or (rid,rev) != (self.current_id,self.current_rev) or self._read_only() or not node
+                or json.dumps(node["params"],sort_keys=True) != params): return
+            try:
+                node["params"]["z_um"] = numeric(value["z"]*1e6,"初始 Z",allow_ref=False)
+                self.mark_dirty(); self.refresh_params()
+            except ValueError as e: self.validation_hint.setText(str(e))
+            return
+        if tag == "path_endpoint":
+            dialog = getattr(self, "path_dialog", None)
+            if dialog: dialog.on_result(value)
+            return
         if tag == "program_teach":
             rid, rev, sid, previous = value["target"]
             n = self._find_step(sid)
