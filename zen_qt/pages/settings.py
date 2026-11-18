@@ -112,7 +112,7 @@ class SettingsPage(QWidget):
         about = Card("软件信息")
         about.add(
             label(
-                "LSM测量工作站 · 2.11.0\n统一配方、工程试运行与任务追溯。",
+                "LSM测量工作站 · 2.12.0\n统一配方、工程试运行与任务追溯。",
                 wrap=True,
             )
         )
