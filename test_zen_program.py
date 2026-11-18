@@ -142,6 +142,11 @@ class ProgramTests(unittest.TestCase):
         meta = json.loads((folder / "stack.json").read_text(encoding="utf-8"))
         self.assertEqual(meta["axes"], "ZYX")
         self.assertEqual(len(list(folder.glob("*.tif"))), 3)
+        from zen_stack_data import load_stack
+        stack = load_stack(folder / "stack.xml")
+        self.assertEqual(list(stack.z_um.round()), [100, 101, 102])
+        self.assertEqual(stack.z_source, "simulation")
+        self.assertEqual(stack.pixels.shape[0], 3)
         self.assertEqual(
             [round(n["z_m"] * 1e6) for n in meta["planes"]], [100, 101, 102]
         )

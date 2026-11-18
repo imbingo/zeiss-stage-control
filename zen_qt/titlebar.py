@@ -89,7 +89,7 @@ def build_titlebar(window):
     title = QLabel("LSM测量工作站")
     title.setObjectName("brand")
     layout.addWidget(title)
-    version = QLabel("2.11.0")
+    version = QLabel("2.12.0")
     version.setObjectName("muted")
     layout.addWidget(version)
     window.conn_chip = StatusText("未连接")

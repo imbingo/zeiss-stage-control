@@ -584,6 +584,15 @@ def execute_program(w, plan, output, session, preflight):
                     metadata.append(
                         {"index": index, "z_m": frame.xyz_m[2], "path": file.name}
                     )
+                from zen_stack_data import write_stack_xml
+                write_stack_xml(
+                    folder / "stack.xml",
+                    [{"file": item["path"], "z_um": item["z_m"] * 1e6} for item in metadata],
+                    width=geometry.width, height=geometry.height,
+                    scale_x_um=geometry.scale_x_m * 1e6,
+                    scale_y_um=geometry.scale_y_m * 1e6,
+                    z_source="simulation" if w.simulated else "api_frame_stage_position_z",
+                )
                 write_json(
                     folder / "stack.json",
                     {"axes": "ZYX", "planes": metadata, "complete": True},
