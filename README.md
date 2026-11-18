@@ -145,3 +145,5 @@ SNAP 用相机；共聚焦/Z-stack 用 RunExperiment，遵循 ZEN 中当前实�
 可复用的库入口：`zen_hardware.library.HardwareTestSession`（日志、校验、串行与恢复记录）和 `HardwareLibrary`（设备操作适配）；Tk 界面只调用 Workflow 派发，不直接调用 gRPC。新增设备可实现 `connect_transport`、`close`、`call_hardware_operation`；真实 Gateway 的接口实现位于 `zen_hardware/controls.py`。
 
 - [Z-stack 图像与逐层 Z 接入](docs/zstack-data/README.md)
+
+- [Z-stack 高度图生成与算法来源](docs/height-map/README.md)

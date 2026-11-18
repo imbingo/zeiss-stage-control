@@ -61,6 +61,35 @@ class StackDialogTests(unittest.TestCase):
         self.assertFalse(self.d.export_button.isEnabled())
         self.assertIn("失败", self.d.status.text())
 
+    def test_height_generation_export_and_parameter_invalidation(self):
+        from test_zen_topography import fixture
+
+        stack, _ = fixture()
+        self.d.stack = stack
+        self.d.set_busy(False)
+        self.d.generate_height()
+        self.assertTrue(_wait(lambda: not self.d.busy))
+        self.assertIsNotNone(self.d.height_result, self.d.status.text())
+        self.assertIn("µrad", self.d.height_view.summary.text())
+        self.d.export_height_to(self.root / "height")
+        self.assertTrue(_wait(lambda: not self.d.busy))
+        self.assertTrue((self.root / "height" / "height_um.tif").is_file())
+        self.d.height_view.grid.setValue(4)
+        self.assertIsNone(self.d.height_result)
+        self.assertFalse(self.d.height_view.export.isEnabled())
+
+    def test_cancelled_late_height_reply_cannot_publish_result(self):
+        from test_zen_topography import fixture
+
+        self.d.stack = fixture()[0]
+        with patch.object(self.d, "launch"):
+            self.d.generate_height()
+            self.d.cancel_height()
+            self.d.done_result(self.d.tag + ":height", {"old": "result"})
+        self.assertIsNone(self.d.height_result)
+        self.assertFalse(self.d.height_view.export.isEnabled())
+        self.assertIn("取消", self.d.status.text())
+
     def test_busy_blocks_duplicate_jobs_and_close(self):
         with patch.object(self.d, "launch") as run:
             self.d.read_path(self.source)
