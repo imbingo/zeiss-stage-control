@@ -31,7 +31,7 @@ class HardwarePage(QWidget):
                           "按目录逐项调用 Gateway 接口 · 写入前要求人工确认 · 全部调用记入持久日志")
 
         self.batch_button=QPushButton('一键测试…',clicked=self.start_batch)
-        head.addWidget(QPushButton("Z-stack 数据…", clicked=self.open_stack_data))
+        head.addWidget(QPushButton("Z-stack 高度图…", clicked=self.open_stack_data))
         head.addWidget(self.batch_button)
         self.batch_report_button=QPushButton('导出一键测试报告…',clicked=self.export_batch)
         head.addWidget(self.batch_report_button)
