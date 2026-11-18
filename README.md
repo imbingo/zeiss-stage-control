@@ -141,3 +141,5 @@ SNAP 用相机；共聚焦/Z-stack 用 RunExperiment，遵循 ZEN 中当前实�
 每个会话自动生成 `hardware_logs/<会话ID>/session.jsonl` 和 `session.log`，包含操作/参数与单位标签、开始结束时间、耗时、返回值、RPC 方法/状态及客户端调用位置。验证失败也记录；控制令牌、请求认证元数据、原始实验 XML 和图像字节不写入共享日志。可复制本次结果/全部日志，或导出日志发给开发者。设备返回的名称、路径仍可能包含现场信息，分享前可自行检查。输入参数会自动记住，实验 ID、令牌及动作确认不保存。
 
 可复用的库入口：`zen_hardware.library.HardwareTestSession`（日志、校验、串行与恢复记录）和 `HardwareLibrary`（设备操作适配）；Tk 界面只调用 Workflow 派发，不直接调用 gRPC。新增设备可实现 `connect_transport`、`close`、`call_hardware_operation`；真实 Gateway 的接口实现位于 `zen_hardware/controls.py`。
+
+- [Z-stack 图像与逐层 Z 接入（开发中）](docs/zstack-data/README.md)

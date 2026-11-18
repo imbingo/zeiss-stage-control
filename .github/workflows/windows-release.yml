@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:PAYLOAD
-          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence','test_zen_audit','test_zen_recipe_store','test_zen_recipe_execution','test_zen_program','test_zen_stack_gateway','test_zen_completion','test_zen_batch_tools','test_zen_scan_path','test_zen_heights']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != suite.countTestCases() or result.testsRun == 0 or bool(result.skipped))"
+          & ./runtime/python.exe -I -B -c "import sys,unittest; sys.path.insert(0,'.'); suite=unittest.defaultTestLoader.loadTestsFromNames(['test_zen_workflow', 'test_zen_fit', 'test_zen_marks', 'test_zen_no_xy', 'test_zen_mark_gateway', 'test_zen_preferences', 'test_zen_hardware_library', 'test_zen_hardware_controls', 'test_zen_sequence','test_zen_audit','test_zen_recipe_store','test_zen_recipe_execution','test_zen_program','test_zen_stack_gateway','test_zen_completion','test_zen_batch_tools','test_zen_scan_path','test_zen_heights','test_zen_stack_data']); result=unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful() or result.testsRun != suite.countTestCases() or result.testsRun == 0 or bool(result.skipped))"
           if ($LASTEXITCODE) { throw 'Core and wire tests failed' }
       - name: GUI regression tests
         shell: pwsh
@@ -77,7 +77,7 @@ jobs:
           @'
           import sys, unittest
           sys.path.insert(0, '.')
-          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence','test_zen_qt_recipes','test_zen_qt_manual','test_zen_qt_program','test_zen_qt_hotfix','test_zen_qt_engineering','test_zen_qt_action_feedback','test_zen_qt_hmi_review','test_zen_qt_prediction','test_zen_qt_heights'])
+          suite = unittest.defaultTestLoader.loadTestsFromNames(['test_zen_qt_smoke', 'test_zen_qt_regressions', 'test_zen_qt_sequence','test_zen_qt_recipes','test_zen_qt_manual','test_zen_qt_program','test_zen_qt_hotfix','test_zen_qt_engineering','test_zen_qt_action_feedback','test_zen_qt_hmi_review','test_zen_qt_prediction','test_zen_qt_heights','test_zen_qt_stack_data'])
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(not result.wasSuccessful() or result.testsRun != suite.countTestCases() or result.testsRun == 0 or bool(result.skipped))
           '@ | Set-Content -Encoding utf8 qt-smoke-runner.py
