@@ -100,6 +100,22 @@ class StackDataTests(unittest.TestCase):
         self.assertFalse((self.root / "failed").exists())
         self.assertFalse(list(self.root.glob(".stack-*")))
 
+    def test_source_change_during_read_is_not_accepted(self):
+        import os
+
+        original = tifffile.TiffPage.asarray
+
+        def changing(page, *args, **kwargs):
+            pixels = original(page, *args, **kwargs)
+            path = self.root / "0.tif"
+            stat = path.stat()
+            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1000000000))
+            return pixels
+
+        with patch.object(tifffile.TiffPage, "asarray", changing):
+            with self.assertRaisesRegex(ValueError, "源图像发生变化"):
+                load_stack(self.path)
+
     def test_configuration_xml_and_entities_are_not_acquisition_metadata(self):
         for data in (
             b"<Experiment><StartZ>10</StartZ></Experiment>",

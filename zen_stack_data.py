@@ -90,6 +90,12 @@ def _read_planes(specs, size, scale, source, z_source, digest):
     if not np.isfinite(z).all() or not ((dz > 0).all() or (dz < 0).all()):
         raise ValueError("逐层 Z 必须严格递增或递减，不能重复或混序")
     pixels, dtype, seen, hashes, count = [], None, set(), {}, 0
+    signatures = {}
+
+    def signature(path):
+        stat = path.stat()
+        return stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino
+
     for spec in specs:
         path = Path(spec["file"])
         key = (str(path), spec["page"])
@@ -97,6 +103,7 @@ def _read_planes(specs, size, scale, source, z_source, digest):
             raise ValueError("同一图像页被重复映射")
         seen.add(key)
         if path not in hashes:
+            signatures[path] = signature(path)
             h = sha256()
             with path.open("rb") as stream:
                 for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -119,6 +126,8 @@ def _read_planes(specs, size, scale, source, z_source, digest):
                 raise ValueError("堆栈工作内存超过 512 MiB 上限")
             pixels.append(page.asarray())
         spec["sha256"] = hashes[path]
+    if any(signature(path) != initial for path, initial in signatures.items()):
+        raise ValueError("读取期间源图像发生变化，请等待保存完成后重新导入")
     return StackData(np.stack(pixels), z, *scale, specs, str(source), z_source, digest)
 
 
